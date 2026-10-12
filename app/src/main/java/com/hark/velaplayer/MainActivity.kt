@@ -486,7 +486,7 @@ class MainActivity : ThemedActivity() {
                 b.swipeRefresh.isRefreshing = false
                 updateAccessBanner()
                 refresh()
-                if (!resumeOffered) offerResume()
+                // v2.3.1: launch Resume snackbar removed (user request); Continue Watching still resumes.
             }
         }
     }
@@ -617,9 +617,17 @@ class MainActivity : ThemedActivity() {
             openPlaylist == null -> {
                 val watchedAll = watched
                 // Vault videos stay in the playlist data (unhiding brings them back) but are never listed or counted.
-                playlists.forEach { (name, all) ->
+                val plRows = playlists.map { (name, all) ->
                     val list = shownEntries(all)
-                    rows += Row.Playlist(name, list.size, totalDuration(list), coversFor(list), list.count { isUnavailable(it.uri) }, playlistProgress(list, watchedAll))
+                    Row.Playlist(name, list.size, totalDuration(list), coversFor(list), list.count { isUnavailable(it.uri) }, playlistProgress(list, watchedAll))
+                }
+                rows += when (Prefs.sp(this).getString("playlists_list_sort", "created")) {
+                    "name_asc" -> plRows.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                    "name_desc" -> plRows.sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.name })
+                    "count_desc" -> plRows.sortedByDescending { it.count }
+                    "count_asc" -> plRows.sortedBy { it.count }
+                    "newest" -> plRows.reversed()
+                    else -> plRows
                 }
             }
             else -> {
@@ -752,7 +760,7 @@ class MainActivity : ThemedActivity() {
                 Prefs.setViewMode(this, section(), now)
                 applyViewMode(animate = true)
             }
-            R.id.action_sort -> if (tab == Tab.PLAYLISTS && openPlaylist != null) playlistSortDialog() else sortDialog()
+            R.id.action_sort -> if (tab == Tab.PLAYLISTS && openPlaylist != null) playlistSortDialog() else if (tab == Tab.PLAYLISTS) playlistsListSortDialog() else sortDialog()
             R.id.l23_action_reorder -> startReorder()
             R.id.action_select -> if (reordering) toast("Tap ✓ to finish editing the order first") else startSelection(null)
             R.id.action_focus -> startActivity(Intent(this, FocusActivity::class.java))
@@ -767,6 +775,18 @@ class MainActivity : ThemedActivity() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         applyViewMode(animate = true)
+    }
+
+    /** v2.3.1: sort for the Playlists list itself (never changes the saved playlists). */
+    private fun playlistsListSortDialog() {
+        val labels = arrayOf("Oldest created first", "Newest created first", "Name A–Z", "Name Z–A", "Most videos", "Fewest videos")
+        val keys = arrayOf("created", "newest", "name_asc", "name_desc", "count_desc", "count_asc")
+        val cur = Prefs.sp(this).getString("playlists_list_sort", "created")
+        MaterialAlertDialogBuilder(this).setTitle("Sort playlists")
+            .setSingleChoiceItems(labels, keys.indexOf(cur).coerceAtLeast(0)) { d, i ->
+                Prefs.sp(this).edit().putString("playlists_list_sort", keys[i]).apply()
+                refresh(); d.dismiss()
+            }.show()
     }
 
     private fun sortDialog() {
@@ -1056,7 +1076,6 @@ class MainActivity : ThemedActivity() {
             Store.setWatched(this, row.entry.uri, !row.watched); refresh()
         }
         if (row.progress > 0f) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
-        a += Action("Hide in vault", R.drawable.vault_ic_hide) { confirmHide(listOf(row.entry)) }
         val shareable = !row.unavailable && Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
         if (shareable) a += Action("Share", R.drawable.ic_share) { share(listOf(Uri.parse(row.entry.uri))) }
         if (item != null) {
