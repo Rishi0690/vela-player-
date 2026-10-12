@@ -46,104 +46,13 @@
         android:indeterminateTint="?attr/colorPrimary"
         android:visibility="gone" />
 
-    <!-- Edge overlays: brightness / volume levels and skip feedback, kept near the screen edges (insets applied in code). -->
+    <!-- Edge overlays: double-tap skip feedback and unlock buttons, kept near the screen edges (insets applied in code). -->
     <FrameLayout
         android:id="@+id/edgeOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <LinearLayout
-            android:id="@+id/sideLeft"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="start|center_vertical"
-            android:layout_marginStart="28dp"
-            android:alpha="0"
-            android:background="@drawable/bg_pill"
-            android:gravity="center_horizontal"
-            android:minWidth="56dp"
-            android:orientation="vertical"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="14dp"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/sideLeftIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:importantForAccessibility="no"
-                app:tint="@android:color/white" />
-
-            <FrameLayout
-                android:id="@+id/sideLeftTrack"
-                android:layout_width="6dp"
-                android:layout_height="120dp"
-                android:layout_marginVertical="10dp"
-                android:background="@drawable/bg_vbar_track">
-
-                <View
-                    android:id="@+id/sideLeftFill"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_gravity="bottom"
-                    android:background="@drawable/bg_vbar_fill" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/sideLeftText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@android:color/white"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/sideRight"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end|center_vertical"
-            android:layout_marginEnd="28dp"
-            android:alpha="0"
-            android:background="@drawable/bg_pill"
-            android:gravity="center_horizontal"
-            android:minWidth="56dp"
-            android:orientation="vertical"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="14dp"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/sideRightIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:importantForAccessibility="no"
-                app:tint="@android:color/white" />
-
-            <FrameLayout
-                android:id="@+id/sideRightTrack"
-                android:layout_width="6dp"
-                android:layout_height="120dp"
-                android:layout_marginVertical="10dp"
-                android:background="@drawable/bg_vbar_track">
-
-                <View
-                    android:id="@+id/sideRightFill"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_gravity="bottom"
-                    android:background="@drawable/bg_vbar_fill" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/sideRightText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@android:color/white"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
+        <!-- v2.3: compact translucent skip chip; stays at its side (not moved to the bottom). -->
         <LinearLayout
             android:id="@+id/tapLeft"
             android:layout_width="wrap_content"
@@ -151,18 +60,19 @@
             android:layout_gravity="start|center_vertical"
             android:layout_marginStart="40dp"
             android:alpha="0"
-            android:background="@drawable/bg_pill"
-            android:gravity="center"
-            android:minWidth="92dp"
-            android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="12dp"
+            android:background="@drawable/p22_status_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="5dp"
             android:visibility="gone">
 
             <ImageView
                 android:id="@+id/tapLeftIcon"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_rewind"
                 app:tint="@android:color/white" />
@@ -171,12 +81,17 @@
                 android:id="@+id/tapLeftText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginStart="6dp"
+                android:fontFeatureSettings="tnum"
+                android:maxLines="1"
+                android:shadowColor="#99000000"
+                android:shadowDy="1"
+                android:shadowRadius="3"
                 android:textColor="@android:color/white"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:textSize="12.5sp" />
         </LinearLayout>
 
+        <!-- v2.3: compact translucent skip chip; stays at its side (not moved to the bottom). -->
         <LinearLayout
             android:id="@+id/tapRight"
             android:layout_width="wrap_content"
@@ -184,18 +99,19 @@
             android:layout_gravity="end|center_vertical"
             android:layout_marginEnd="40dp"
             android:alpha="0"
-            android:background="@drawable/bg_pill"
-            android:gravity="center"
-            android:minWidth="92dp"
-            android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="12dp"
+            android:background="@drawable/p22_status_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="5dp"
             android:visibility="gone">
 
             <ImageView
                 android:id="@+id/tapRightIcon"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_fast_forward"
                 app:tint="@android:color/white" />
@@ -204,10 +120,14 @@
                 android:id="@+id/tapRightText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginStart="6dp"
+                android:fontFeatureSettings="tnum"
+                android:maxLines="1"
+                android:shadowColor="#99000000"
+                android:shadowDy="1"
+                android:shadowRadius="3"
                 android:textColor="@android:color/white"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:textSize="12.5sp" />
         </LinearLayout>
 
         <!-- Unlock buttons on both sides (inside the inset-padded overlay so they clear notches). -->
@@ -232,81 +152,6 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <LinearLayout
-        android:id="@+id/indicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:background="@drawable/bg_indicator"
-        android:gravity="center"
-        android:minWidth="150dp"
-        android:orientation="vertical"
-        android:padding="16dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/indicatorIcon"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:importantForAccessibility="no"
-            app:tint="@android:color/white" />
-
-        <TextView
-            android:id="@+id/indicatorText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:textColor="@android:color/white"
-            android:textSize="16sp" />
-
-        <ProgressBar
-            android:id="@+id/indicatorBar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="120dp"
-            android:layout_height="6dp"
-            android:layout_marginTop="8dp"
-            android:max="100"
-            android:progressTint="?attr/colorPrimary"
-            android:visibility="gone" />
-    </LinearLayout>
-
-    <!-- v2.2: compact status chip for Shuffle / Loop / Auto-play next (position set in code: centred, a bit below the middle). -->
-    <LinearLayout
-        android:id="@+id/p22StatusChip"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:alpha="0"
-        android:background="@drawable/p22_status_bg"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="10dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="5dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/p22StatusIcon"
-            android:layout_width="15dp"
-            android:layout_height="15dp"
-            android:importantForAccessibility="no"
-            app:tint="@android:color/white" />
-
-        <TextView
-            android:id="@+id/p22StatusText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:maxLines="1"
-            android:shadowColor="#99000000"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:textColor="@android:color/white"
-            android:textSize="12.5sp" />
-    </LinearLayout>
-
     <!-- v2.2: skip feedback inside the picture-in-picture window (PiP rewind/forward buttons). -->
     <TextView
         android:id="@+id/p22PipSeek"
@@ -315,16 +160,16 @@
         android:layout_gravity="center"
         android:alpha="0"
         android:background="@drawable/p22_status_bg"
+        android:fontFeatureSettings="tnum"
         android:paddingStart="10dp"
-        android:paddingTop="4dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="4dp"
+        android:paddingTop="5dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="5dp"
         android:shadowColor="#99000000"
         android:shadowDy="1"
         android:shadowRadius="3"
         android:textColor="@android:color/white"
-        android:textSize="14sp"
-        android:textStyle="bold"
+        android:textSize="12.5sp"
         android:visibility="gone" />
 
     <FrameLayout
@@ -356,38 +201,19 @@
 
             <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnBack" style="@style/PlayerIcon" android:contentDescription="Back" android:src="@drawable/ic_arrow_back" />
 
-            <!-- v2.2: the title doubles as a discreet press-and-hold area (5 s). The thin line fills while holding. -->
-            <FrameLayout
-                android:id="@+id/p22TitleBox"
+<TextView
+                android:id="@+id/titleText"
+                android:shadowColor="#B3000000"
+                android:shadowDy="1"
+                android:shadowRadius="6"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:layout_weight="1">
-
-                <TextView
-                    android:id="@+id/titleText"
-                    android:shadowColor="#B3000000"
-                    android:shadowDy="1"
-                    android:shadowRadius="6"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingVertical="8dp"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="@android:color/white"
-                    android:textSize="16sp" />
-
-                <View
-                    android:id="@+id/p22HoldLine"
-                    android:layout_width="match_parent"
-                    android:layout_height="2dp"
-                    android:layout_gravity="bottom|start"
-                    android:layout_marginBottom="3dp"
-                    android:alpha="0"
-                    android:background="@drawable/p22_hold_line"
-                    android:importantForAccessibility="no"
-                    android:scaleX="0" />
-            </FrameLayout>
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@android:color/white"
+                android:textSize="16sp" />
 
             <ImageView
                 android:id="@+id/shuffleBadge"
@@ -496,6 +322,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/p23ButtonRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
@@ -532,6 +359,7 @@
                     app:iconTint="@android:color/white" />
 
                 <Space
+                    android:id="@+id/p23RowGap"
                     android:layout_width="0dp"
                     android:layout_height="1dp"
                     android:layout_weight="1" />
@@ -572,6 +400,63 @@
         </LinearLayout>
     </FrameLayout>
 
+
+    <!-- v2.3: the one playback message chip (brightness, volume/boost, speed, seeking, zoom, modes, notices).
+         Bottom-centre below the timeline; exact position set in code (PlaybackChip + chipPlacement). Not clickable. -->
+    <LinearLayout
+        android:id="@+id/p23Chip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:alpha="0"
+        android:background="@drawable/p22_status_bg"
+        android:gravity="center_vertical"
+        android:importantForAccessibility="yes"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingTop="5dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/p23ChipIcon"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:importantForAccessibility="no"
+            app:tint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/p23ChipText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:ellipsize="end"
+            android:fontFeatureSettings="tnum"
+            android:maxWidth="280dp"
+            android:maxLines="2"
+            android:shadowColor="#99000000"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:textColor="@android:color/white"
+            android:textSize="12.5sp" />
+
+        <FrameLayout
+            android:id="@+id/p23ChipTrack"
+            android:layout_width="44dp"
+            android:layout_height="3dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/p23_chip_track"
+            android:visibility="gone">
+
+            <View
+                android:id="@+id/p23ChipFill"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/p23_chip_fill"
+                android:scaleX="0" />
+        </FrameLayout>
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/focusPill"
@@ -617,27 +502,6 @@
             app:trackColor="#44FFFFFF"
             app:trackThickness="2.5dp" />
     </LinearLayout>
-
-    <!-- v2.1: shown while the video is pressed and held (temporary speed). -->
-    <TextView
-        android:id="@+id/tempSpeedPill"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="108dp"
-        android:background="@drawable/bg_pill"
-        android:drawableEnd="@drawable/ic_fast_forward"
-        android:drawablePadding="6dp"
-        android:drawableTint="@android:color/white"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="6dp"
-        android:textColor="@android:color/white"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/breakCard"

@@ -11,7 +11,8 @@ import org.json.JSONObject
  *    PlayerActivity intent so the player knows whether Next/Previous should follow the folder
  *    order (SOURCE_FOLDER, SOURCE_ALL, SOURCE_CONTINUE) or stay inside an intentional queue
  *    (SOURCE_PLAYLIST, SOURCE_FAVORITES, SOURCE_EXTERNAL).
- * 2. Last session: the player saves the active queue + index + position here regularly. The
+ * 2. Last session (v2.3: the queue is always saved in its own order, never in a shuffled play order; the
+ *    player's Shuffle state is stored separately as [Session.shuffleMode]): the player saves the active queue + index + position here regularly. The
  *    library reads it on launch to offer "Resume" without ever starting playback by itself.
  */
 object PlayerSession {
@@ -33,6 +34,8 @@ object PlayerSession {
         val sourceId: String?,
         val shuffled: Boolean,
         val savedAt: Long,
+        /** v2.3: the player's Shuffle (ExoPlayer shuffle order) was on. [entries] are still in the queue's own order. */
+        val shuffleMode: Boolean = false,
     ) {
         val current: Entry? get() = entries.getOrNull(index)
     }
@@ -55,6 +58,7 @@ object PlayerSession {
             .putString("sourceId", s.sourceId)
             .putBoolean("shuffled", s.shuffled)
             .putLong("savedAt", s.savedAt)
+            .putBoolean("shuffleMode", s.shuffleMode)
             .apply()
     }
 
@@ -87,6 +91,7 @@ object PlayerSession {
                 p.getString("sourceId", null),
                 p.getBoolean("shuffled", false),
                 p.getLong("savedAt", 0L),
+                p.getBoolean("shuffleMode", false),
             )
         }.getOrNull()
     }

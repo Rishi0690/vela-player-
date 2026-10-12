@@ -52,6 +52,7 @@ import android.widget.ArrayAdapter
 import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -98,8 +99,15 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_URIS = "uris"
         const val EXTRA_TITLES = "titles"
         const val EXTRA_INDEX = "index"
-        /** True when the queue was shuffled by the library (Shuffle play). Only changes the indicator. */
+        /** True when the library sent an already shuffled queue (legacy Shuffle play). Only changes the badge. Prefer [EXTRA_SHUFFLE_PLAY]. */
         const val EXTRA_SHUFFLED = "shuffled"
+        /**
+         * v2.3: "Shuffle play" without reordering anything. The queue (EXTRA_URIS) is sent in its saved order and the
+         * player turns on ExoPlayer's shuffle order for this session only (not saved as the Shuffle button setting).
+         * Turning Shuffle off in the player continues in the saved order from the current video. Without EXTRA_INDEX
+         * the first video is picked at random.
+         */
+        const val EXTRA_SHUFFLE_PLAY = "vela_shuffle_play"
         private const val FOCUS_SAVE_MS = 10_000L
         private val SPEEDS = floatArrayOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 4f)
         private const val SPEED_MIN = 0.25f
@@ -113,7 +121,6 @@ class PlayerActivity : AppCompatActivity() {
         private const val CTRL_NEXT = 4
         private const val CTRL_REWIND = 5
         private const val CTRL_FORWARD = 6
-        private const val VAULT_HOLD_MS = 5_000L
         private const val PRIVATE_TITLE = FocusTracker.PRIVATE_TITLE
         private const val VAULT_ACTIVITY = "com.hark.velaplayer.VaultActivity"
 
@@ -212,9 +219,7 @@ class PlayerActivity : AppCompatActivity() {
     private val browserAdapter = BrowserAdapter()
 
     private val hideControlsRunnable = Runnable { setControlsVisible(false) }
-    private val hideIndicatorRunnable = Runnable { b.indicator.isVisible = false }
     private val hideTapRunnable = Runnable { fadeOut(b.tapLeft); fadeOut(b.tapRight); seekFbAccum = 0L }
-    private val hideSideRunnable = Runnable { fadeOut(b.sideLeft); fadeOut(b.sideRight) }
 
     private val pipReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -270,30 +275,18 @@ class PlayerActivity : AppCompatActivity() {
     private var vaultMode = false
     /** Real names for the on-screen title when the media session only gets "Private video". */
     private val realTitles = HashMap<String, String>()
-    private val hideStatusRunnable = Runnable { hideStatusChip() }
+    /** v2.3: the one bottom-centre message chip (brightness, volume/boost, speed, seek, zoom, modes, notices). */
+    private lateinit var chip: PlaybackChip
+    /** Latest bottom inset (navigation bar / cutout) for the chip's position when the controls are hidden. */
+    private var safeBottom = 0
     private var pipSeekSide = 0
     private var pipSeekAccum = 0L
     private var pipSeekTime = 0L
     private val hidePipSeekRunnable = Runnable { fadeOut(b.p22PipSeek); pipSeekAccum = 0L }
-    // Five-second hold on the title = Hidden Vault entry.
-    private var holdActive = false
-    private var holdStartAt = 0L
-    private var holdDownX = 0f
-    private var holdDownY = 0f
-    private var lastVaultOpenAt = 0L
     /** True while the player itself opened another screen (picker, settings, vault): that is not "going to the background". */
     private var openedInAppScreen = false
-    private val holdTicker = object : Runnable {
-        override fun run() {
-            if (!holdActive) return
-            val el = SystemClock.uptimeMillis() - holdStartAt
-            if (el >= VAULT_HOLD_MS) { completeHold(); return }
-            renderHold(el)
-            handler.postDelayed(this, 16L)
-        }
-    }
     private val requestWrite = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) captureFrame() else toast("Storage permission is needed to save screenshots on this Android version")
+        if (granted) captureFrame() else notice(R.drawable.ic_info, "Storage permission is needed to save screenshots")
     }
 
     private val pickSubtitle = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -327,7 +320,8 @@ class PlayerActivity : AppCompatActivity() {
             b.browserList.setPadding(dp(8), 0, dp(8), pad)
             (b.focusPill.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(14); b.focusPill.layoutParams = it }
             (b.breakCard.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(64); b.breakCard.layoutParams = it }
-            (b.tempSpeedPill.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(108); b.tempSpeedPill.layoutParams = it }
+            safeBottom = safe.bottom
+            if (::chip.isInitialized) chip.reposition()
             (b.speedPanel.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let {
                 it.bottomMargin = safe.bottom + dp(92); b.speedPanel.layoutParams = it
             }
@@ -365,6 +359,7 @@ class PlayerActivity : AppCompatActivity() {
         b.videoLayout.mode = aspect
         b.btnAspectLabel.text = aspect.short
         applySubtitleStyle()
+        chip = PlaybackChip(b.p23Chip, b.p23ChipIcon, b.p23ChipText, b.p23ChipTrack, b.p23ChipFill) { w, h -> chipPlacement(w, h) }
         sheet = PlayerSheet(b.root) { scheduleHide(); if (fullscreen) setFullscreen(true) }
         // Soft shadows on the white icons of the text buttons too (speed, aspect ratio).
         ShadowIcon.apply(b.btnSpeed, R.drawable.ic_speed)
@@ -376,7 +371,6 @@ class PlayerActivity : AppCompatActivity() {
         setupGestures()
         setupSpeedPanel()
         setupBrowser()
-        setupVaultHold()
         if (!pipSupported()) b.btnPip.isVisible = false
         ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
 
@@ -431,7 +425,6 @@ class PlayerActivity : AppCompatActivity() {
         super.onStop()
         activityStarted = false
         updateFocusCounting()
-        cancelHold()
         if (!playerReady) return
         savePosition()
         updateSessionPosition()
@@ -465,6 +458,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onDestroy() {
         if (::focus.isInitialized && focus.active) focus.stop()
         handler.removeCallbacksAndMessages(null)
+        if (::chip.isInitialized) chip.release()
         try { unregisterReceiver(pipReceiver) } catch (_: Exception) { }
         if (playerReady) {
             savePosition()
@@ -498,6 +492,7 @@ class PlayerActivity : AppCompatActivity() {
         b.videoLayout.resetZoom(false)
         b.videoLayout.requestLayout()
         renderRotateButton()
+        chip.reposition()
     }
 
     override fun onUserLeaveHint() {
@@ -510,7 +505,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
             setControlsVisible(false)
-            b.indicator.isVisible = false
+            chip.hideNow()
             b.btnUnlock.isVisible = false
             b.btnUnlockRight.isVisible = false
             if (browserOpen) closeBrowser(false)
@@ -551,13 +546,19 @@ class PlayerActivity : AppCompatActivity() {
             intent.data?.let { entries += Entry(it.toString(), displayName(it)) }
         }
         if (entries.isEmpty()) return false
-        var index = intent.getIntExtra(EXTRA_INDEX, 0).coerceIn(0, entries.lastIndex)
+        // v2.3: shuffle play = saved order + ExoPlayer shuffle order (the queue itself is never reordered).
+        val shufflePlay = intent.getBooleanExtra(EXTRA_SHUFFLE_PLAY, false) && entries.size > 1
+        val defaultIndex = if (shufflePlay && !intent.hasExtra(EXTRA_INDEX)) entries.indices.random() else 0
+        var index = intent.getIntExtra(EXTRA_INDEX, defaultIndex).coerceIn(0, entries.lastIndex)
         if (!vaultMode) {
             // v2.2: hidden videos never ride along in an ordinary queue (the one explicitly opened still plays).
             val chosen = entries[index]
             val kept = entries.filterIndexed { i, e -> i == index || !Vault.isHidden(this, e.uri) }
             if (kept.size != entries.size) { entries.clear(); entries.addAll(kept); index = entries.indexOf(chosen).coerceAtLeast(0) }
         }
+        if (shufflePlay) b.shuffleBadge.isVisible = true
+        // The Shuffle button setting applies to every queue; shuffle play turns it on for this queue only.
+        player.shuffleModeEnabled = shufflePlay || Prefs.playerShuffle(this)
         startQueue(entries, index, autoPlay)
         // Vault queue = exactly the videos it was given; never the library order.
         if (vaultMode) return true
@@ -592,6 +593,7 @@ class PlayerActivity : AppCompatActivity() {
         if (cur > 0) player.removeMediaItems(0, cur)
         if (after.isNotEmpty()) player.addMediaItems(after)
         if (before.isNotEmpty()) player.addMediaItems(0, before)
+        resetShuffleOrder()
         updateNavButtons()
         updatePipParams()
         saveSession()
@@ -613,7 +615,9 @@ class PlayerActivity : AppCompatActivity() {
         }
         sessionFrom = from; sessionCount = entries.size
         PlayerSession.save(this, PlayerSession.Session(entries, cur - from, player.currentPosition.coerceAtLeast(0L),
-            source, sourceId, launchShuffled || player.shuffleModeEnabled, System.currentTimeMillis()))
+            // v2.3: entries are always the queue's own (saved) order. `shuffled` only says the library pre-shuffled
+            // the queue itself (legacy EXTRA_SHUFFLED); ExoPlayer's shuffle mode is stored separately.
+            source, sourceId, launchShuffled, System.currentTimeMillis(), shuffleMode = player.shuffleModeEnabled))
         lastSessionTick = SystemClock.elapsedRealtime()
     }
 
@@ -637,6 +641,7 @@ class PlayerActivity : AppCompatActivity() {
         tracksAppliedFor = null
         b.errorPanel.isVisible = false
         player.setMediaItems(entries.map { buildItem(it) }, start, startPos)
+        resetShuffleOrder()
         player.setPlaybackSpeed(Prefs.speed(this))
         applyModes()
         player.prepare()
@@ -745,7 +750,6 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             b.titleText.text = if (mediaItem == null) "" else titleOf(mediaItem)
-            cancelHold()
             if (::focus.isInitialized) focus.setVideo(mediaItem?.mediaId, if (vaultMode) PRIVATE_TITLE else mediaItem?.mediaMetadata?.title?.toString(), 0L)
             val scheme = mediaItem?.localConfiguration?.uri?.scheme
             isLocalMedia = scheme == "content" || scheme == "file"
@@ -841,7 +845,7 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
         if (skippable && player.hasNextMediaItem()) {
             val name = titleOf(player.currentMediaItem)
-            toast("Skipped \"$name\": ${msg.substringBefore('.')}")
+            notice(R.drawable.ic_skip_next, "Skipped \"$name\": ${msg.substringBefore('.')}")
             player.seekToNextMediaItem(); player.prepare(); player.play()
             return
         }
@@ -977,8 +981,9 @@ class PlayerActivity : AppCompatActivity() {
         (if (side < 0) b.tapRight else b.tapLeft).let { it.animate().cancel(); it.isVisible = false }
         text.text = when {
             secs == 0L -> if (side < 0) "At start" else "At end"
-            else -> (if (side < 0) "−" else "+") + secs + if (secs == 1L) " second" else " seconds"
+            else -> (if (side < 0) "−" else "+") + secs + "s" // v2.3: compact chip, same direction + seconds
         }
+        box.contentDescription = if (secs == 0L) text.text else (if (side < 0) "Rewound " else "Forwarded ") + secs + if (secs == 1L) " second" else " seconds"
         fadeIn(box)
         handler.postDelayed(hideTapRunnable, 900)
     }
@@ -1072,7 +1077,6 @@ class PlayerActivity : AppCompatActivity() {
             scheduleHide()
         } else {
             handler.removeCallbacks(hideControlsRunnable)
-            cancelHold()
             b.seekPreview.isVisible = false
             b.topBar.animate().translationY(-slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
             b.bottomBar.animate().translationY(slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
@@ -1081,13 +1085,14 @@ class PlayerActivity : AppCompatActivity() {
                 if (!controlsVisible) b.controls.isVisible = false
             }.start()
         }
+        if (::chip.isInitialized) chip.reposition() // v2.3: below the timeline while the controls show, small at the bottom edge otherwise
     }
 
     private fun scheduleHide() {
         handler.removeCallbacks(hideControlsRunnable)
         val sheetOpen = ::sheet.isInitialized && sheet.isOpen
         val focusOn = ::focus.isInitialized && focus.active
-        if (controlsVisible && player.isPlaying && !userSeeking && !sheetOpen && !holdActive)
+        if (controlsVisible && player.isPlaying && !userSeeking && !sheetOpen)
             handler.postDelayed(hideControlsRunnable, if (focusOn && Prefs.focusMinimal(this)) 2200 else 3500)
     }
 
@@ -1275,7 +1280,7 @@ class PlayerActivity : AppCompatActivity() {
                 scaling = true
                 endTempSpeed()
                 if (drag == Drag.SEEK) userSeeking = false
-                if (drag == Drag.BRIGHTNESS || drag == Drag.VOLUME) { handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 400) }
+                if (drag == Drag.BRIGHTNESS || drag == Drag.VOLUME) chip.hideSoon(400)
                 drag = Drag.IGNORE
                 scaleBefore = b.videoLayout.userScale
                 lastFocusX = detector.focusX; lastFocusY = detector.focusY
@@ -1286,7 +1291,7 @@ class PlayerActivity : AppCompatActivity() {
                 // Two-finger drag moves the zoomed picture; single-finger swipes stay brightness/volume/seek.
                 b.videoLayout.panBy(detector.focusX - lastFocusX, detector.focusY - lastFocusY)
                 lastFocusX = detector.focusX; lastFocusY = detector.focusY
-                showIndicator(R.drawable.ic_zoom, "Zoom ${(b.videoLayout.userScale * 100).roundToInt()}%", null)
+                showIndicator(R.drawable.ic_zoom, "Zoom ${(b.videoLayout.userScale * 100).roundToInt()}%", null, sticky = true)
                 return true
             }
             override fun onScaleEnd(detector: ScaleGestureDetector) {
@@ -1330,8 +1335,8 @@ class PlayerActivity : AppCompatActivity() {
                     val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
                     scaleGestures.onTouchEvent(cancel); gestures.onTouchEvent(cancel); cancel.recycle()
                     if (wasScaling) { if (scaleBefore < 1.05f) b.videoLayout.resetZoom(false) else b.videoLayout.setUserScale(scaleBefore) }
-                    if (drag == Drag.SEEK) { userSeeking = false; b.indicator.isVisible = false }
-                    if (drag == Drag.BRIGHTNESS || drag == Drag.VOLUME) { handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 300) }
+                    if (drag == Drag.SEEK) { userSeeking = false; chip.hide() }
+                    if (drag == Drag.BRIGHTNESS || drag == Drag.VOLUME) chip.hideSoon(300)
                     drag = Drag.IGNORE
                     scaling = true // blocks a leftover single finger from starting a swipe in this touch
                     endTempSpeed()
@@ -1395,7 +1400,7 @@ class PlayerActivity : AppCompatActivity() {
                 seekTarget = (seekStart + ((e2.x - e1.x) / w * span).toLong()).coerceIn(0L, dur)
                 val diff = (seekTarget - seekStart) / 1000
                 showIndicator(if (diff >= 0) R.drawable.ic_fast_forward else R.drawable.ic_rewind,
-                    "${Fmt.time(seekTarget)}\n${if (diff >= 0) "+" else "−"}${abs(diff)}s", null)
+                    "${Fmt.time(seekTarget)}  ·  ${if (diff >= 0) "+" else "−"}${abs(diff)}s", null, sticky = true)
                 if (controlsVisible) { b.seekBar.progress = seekTarget.toInt(); b.positionText.text = Fmt.time(seekTarget) }
             }
             Drag.BRIGHTNESS -> {
@@ -1421,7 +1426,7 @@ class PlayerActivity : AppCompatActivity() {
             userSeeking = false
         }
         when (drag) {
-            Drag.BRIGHTNESS, Drag.VOLUME -> { handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 800) }
+            Drag.BRIGHTNESS, Drag.VOLUME -> chip.hideSoon(800)
             Drag.NONE, Drag.IGNORE -> {}
             else -> hideIndicatorSoon()
         }
@@ -1450,41 +1455,14 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    /** Brightness/volume level pill, shown at the edge of the side being swiped. */
+    /**
+     * v2.3: brightness/volume level in the shared bottom chip (icon, percentage and a thin level bar).
+     * The boost range (101–200%) stays visibly different: accent-tinted, "Boost" label, and the bar shows only the
+     * extra amplification. Stays up while swiping; hidden shortly after the finger lifts.
+     */
     private fun showSideLevel(icon: Int, pct: Int, boosted: Boolean = false) {
-        handler.removeCallbacks(hideSideRunnable)
-        val left = dragSide == "left"
-        val box = if (left) b.sideLeft else b.sideRight
-        val other = if (left) b.sideRight else b.sideLeft
-        val track = if (left) b.sideLeftTrack else b.sideRightTrack
-        val fill = if (left) b.sideLeftFill else b.sideRightFill
-        val iconView = if (left) b.sideLeftIcon else b.sideRightIcon
-        val textView = if (left) b.sideLeftText else b.sideRightText
-        iconView.setImageResource(icon)
-        val accent = ThemeManager.primary(this)
-        if (boosted) {
-            // Boost range looks different on purpose: accent text/icon, the "100%" track filled faintly in accent,
-            // and the bar shows only the extra amplification (101–200%). System volume is already at its maximum.
-            textView.text = "Boost\n$pct%"
-            textView.setTextColor(accent)
-            iconView.imageTintList = android.content.res.ColorStateList.valueOf(accent)
-            track.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 0x55))
-            // The boost part of the bar is a lighter, warmer shade of the accent so 101–200% reads differently from 0–100%.
-            fill.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.blendARGB(accent, 0xFFFFC46B.toInt(), 0.45f))
-        } else {
-            fill.backgroundTintList = null
-            textView.text = "$pct%"
-            textView.setTextColor(0xFFFFFFFF.toInt())
-            iconView.imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
-            track.backgroundTintList = null
-        }
-        textView.gravity = android.view.Gravity.CENTER
-        val shown = if (boosted) pct - 100 else pct
-        val trackH = if (track.height > 0) track.height else dp(120)
-        fill.layoutParams = fill.layoutParams.apply { height = (trackH * shown.coerceIn(0, 100) / 100f).roundToInt() }
-        if (other.isVisible) { other.animate().cancel(); other.isVisible = false }
-        b.indicator.isVisible = false
-        fadeIn(box)
+        if (boosted) chip.show(icon, "Boost $pct%", level = pct - 100, accent = ThemeManager.primary(this), sticky = true)
+        else chip.show(icon, "$pct%", level = pct, sticky = true)
     }
 
     private fun currentBrightness(): Float {
@@ -1493,18 +1471,18 @@ class PlayerActivity : AppCompatActivity() {
         return try { Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f } catch (e: Exception) { 0.5f }
     }
 
-    private fun showIndicator(icon: Int, text: String, progress: Int?) {
-        handler.removeCallbacks(hideIndicatorRunnable)
-        b.indicatorIcon.setImageResource(icon)
-        b.indicatorText.text = text
-        b.indicatorBar.isVisible = progress != null
-        if (progress != null) b.indicatorBar.progress = progress
-        b.indicator.isVisible = true
+    /** v2.3: every temporary playback message goes to the shared bottom chip (no centre-screen box any more). */
+    private fun showIndicator(icon: Int, text: String, progress: Int?, sticky: Boolean = false) {
+        if (isInPipSafe()) return
+        chip.show(icon, text, level = progress, sticky = sticky)
     }
 
-    private fun hideIndicatorSoon() {
-        handler.removeCallbacks(hideIndicatorRunnable)
-        handler.postDelayed(hideIndicatorRunnable, 700)
+    private fun hideIndicatorSoon() = chip.hideSoon(700)
+
+    /** Short notice or error that used to be a toast; same chip, shown a little longer. Falls back to a toast in PiP. */
+    private fun notice(icon: Int, text: String) {
+        if (isInPipSafe() || !::chip.isInitialized) { toast(text); return }
+        chip.show(icon, text, durationMs = PlaybackChip.LONG)
     }
 
     // ------------------------------------------------------------------ seek preview
@@ -1719,8 +1697,7 @@ class PlayerActivity : AppCompatActivity() {
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                         .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
                         .build()
-                    Prefs.saveAudioLang(this, f.language)
-                    showIndicator(R.drawable.ic_audiotrack, "Audio: $title", null); hideIndicatorSoon()
+                    Prefs.saveAudioLang(this, f.language) // v2.3: no on-screen message
                 }
             }
         }
@@ -1753,17 +1730,16 @@ class PlayerActivity : AppCompatActivity() {
                 val sel = !externalActive && !textDisabled && g.isTrackSelected(i)
                 if (sel) anySelected = true
                 embedded += PlayerSheet.Option(title, sub, selected = sel) {
-                    selectSubtitle(SubOption.Embedded(g, i))
-                    showIndicator(R.drawable.ic_subtitles, "Subtitles: $title", null); hideIndicatorSoon()
+                    selectSubtitle(SubOption.Embedded(g, i)) // v2.3: no on-screen message
                 }
             }
         }
         opts += PlayerSheet.Option("Off", null, selected = !externalActive && !anySelected) {
-            selectSubtitle(SubOption.Off); showIndicator(R.drawable.ic_subtitles, "Subtitles off", null); hideIndicatorSoon()
+            selectSubtitle(SubOption.Off)
         }
         opts += embedded
         if (externalSubs != null) opts += PlayerSheet.Option(externalName ?: "Subtitle file", "Loaded from file", selected = externalActive) {
-            selectSubtitle(SubOption.External); showIndicator(R.drawable.ic_subtitles, "Subtitles: ${externalName ?: "file"}", null); hideIndicatorSoon()
+            selectSubtitle(SubOption.External)
         }
         sheet.show("Subtitles", opts, listOf(
             PlayerSheet.Action("Load file", R.drawable.ic_folder) { pickSubtitle.launch(arrayOf("*/*")) },
@@ -1823,18 +1799,17 @@ class PlayerActivity : AppCompatActivity() {
                 } catch (e: Exception) { null }
                 runOnUiThread {
                     when {
-                        result == null -> toast("Couldn't open \"$name\".")
-                        result.isEmpty() -> toast("No subtitle lines found in \"$name\". Is it a valid SRT/VTT file?")
+                        result == null -> notice(R.drawable.ic_subtitles, "Couldn't open \"$name\"")
+                        result.isEmpty() -> notice(R.drawable.ic_subtitles, "No subtitle lines found in \"$name\"")
                         else -> {
                             externalSubs = result; externalName = name; subtitleDelayMs = Prefs.subDelay(this)
-                            activateExternal()
-                            toast("Loaded ${result.size} subtitle lines")
+                            activateExternal() // v2.3: no on-screen message when subtitles change
                         }
                     }
                 }
             }
             "ass", "ssa", "ttml", "dfxp", "xml" -> sideloadSubtitle(uri, name, ext)
-            else -> toast("Unsupported subtitle format \".$ext\". Use SRT, VTT, ASS/SSA or TTML.")
+            else -> notice(R.drawable.ic_subtitles, "Unsupported subtitle format \".$ext\" (use SRT, VTT, ASS/SSA or TTML)")
         }
     }
 
@@ -1851,8 +1826,7 @@ class PlayerActivity : AppCompatActivity() {
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).build()
         player.replaceMediaItem(idx, newItem)
-        player.seekTo(idx, pos)
-        toast("Added \"$name\" as a subtitle track")
+        player.seekTo(idx, pos) // v2.3: no on-screen message when subtitles change
     }
 
     // Subtitle look: saved to settings when "Remember subtitle appearance" is on, otherwise kept for this session only.
@@ -1982,7 +1956,7 @@ class PlayerActivity : AppCompatActivity() {
             val on = !Prefs.backgroundAudio(this)
             Prefs.sp(this).edit().putBoolean("background_audio", on).apply()
             if (on) connectSession() else disconnectSession()
-            toast(if (on) "Background audio on" else "Background audio off")
+            showIndicator(R.drawable.ic_audiotrack, if (on) "Background audio on" else "Background audio off", null)
         }
         o += PlayerSheet.Option("All settings", null, icon = R.drawable.ic_tune) { startActivity(Intent(this, SettingsActivity::class.java)) }
         sheet.show("Player options", o, radio = false)
@@ -2011,10 +1985,7 @@ class PlayerActivity : AppCompatActivity() {
         focusTodayBase = FocusStore.get(this).today()
         updateFocusCounting()
         renderFocusUi()
-        if (announce) {
-            val dnd = if (Dnd.isApplied(this)) " · Do Not Disturb on" else ""
-            showIndicator(R.drawable.ic_focus, "Focus Mode on$dnd", null); hideIndicatorSoon()
-        }
+        // v2.3: no on-screen message; the Focus button turns accent-coloured and the timer pill shows the session.
     }
 
     /** Ends the session, shows the summary (if enabled), and optionally closes the player after. */
@@ -2024,7 +1995,6 @@ class PlayerActivity : AppCompatActivity() {
         renderFocusUi()
         val summary = if (id >= 0) FocusStore.get(this).sessionSummary(id) else null
         if (summary == null || summary.focusMs < 1000 || !Prefs.focusSummary(this) || isInPipSafe()) {
-            if (!thenFinish) { showIndicator(R.drawable.ic_focus, "Focus Mode off", null); hideIndicatorSoon() }
             if (thenFinish) finish()
             return
         }
@@ -2185,9 +2155,9 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun enterPip() {
-        if (!pipSupported() || Build.VERSION.SDK_INT < 26) { toast("Picture-in-picture is off or not available on this device"); return }
+        if (!pipSupported() || Build.VERSION.SDK_INT < 26) { notice(R.drawable.ic_pip, "Picture-in-picture is off or not available"); return }
         setControlsVisible(false)
-        try { pipParams()?.let { enterPictureInPictureMode(it) } } catch (e: Exception) { toast("Couldn't start picture-in-picture") }
+        try { pipParams()?.let { enterPictureInPictureMode(it) } } catch (e: Exception) { notice(R.drawable.ic_pip, "Couldn't start picture-in-picture") }
     }
 
     private fun connectSession() {
@@ -2467,6 +2437,7 @@ class PlayerActivity : AppCompatActivity() {
         b.btnShuffle.setOnClickListener { v ->
             val on = !player.shuffleModeEnabled
             player.shuffleModeEnabled = on // ExoPlayer plays a shuffled order; the queue's own order stays intact
+            if (on) resetShuffleOrder() // every other video comes after the current one, nothing is skipped
             Prefs.setPlayerShuffle(this, on)
             Motion.haptic(v)
             modeFeedback(R.drawable.ic_shuffle, if (on) "Shuffle on" else "Shuffle off")
@@ -2503,7 +2474,7 @@ class PlayerActivity : AppCompatActivity() {
         renderModes()
         updateNavButtons()
         updatePipParams()
-        showStatusChip(icon, text)
+        showIndicator(icon, text, null)
         scheduleHide()
     }
 
@@ -2514,6 +2485,21 @@ class PlayerActivity : AppCompatActivity() {
     private fun applyModes() {
         if (!playerReady) return
         player.pauseAtEndOfMediaItems = !Prefs.autoplayNext(this) && player.repeatMode == Player.REPEAT_MODE_OFF
+    }
+
+    /**
+     * v2.3: a fresh shuffle order that starts at the current video, so turning Shuffle on (or a shuffle-play launch)
+     * plays every other queued video once. Only ExoPlayer's play order changes: the queue, the saved session order
+     * and any saved playlist keep their own order. With Shuffle off this has no effect on Next/Previous.
+     */
+    private fun resetShuffleOrder() {
+        if (!playerReady) return
+        val n = player.mediaItemCount
+        if (n < 2) return
+        val cur = player.currentMediaItemIndex.coerceIn(0, n - 1)
+        val rest = (0 until n).filter { it != cur }.shuffled()
+        val order = IntArray(n).also { it[0] = cur; rest.forEachIndexed { i, v -> it[i + 1] = v } }
+        try { player.setShuffleOrder(DefaultShuffleOrder(order, System.nanoTime())) } catch (_: Exception) { }
     }
 
     private fun renderModes() {
@@ -2550,9 +2536,7 @@ class PlayerActivity : AppCompatActivity() {
         player.setPlaybackSpeed(target)
         // Show the speed the engine really uses, never just the requested one.
         val actual = player.playbackParameters.speed
-        b.tempSpeedPill.text = formatSpeed(actual).replace("x", "×")
-        b.tempSpeedPill.contentDescription = "Playing at ${formatSpeed(actual)} while held"
-        fadeIn(b.tempSpeedPill)
+        showIndicator(R.drawable.ic_fast_forward, formatSpeed(actual).replace("x", "×") + " speed", null, sticky = true)
         Motion.haptic(b.gestureLayer, long = true)
     }
 
@@ -2561,7 +2545,7 @@ class PlayerActivity : AppCompatActivity() {
         if (!tempSpeedActive) return
         tempSpeedActive = false
         if (playerReady) player.setPlaybackSpeed(tempSpeedPrev)
-        if (::b.isInitialized) fadeOut(b.tempSpeedPill)
+        if (::chip.isInitialized) chip.hideSoon(250)
     }
 
     // ------------------------------------------------------------------ v2.1: volume boost
@@ -2611,7 +2595,7 @@ class PlayerActivity : AppCompatActivity() {
         val ok = boost.set(if (pct > 0) ensureAudioSession() else player.audioSessionId, pct)
         if (!ok && pct > 0 && !boostWarned) {
             boostWarned = true
-            toast("Volume boost isn't supported for this audio on your device")
+            notice(R.drawable.ic_volume, "Volume boost isn't supported for this audio")
         }
         return ok
     }
@@ -2627,7 +2611,7 @@ class PlayerActivity : AppCompatActivity() {
                 if (setBoost(p)) {
                     dragSide = Prefs.volumeSide(this)
                     if (p > 0) showSideLevel(R.drawable.ic_volume, 100 + p, boosted = true) else showSideLevel(R.drawable.ic_volume, 100)
-                    handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 900)
+                    chip.hideSoon(900)
                     return true
                 }
             }
@@ -2640,22 +2624,22 @@ class PlayerActivity : AppCompatActivity() {
     /** Saves the current video frame (no controls or subtitles) to Pictures/VelaPlayer. */
     private fun captureFrame() {
         if (!playerReady) return
-        if (vaultMode) { toast("Frame capture is off for private videos"); return }
+        if (vaultMode) { notice(R.drawable.ic_info, "Frame capture is off for private videos"); return }
         if (Build.VERSION.SDK_INT < 29 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             requestWrite.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE); return
         }
         if (player.videoFormat?.drmInitData != null) {
-            toast("This video is protected (DRM), so Android doesn't allow capturing its frames."); return
+            notice(R.drawable.ic_info, "This video is DRM-protected, frames can't be captured"); return
         }
         val vs = player.videoSize
-        if (vs.width <= 0 || vs.height <= 0) { toast("There's no video frame to capture yet."); return }
+        if (vs.width <= 0 || vs.height <= 0) { notice(R.drawable.ic_info, "No video frame to capture yet"); return }
         var w = (vs.width * (if (vs.pixelWidthHeightRatio > 0f) vs.pixelWidthHeightRatio else 1f)).roundToInt()
         var h = vs.height
         val scale = min(1f, 3840f / maxOf(w, h))
         w = (w * scale).roundToInt().coerceAtLeast(1); h = (h * scale).roundToInt().coerceAtLeast(1)
         val bmp = try { if (b.videoLayout.textureView.isAvailable) b.videoLayout.textureView.getBitmap(w, h) else null } catch (_: Throwable) { null }
-        if (bmp == null) { toast("Couldn't capture this frame. The video may be protected or not on screen yet."); return }
+        if (bmp == null) { notice(R.drawable.ic_info, "Couldn't capture this frame"); return }
         Motion.haptic(b.gestureLayer, long = true)
         b.videoLayout.animate().cancel()
         b.videoLayout.animate().alpha(0.35f).setDuration(70).withEndAction { b.videoLayout.animate().alpha(1f).setDuration(240).start() }.start()
@@ -2665,8 +2649,9 @@ class PlayerActivity : AppCompatActivity() {
             val result = runCatching { FrameCapture.save(app, bmp, name) }
             bmp.recycle()
             runOnUiThread {
-                if (result.isSuccess) toast("Screenshot saved to Pictures/${FrameCapture.FOLDER}")
-                else toast("Couldn't save the screenshot: ${result.exceptionOrNull()?.message ?: "storage error"}")
+                if (isDestroyed) return@runOnUiThread
+                if (result.isSuccess) notice(R.drawable.ic_check_circle, "Screenshot saved to Pictures/${FrameCapture.FOLDER}")
+                else notice(R.drawable.ic_info, "Couldn't save the screenshot: ${result.exceptionOrNull()?.message ?: "storage error"}")
             }
         }.start()
     }
@@ -2684,59 +2669,43 @@ class PlayerActivity : AppCompatActivity() {
         if (::b.isInitialized) renderFocusUi()
     }
 
-    // ------------------------------------------------------------------ v2.2: status chip (Shuffle / Loop / Auto-play next)
+    // ------------------------------------------------------------------ v2.3: playback message chip position
 
     /**
-     * Small translucent chip, centred horizontally and a little below the middle. When the controls are showing it
-     * sits in the gap between the centre buttons and the bottom bar; it always stays above the subtitle area.
+     * Where the shared message chip sits (it is bottom|center_horizontal in the root, so translationY is negative).
+     * - Controls showing: below the timeline, centred on the bottom button row in its free middle gap.
+     *   If that gap is too narrow for this message (small portrait screens), it sits on the mode-row line just above
+     *   the timeline instead, clear of the Shuffle/Loop/Auto-play buttons.
+     * - Controls hidden / locked: near the bottom edge, slightly smaller, above the navigation bar / cutout.
      */
-    private fun showStatusChip(icon: Int, text: String) {
-        if (isInPipSafe()) return
-        val chip = b.p22StatusChip
-        handler.removeCallbacks(hideStatusRunnable)
-        b.p22StatusIcon.setImageResource(icon)
-        b.p22StatusText.text = text
-        chip.contentDescription = text
-        b.indicator.isVisible = false
-        val wasShown = chip.isVisible && chip.alpha > 0.05f
-        chip.isVisible = true
-        chip.post {
-            val target = statusChipOffset(chip.height)
-            chip.animate().cancel()
-            if (!wasShown) { chip.alpha = 0f; chip.translationY = target + dp(10); chip.scaleX = 0.96f; chip.scaleY = 0.96f }
-            chip.animate().alpha(1f).translationY(target).scaleX(1f).scaleY(1f)
-                .setDuration(220).setInterpolator(Motion.emphasized).start()
+    private fun chipPlacement(w: Int, h: Int): PlaybackChip.Placement {
+        val rootW = b.root.width.toFloat()
+        val rootH = b.root.height.toFloat()
+        val hidden = PlaybackChip.Placement(0f, -(safeBottom + dp(10)).toFloat(), 0.92f)
+        if (rootW <= 0f || rootH <= 0f || !controlsVisible || !b.controls.isVisible || locked) return hidden
+        val bar = b.bottomBar
+        val row = b.p23ButtonRow
+        val gap = b.p23RowGap
+        if (row.height == 0 || bar.height == 0) return hidden
+        // Layout positions only (ignores the slide-in translation of the bar), so the chip lands where the bar settles.
+        val barTop = b.controls.top + bar.top.toFloat()
+        val barLeft = b.controls.left + bar.left.toFloat()
+        val rowCy = barTop + row.top + row.height / 2f
+        val gapL = barLeft + row.left + gap.left + dp(4)
+        val gapR = barLeft + row.left + gap.right - dp(4)
+        if (gapR - gapL >= w) {
+            val cx = (rootW / 2f).coerceIn(gapL + w / 2f, gapR - w / 2f)
+            return PlaybackChip.Placement(cx - rootW / 2f, -(rootH - rowCy - h / 2f), 1f)
         }
-        chip.announceForAccessibility(text)
-        handler.postDelayed(hideStatusRunnable, 1200)
-    }
-
-    private fun hideStatusChip() {
-        val chip = b.p22StatusChip
-        if (!chip.isVisible) return
-        chip.animate().cancel()
-        chip.animate().alpha(0f).translationY(chip.translationY + dp(6)).setDuration(240)
-            .setInterpolator(Motion.emphasizedAccel).withEndAction { chip.isVisible = false }.start()
-    }
-
-    /** translationY (from the vertical centre) for the chip. */
-    private fun statusChipOffset(chipH: Int): Float {
-        val rootH = b.root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-        val centre = rootH / 2f
-        var y = rootH * 0.12f + dp(8)                        // a bit below the middle
-        if (controlsVisible && b.controls.isVisible && b.centerControls.height > 0 && b.bottomBar.height > 0) {
-            val loc = IntArray(2); val rootLoc = IntArray(2)
-            b.root.getLocationInWindow(rootLoc)
-            b.centerControls.getLocationInWindow(loc)
-            val centreBottom = loc[1] - rootLoc[1] + b.centerControls.height * b.centerControls.scaleY
-            b.bottomBar.getLocationInWindow(loc)
-            val barTop = loc[1] - rootLoc[1] - b.bottomBar.translationY + b.bottomBar.paddingTop
-            val gapMid = (centreBottom + barTop) / 2f - centre
-            y = if (barTop - centreBottom >= chipH + dp(4)) gapMid else (centreBottom - centre + chipH / 2f + dp(6))
+        val mode = b.modeRow
+        val modeCy = barTop + mode.top + mode.height / 2f
+        val limL = barLeft + bar.paddingLeft + dp(8)
+        val limR = barLeft + mode.left - dp(8)
+        if (limR - limL >= w) {
+            val cx = (rootW / 2f).coerceIn(limL + w / 2f, limR - w / 2f)
+            return PlaybackChip.Placement(cx - rootW / 2f, -(rootH - modeCy - h / 2f), 1f)
         }
-        // Never into the lower ~28% where subtitles are drawn.
-        val maxY = rootH * 0.72f - centre - chipH / 2f
-        return y.coerceAtMost(maxY).coerceAtLeast(dp(8).toFloat())
+        return PlaybackChip.Placement(0f, -(rootH - (barTop + mode.top) + dp(4)), 1f)
     }
 
     // ------------------------------------------------------------------ v2.2: PiP rewind / forward feedback
@@ -2765,92 +2734,6 @@ class PlayerActivity : AppCompatActivity() {
         handler.removeCallbacks(hidePipSeekRunnable)
         fadeIn(b.p22PipSeek)
         handler.postDelayed(hidePipSeekRunnable, 1100)
-    }
-
-    // ------------------------------------------------------------------ v2.2: five-second hold on the title (Hidden Vault)
-
-    /**
-     * The video title in the top bar (only there while the controls are visible) is the hold area. It is separate
-     * from the video surface, so it never competes with the long-press speed gesture. A short tap still hides the
-     * controls like a tap on the video would.
-     */
-    @SuppressLint("ClickableViewAccessibility")
-    private fun setupVaultHold() {
-        b.p22HoldLine.pivotX = 0f
-        b.titleText.setOnTouchListener { _, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    if (!controlsVisible || locked || isInPipSafe() || b.titleText.text.isNullOrEmpty()) return@setOnTouchListener false
-                    holdDownX = ev.rawX; holdDownY = ev.rawY
-                    startHold()
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (holdActive && (abs(ev.rawX - holdDownX) > touchSlop || abs(ev.rawY - holdDownY) > touchSlop)) cancelHold()
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    val wasTap = holdActive && SystemClock.uptimeMillis() - holdStartAt < ViewConfiguration.getLongPressTimeout()
-                    cancelHold()
-                    if (wasTap) setControlsVisible(false)
-                    true
-                }
-                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> { cancelHold(); true }
-                else -> true
-            }
-        }
-    }
-
-    private fun startHold() {
-        if (SystemClock.uptimeMillis() - lastVaultOpenAt < 2_000L) return // debounce right after a trigger
-        holdActive = true
-        holdStartAt = SystemClock.uptimeMillis()
-        handler.removeCallbacks(hideControlsRunnable) // the controls (and so the title) stay while holding
-        b.p22HoldLine.layoutParams = b.p22HoldLine.layoutParams.apply {
-            width = (b.titleText.width - b.titleText.paddingLeft - b.titleText.paddingRight).coerceAtLeast(dp(24))
-        }
-        b.p22HoldLine.translationX = b.titleText.paddingLeft.toFloat()
-        b.p22HoldLine.animate().cancel()
-        b.p22HoldLine.scaleX = 0f; b.p22HoldLine.alpha = 0f
-        handler.removeCallbacks(holdTicker)
-        handler.post(holdTicker)
-    }
-
-    /** Thin line under the title fills over the 5 seconds; it only fades in after a moment so taps show nothing. */
-    private fun renderHold(elapsed: Long) {
-        val f = elapsed.toFloat() / VAULT_HOLD_MS
-        b.p22HoldLine.scaleX = f.coerceIn(0f, 1f)
-        b.p22HoldLine.alpha = ((elapsed - 450f) / 600f).coerceIn(0f, 0.85f)
-    }
-
-    private fun cancelHold() {
-        if (!::b.isInitialized) return
-        handler.removeCallbacks(holdTicker)
-        if (!holdActive) return
-        holdActive = false
-        b.p22HoldLine.animate().cancel()
-        b.p22HoldLine.animate().alpha(0f).setDuration(160).withEndAction { b.p22HoldLine.scaleX = 0f }.start()
-        scheduleHide()
-    }
-
-    private fun completeHold() {
-        val elapsed = SystemClock.uptimeMillis() - holdStartAt
-        if (!holdActive || elapsed < VAULT_HOLD_MS) return // never before the full five seconds
-        holdActive = false
-        handler.removeCallbacks(holdTicker)
-        b.p22HoldLine.scaleX = 1f
-        b.p22HoldLine.animate().cancel()
-        b.p22HoldLine.animate().alpha(0f).setDuration(200).withEndAction { b.p22HoldLine.scaleX = 0f }.start()
-        val now = SystemClock.uptimeMillis()
-        if (now - lastVaultOpenAt < 2_000L) return
-        lastVaultOpenAt = now
-        Motion.haptic(b.titleText, long = true)
-        if (playerReady) { player.pause(); savePosition(); updateSessionPosition() }
-        try {
-            // VaultActivity (library side) authenticates on its own before showing anything.
-            startActivity(Intent().setClassName(packageName, VAULT_ACTIVITY))
-        } catch (_: Exception) { }
-        scheduleHide()
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
