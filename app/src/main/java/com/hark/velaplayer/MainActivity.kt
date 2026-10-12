@@ -814,13 +814,14 @@ class MainActivity : ThemedActivity() {
         val from = (index - 250).coerceAtLeast(0)
         val to = (from + 500).coerceAtMost(entries.size)
         val window = entries.subList(from, to)
+        // v2.3: shuffle sends the saved order + EXTRA_SHUFFLE_PLAY (player shuffles; turning shuffle off restores the order).
         val i = Intent(this, PlayerActivity::class.java)
             .putStringArrayListExtra(PlayerActivity.EXTRA_URIS, ArrayList(window.map { it.uri }))
             .putStringArrayListExtra(PlayerActivity.EXTRA_TITLES, ArrayList(window.map { it.title }))
-            .putExtra(PlayerActivity.EXTRA_INDEX, index - from)
-            .putExtra(PlayerActivity.EXTRA_SHUFFLED, shuffled)
+            .putExtra(PlayerActivity.EXTRA_SHUFFLE_PLAY, shuffled)
             .putExtra(PlayerSession.EXTRA_SOURCE, source)
             .putExtra(PlayerSession.EXTRA_SOURCE_ID, sourceId)
+        if (!shuffled) i.putExtra(PlayerActivity.EXTRA_INDEX, index - from)
         rememberScroll(); saveUiState()
         startActivity(i)
     }
@@ -831,7 +832,7 @@ class MainActivity : ThemedActivity() {
         val playable = all.filter { !it.unavailable }.map { it.entry }
         if (playable.isEmpty()) { toast(if (all.isEmpty()) "Nothing to play here" else "None of these videos can be found on the phone"); return }
         if (playable.size < all.size) toast("Skipping ${all.size - playable.size} unavailable video(s)")
-        play(if (shuffle) playable.shuffled() else playable, 0, shuffled = shuffle)
+        play(playable, 0, shuffled = shuffle)
     }
 
     private fun onVideoClick(position: Int) {
@@ -1073,7 +1074,7 @@ class MainActivity : ThemedActivity() {
         val allWatched = row.watched >= f.videos.size && f.videos.isNotEmpty()
         val a = ArrayList<Action>()
         a += Action("Play all", R.drawable.ic_play) { play(sortedEntries(), 0, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
-        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries().shuffled(), 0, shuffled = true, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries(), 0, shuffled = true, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
         a += Action("Open", R.drawable.ic_folder) { openFolder = f.id; filter = "all"; refresh() }
         a += Action("Add all to playlist", R.drawable.ic_playlist_add) { addManyToPlaylistDialog(sortedEntries()) }
         a += Action(if (allWatched) "Mark all as unwatched" else "Mark all as watched", R.drawable.ic_check_circle) {
@@ -1106,7 +1107,7 @@ class MainActivity : ThemedActivity() {
         val entries = { Vault.visibleEntries(this, Store.playlists(this)[row.name] ?: emptyList()).filter { !isUnavailable(it.uri) } }
         val a = ArrayList<Action>()
         a += Action("Play all", R.drawable.ic_play) { play(entries(), 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
-        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries().shuffled(), 0, shuffled = true, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries(), 0, shuffled = true, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
         a += Action("Add videos", R.drawable.ic_playlist_add) { openPicker(row.name) }
         if (row.count > 1) a += Action("Edit order", R.drawable.l23_ic_drag_handle) {
             openPlaylist = row.name; filter = "all"; refresh(); b.list.post { startReorder() }

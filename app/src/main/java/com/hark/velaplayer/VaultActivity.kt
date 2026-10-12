@@ -476,7 +476,7 @@ class VaultActivity : ThemedActivity() {
         if (playable.isEmpty()) { toast("Nothing to play here"); return }
         if (playable.size < shown.size) toast("Skipping ${shown.size - playable.size} unavailable video(s)")
         // Shuffle only randomizes this playback queue; the saved custom order is never changed.
-        play(if (shuffle) playable.shuffled() else playable, 0, shuffle)
+        play(playable, 0, shuffle)
     }
 
     private fun applyMode() {
@@ -553,10 +553,10 @@ class VaultActivity : ThemedActivity() {
         val i = Intent(this, PlayerActivity::class.java)
             .putStringArrayListExtra(PlayerActivity.EXTRA_URIS, ArrayList(window.map { it.item.uri }))
             .putStringArrayListExtra(PlayerActivity.EXTRA_TITLES, ArrayList(window.map { it.item.title }))
-            .putExtra(PlayerActivity.EXTRA_INDEX, start - from)
             .putExtra(PlayerSession.EXTRA_SOURCE, Vault.SOURCE_VAULT)
             .putExtra(Vault.EXTRA_VAULT, true)
-            .putExtra(PlayerActivity.EXTRA_SHUFFLED, shuffled)
+            .putExtra(PlayerActivity.EXTRA_SHUFFLE_PLAY, shuffled)
+        if (!shuffled) i.putExtra(PlayerActivity.EXTRA_INDEX, start - from)
         childOpen = true; childIsPlayer = true
         VaultAuth.touch()
         try { startActivity(i) } catch (_: Exception) { childOpen = false; toast("Couldn't open the player") }
@@ -663,7 +663,7 @@ class VaultActivity : ThemedActivity() {
                 R.id.vsel_unhide -> unhide(selected.toList())
                 R.id.vsel_shuffle -> {
                     val sel = selected.mapNotNull { u -> shown.firstOrNull { it.item.uri == u } }.filter { !it.unavailable }
-                    if (sel.isNotEmpty()) play(sel.shuffled(), 0, true)
+                    if (sel.isNotEmpty()) play(sel, 0, true)
                 }
                 R.id.vsel_watched, R.id.vsel_unwatched -> {
                     val on = item.itemId == R.id.vsel_watched
