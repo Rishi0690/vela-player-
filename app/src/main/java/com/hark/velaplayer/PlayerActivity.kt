@@ -209,7 +209,7 @@ class PlayerActivity : AppCompatActivity() {
             updatePipParams()
         }
     }
-    private val hideUnlockRunnable = Runnable { b.btnUnlock.isVisible = false }
+    private val hideUnlockRunnable = Runnable { setUnlockVisible(false) }
     private val ticker = object : Runnable {
         override fun run() {
             tick()
@@ -257,7 +257,7 @@ class PlayerActivity : AppCompatActivity() {
                 when {
                     browserOpen -> closeBrowser()
                     speedPanelOpen -> hideSpeedPanel()
-                    locked -> showUnlockButton()
+                    locked -> setUnlockVisible(true)
                     else -> finish()
                 }
             }
@@ -349,6 +349,7 @@ class PlayerActivity : AppCompatActivity() {
             setControlsVisible(false)
             b.indicator.isVisible = false
             b.btnUnlock.isVisible = false
+            b.btnUnlockRight.isVisible = false
             if (browserOpen) closeBrowser(false)
             if (speedPanelOpen) hideSpeedPanel()
             b.edgeOverlay.isVisible = false
@@ -569,10 +570,11 @@ class PlayerActivity : AppCompatActivity() {
         b.btnAudio.setOnClickListener { showAudioDialog() }
         b.btnMore.setOnClickListener { showMoreMenu(it) }
         b.btnLock.setOnClickListener { lockControls() }
+        b.btnLockRight.setOnClickListener { lockControls() }
         b.btnUnlock.setOnClickListener { unlockControls() }
+        b.btnUnlockRight.setOnClickListener { unlockControls() }
         b.btnRotate.setOnClickListener { rotateScreen(); scheduleHide() }
         b.btnPip.setOnClickListener { enterPip() }
-        b.btnFullscreen.setOnClickListener { setFullscreen(!fullscreen); scheduleHide() }
         b.btnRetry.setOnClickListener { retry() }
         b.btnErrorClose.setOnClickListener { finish() }
         b.btnRewind.contentDescription = "Rewind ${seekIntervalMs / 1000} seconds"
@@ -733,20 +735,31 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun lockControls() {
         setControlsVisible(false)
+        if (speedPanelOpen) hideSpeedPanel()
+        if (browserOpen) closeBrowser(false)
         locked = true
-        showUnlockButton()
-        Toast.makeText(this, "Screen locked. Tap the lock to unlock.", Toast.LENGTH_SHORT).show()
+        setUnlockVisible(true)
+        Toast.makeText(this, "Screen locked. Tap the screen, then a lock button to unlock.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun showUnlockButton() {
-        b.btnUnlock.isVisible = true
+    /** While locked: unlock buttons on both sides. A tap on the screen shows/hides them; they also hide after a few seconds. */
+    private fun setUnlockVisible(show: Boolean) {
         handler.removeCallbacks(hideUnlockRunnable)
-        handler.postDelayed(hideUnlockRunnable, 2500)
+        if (show) {
+            fadeIn(b.btnUnlock); fadeIn(b.btnUnlockRight)
+            handler.postDelayed(hideUnlockRunnable, 3500)
+        } else {
+            fadeOut(b.btnUnlock); fadeOut(b.btnUnlockRight)
+        }
     }
+
+    private fun toggleUnlockButtons() = setUnlockVisible(!b.btnUnlock.isVisible || b.btnUnlock.alpha < 0.5f)
 
     private fun unlockControls() {
         locked = false
-        b.btnUnlock.isVisible = false
+        handler.removeCallbacks(hideUnlockRunnable)
+        b.btnUnlock.animate().cancel(); b.btnUnlockRight.animate().cancel()
+        b.btnUnlock.isVisible = false; b.btnUnlockRight.isVisible = false
         setControlsVisible(true)
     }
 
@@ -759,7 +772,6 @@ class PlayerActivity : AppCompatActivity() {
         } else {
             c.show(WindowInsetsCompat.Type.systemBars())
         }
-        b.btnFullscreen.setImageResource(if (on) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen)
     }
 
     private fun applyOrientation(vs: VideoSize?) {
@@ -822,7 +834,7 @@ class PlayerActivity : AppCompatActivity() {
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 if (speedPanelOpen) { hideSpeedPanel(); return true }
-                if (locked) showUnlockButton() else setControlsVisible(!controlsVisible)
+                if (locked) toggleUnlockButtons() else setControlsVisible(!controlsVisible)
                 return true
             }
             override fun onDoubleTap(e: MotionEvent): Boolean {

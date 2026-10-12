@@ -209,6 +209,27 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
+        <!-- Unlock buttons on both sides (inside the inset-padded overlay so they clear notches). -->
+        <ImageButton
+            android:id="@+id/btnUnlock"
+            style="@style/PlayerBigIcon"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="24dp"
+            android:background="@drawable/bg_circle"
+            android:contentDescription="Unlock screen"
+            android:src="@drawable/ic_lock_open"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/btnUnlockRight"
+            style="@style/PlayerBigIcon"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="24dp"
+            android:background="@drawable/bg_circle"
+            android:contentDescription="Unlock screen"
+            android:src="@drawable/ic_lock_open"
+            android:visibility="gone" />
     </FrameLayout>
 
     <LinearLayout
@@ -404,7 +425,7 @@
 
                 <ImageButton android:id="@+id/btnRotate" style="@style/PlayerIcon" android:contentDescription="Rotate screen" android:src="@drawable/ic_rotate" />
                 <ImageButton android:id="@+id/btnPip" style="@style/PlayerIcon" android:contentDescription="Picture in picture" android:src="@drawable/ic_pip" />
-                <ImageButton android:id="@+id/btnFullscreen" style="@style/PlayerIcon" android:contentDescription="Toggle fullscreen" android:src="@drawable/ic_fullscreen_exit" />
+                <ImageButton android:id="@+id/btnLockRight" style="@style/PlayerIcon" android:contentDescription="Lock screen" android:src="@drawable/ic_lock" />
             </LinearLayout>
         </LinearLayout>
 
@@ -438,15 +459,6 @@
         </LinearLayout>
     </FrameLayout>
 
-    <ImageButton
-        android:id="@+id/btnUnlock"
-        style="@style/PlayerBigIcon"
-        android:layout_gravity="start|center_vertical"
-        android:layout_marginStart="24dp"
-        android:background="@drawable/bg_circle"
-        android:contentDescription="Unlock screen"
-        android:src="@drawable/ic_lock_open"
-        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/errorPanel"
