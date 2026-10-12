@@ -9,6 +9,10 @@
         <SwitchPreferenceCompat app:key="gesture_double_tap_seek" app:title="Double-tap left/right to skip" app:defaultValue="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="gesture_double_tap_center" app:title="Double-tap center to play/pause" app:defaultValue="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="gesture_horizontal_seek" app:title="Swipe sideways to seek" app:defaultValue="true" app:iconSpaceReserved="false" />
-        <SwitchPreferenceCompat app:key="gesture_pinch_zoom" app:title="Pinch to zoom, drag to pan" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_pinch_zoom" app:title="Pinch to zoom, two-finger drag to move" app:summary="One-finger swipes always stay brightness, volume and seek, even when zoomed" app:defaultValue="true" app:iconSpaceReserved="false" />
+        </PreferenceCategory>
+    <PreferenceCategory app:title="Press &amp; multi-finger" app:iconSpaceReserved="false">
+        <ListPreference app:key="long_press_speed" app:title="Long-press speed" app:dialogTitle="Speed while you press and hold the video" app:entries="@array/long_press_speed_entries" app:entryValues="@array/long_press_speed_values" app:defaultValue="2.0" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="three_finger_screenshot" app:title="Three-finger swipe screenshot" app:summary="Swipe down with three fingers to save the current video frame to Pictures/VelaPlayer" app:defaultValue="false" app:iconSpaceReserved="false" />
         </PreferenceCategory>
 </PreferenceScreen>

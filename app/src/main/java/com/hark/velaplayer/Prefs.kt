@@ -147,4 +147,18 @@ object Prefs {
     /** Focus Mode switched on by the user; survives closing the app (separate from the session timer). */
     fun focusModeOn(c: Context) = sp(c).getBoolean("focus_mode_on", false)
     fun setFocusModeOn(c: Context, on: Boolean) = sp(c).edit().putBoolean("focus_mode_on", on).apply()
+
+    // ---- v2.1 player ----
+    /** Shuffle button in the player (ExoPlayer shuffle order; the queue's own order is never changed). */
+    fun playerShuffle(c: Context) = sp(c).getBoolean("player_shuffle", false)
+    fun setPlayerShuffle(c: Context, on: Boolean) = sp(c).edit().putBoolean("player_shuffle", on).apply()
+    /** Loop button: 0 = off, 1 = loop this video, 2 = loop the queue (Player.REPEAT_MODE_* values). */
+    fun playerRepeat(c: Context): Int = sp(c).getInt("player_repeat", 0).coerceIn(0, 2)
+    fun setPlayerRepeat(c: Context, mode: Int) = sp(c).edit().putInt("player_repeat", mode).apply()
+    /** Same setting as "Auto-play next video" in Settings > Playback. */
+    fun setAutoplayNext(c: Context, on: Boolean) = sp(c).edit().putBoolean("autoplay_next", on).apply()
+    fun threeFingerScreenshot(c: Context) = sp(c).getBoolean("three_finger_screenshot", false)
+    /** Temporary speed while the video is pressed and held (default 2x). */
+    fun longPressSpeed(c: Context): Float = sp(c).getString("long_press_speed", "2.0")?.toFloatOrNull()?.coerceIn(0.25f, 4f) ?: 2f
+    fun volumeBoost(c: Context) = sp(c).getBoolean("volume_boost", false)
 }

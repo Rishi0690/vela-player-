@@ -38,6 +38,10 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Rational
 import android.view.GestureDetector
+import android.view.KeyEvent
+import android.widget.ImageView
+import androidx.appcompat.widget.TooltipCompat
+import android.view.animation.OvershootInterpolator
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -155,7 +159,7 @@ class PlayerActivity : AppCompatActivity() {
     @Volatile private var previewTarget = -1L
     @Volatile private var previewBusy = false
 
-    private enum class Drag { NONE, IGNORE, SEEK, BRIGHTNESS, VOLUME, PAN }
+    private enum class Drag { NONE, IGNORE, SEEK, BRIGHTNESS, VOLUME }
     private var drag = Drag.NONE
     private var scaling = false
     private var seekStart = 0L
@@ -231,6 +235,36 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    // ---- v2.1 player ----
+    /** Where this queue came from (PlayerSession.SOURCE_*). Decides whether Next/Previous follow the library order. */
+    private var source = PlayerSession.SOURCE_EXTERNAL
+    private var sourceId: String? = null
+    private var launchShuffled = false
+    /** Bumped on every new queue so a late library lookup never rewrites a newer queue. */
+    private var queueGen = 0
+    private var sessionFrom = 0
+    private var sessionCount = 0
+    private var lastSessionTick = 0L
+    private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
+    /** True while a rotation we requested ourselves (to match the video) is on its way; it must not force Auto. */
+    private var autoOrientPending = false
+    private val clearAutoOrientRunnable = Runnable { autoOrientPending = false }
+    private var tempSpeedActive = false
+    private var tempSpeedPrev = 1f
+    private var lastDoubleTapAt = 0L
+    private var threeFinger = false
+    private var threeDone = false
+    private var threeStartX = 0f
+    private var threeStartY = 0f
+    private var scaleBefore = 1f
+    private var lastFocusX = 0f
+    private var lastFocusY = 0f
+    private val boost = VolumeBoost()
+    private var boostWarned = false
+    private val requestWrite = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) captureFrame() else toast("Storage permission is needed to save screenshots on this Android version")
+    }
+
     private val pickSubtitle = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadExternalSubtitle(uri)
     }
@@ -262,6 +296,7 @@ class PlayerActivity : AppCompatActivity() {
             b.browserList.setPadding(dp(8), 0, dp(8), pad)
             (b.focusPill.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(14); b.focusPill.layoutParams = it }
             (b.breakCard.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(64); b.breakCard.layoutParams = it }
+            (b.tempSpeedPill.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(108); b.tempSpeedPill.layoutParams = it }
             (b.speedPanel.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let {
                 it.bottomMargin = safe.bottom + dp(92); b.speedPanel.layoutParams = it
             }
@@ -291,6 +326,9 @@ class PlayerActivity : AppCompatActivity() {
         player.setVideoTextureView(b.videoLayout.textureView)
         player.addListener(playerListener)
         player.addAnalyticsListener(analyticsListener)
+        player.shuffleModeEnabled = Prefs.playerShuffle(this)
+        player.repeatMode = Prefs.playerRepeat(this)
+        lastOrientation = resources.configuration.orientation
         b.videoLayout.mode = aspect
         b.btnAspectLabel.text = aspect.short
         applySubtitleStyle()
@@ -301,13 +339,16 @@ class PlayerActivity : AppCompatActivity() {
         focus = FocusTracker(this)
         setupFocus()
         setupControls()
+        setupModes()
         setupGestures()
         setupSpeedPanel()
         setupBrowser()
         if (!pipSupported()) b.btnPip.isVisible = false
         ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
 
-        if (!loadQueue(intent)) {
+        // Recreated by the system (process death / restore from Recents): restore the video paused at its
+        // saved position instead of starting playback on its own.
+        if (!loadQueue(intent, autoPlay = savedInstanceState == null)) {
             Toast.makeText(this, "Nothing to play", Toast.LENGTH_SHORT).show()
             finish(); return
         }
@@ -329,6 +370,16 @@ class PlayerActivity : AppCompatActivity() {
         super.onResume()
         // Settings may have changed while away (timer, minimal controls, Focus button).
         renderFocusUi()
+        if (playerReady) {
+            applyModes(); renderModes(); renderRotateButton()
+            if (!Prefs.volumeBoost(this) && boost.boostPct > 0) { setBoost(0); boost.release() }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        endTempSpeed()
+        if (playerReady) { savePosition(); updateSessionPosition() }
     }
 
     override fun onStart() {
@@ -343,6 +394,7 @@ class PlayerActivity : AppCompatActivity() {
         activityStarted = false
         updateFocusCounting()
         savePosition()
+        updateSessionPosition()
         val keepPlaying = Prefs.backgroundAudio(this) && player.isPlaying && !isFinishing
         if (!keepPlaying) player.pause()
     }
@@ -353,6 +405,8 @@ class PlayerActivity : AppCompatActivity() {
         try { unregisterReceiver(pipReceiver) } catch (_: Exception) { }
         if (playerReady) {
             savePosition()
+            updateSessionPosition()
+            boost.release()
             disconnectSession()
             player.removeListener(playerListener)
             player.removeAnalyticsListener(analyticsListener)
@@ -370,8 +424,17 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        endTempSpeed()
+        val o = newConfig.orientation
+        if (o != lastOrientation && lastOrientation != Configuration.ORIENTATION_UNDEFINED && o != Configuration.ORIENTATION_UNDEFINED) {
+            // A real device rotation (sensor or the rotate button) switches to Auto; our own match-the-video rotation doesn't.
+            if (autoOrientPending) { autoOrientPending = false; handler.removeCallbacks(clearAutoOrientRunnable) }
+            else if (!isInPipSafe()) applyAutoAspectAfterRotation()
+        }
+        if (o != Configuration.ORIENTATION_UNDEFINED) lastOrientation = o
         b.videoLayout.resetZoom(false)
         b.videoLayout.requestLayout()
+        renderRotateButton()
     }
 
     override fun onUserLeaveHint() {
@@ -406,8 +469,12 @@ class PlayerActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ queue / media
 
-    private fun loadQueue(intent: Intent): Boolean {
+    private fun loadQueue(intent: Intent, autoPlay: Boolean = true): Boolean {
         b.shuffleBadge.isVisible = intent.getBooleanExtra(EXTRA_SHUFFLED, false)
+        launchShuffled = intent.getBooleanExtra(EXTRA_SHUFFLED, false)
+        // Missing extra (other apps, old callers) = keep the given queue, like SOURCE_EXTERNAL.
+        source = intent.getStringExtra(PlayerSession.EXTRA_SOURCE) ?: PlayerSession.SOURCE_EXTERNAL
+        sourceId = intent.getStringExtra(PlayerSession.EXTRA_SOURCE_ID)
         val uris = intent.getStringArrayListExtra(EXTRA_URIS)
         val titles = intent.getStringArrayListExtra(EXTRA_TITLES)
         val entries = ArrayList<Entry>()
@@ -417,12 +484,74 @@ class PlayerActivity : AppCompatActivity() {
             intent.data?.let { entries += Entry(it.toString(), displayName(it)) }
         }
         if (entries.isEmpty()) return false
-        startQueue(entries, intent.getIntExtra(EXTRA_INDEX, 0))
+        startQueue(entries, intent.getIntExtra(EXTRA_INDEX, 0), autoPlay)
+        // Folder / All videos / Continue Watching (and a lone video) follow the library order for Next/Previous.
+        // Playlists, Favorites and shuffled collections keep exactly the queue they were given.
+        val libraryOrder = source == PlayerSession.SOURCE_FOLDER || source == PlayerSession.SOURCE_ALL || source == PlayerSession.SOURCE_CONTINUE
+        val single = entries.size == 1 && source != PlayerSession.SOURCE_PLAYLIST && source != PlayerSession.SOURCE_FAVORITES
+        if (!launchShuffled && (libraryOrder || single)) expandToLibrary()
         return true
     }
 
+    /** Rebuilds the queue around the current video in library order, without interrupting playback. */
+    private fun expandToLibrary() {
+        val id = player.currentMediaItem?.mediaId ?: return
+        val gen = queueGen
+        try {
+            io.execute {
+                val w = try { LibraryNavigator.build(this, id) } catch (_: Exception) { null }
+                runOnUiThread { if (w != null && playerReady && !isDestroyed && gen == queueGen) applyLibraryWindow(id, w) }
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun applyLibraryWindow(id: String, w: LibraryNavigator.Window) {
+        if (player.currentMediaItem?.mediaId != id) return
+        val cur = player.currentMediaItemIndex
+        val before = w.items.subList(0, w.index).map { buildItem(Entry(it.uri.toString(), it.name)) }
+        val after = w.items.subList(w.index + 1, w.items.size).map { buildItem(Entry(it.uri.toString(), it.name)) }
+        // Only the neighbours change; the playing item (and its position, tracks, subtitles) stays untouched.
+        if (cur + 1 < player.mediaItemCount) player.removeMediaItems(cur + 1, player.mediaItemCount)
+        if (cur > 0) player.removeMediaItems(0, cur)
+        if (after.isNotEmpty()) player.addMediaItems(after)
+        if (before.isNotEmpty()) player.addMediaItems(0, before)
+        updateNavButtons()
+        updatePipParams()
+        saveSession()
+    }
+
+    // ------------------------------------------------------------------ last session (PlayerSession contract)
+
+    /** Saves the queue (a window around the current video), index and position for the library's Resume. */
+    private fun saveSession() {
+        if (!playerReady) return
+        val n = player.mediaItemCount
+        if (n == 0) return
+        val cur = player.currentMediaItemIndex.coerceIn(0, n - 1)
+        val from = (cur - 100).coerceAtLeast(0)
+        val to = (cur + 101).coerceAtMost(n)
+        val entries = (from until to).map { i ->
+            val m = player.getMediaItemAt(i)
+            Entry(m.mediaId, m.mediaMetadata.title?.toString() ?: "Video")
+        }
+        sessionFrom = from; sessionCount = entries.size
+        PlayerSession.save(this, PlayerSession.Session(entries, cur - from, player.currentPosition.coerceAtLeast(0L),
+            source, sourceId, launchShuffled || player.shuffleModeEnabled, System.currentTimeMillis()))
+        lastSessionTick = SystemClock.elapsedRealtime()
+    }
+
+    private fun updateSessionPosition() {
+        if (!playerReady || player.mediaItemCount == 0) return
+        val rel = player.currentMediaItemIndex - sessionFrom
+        if (sessionCount == 0 || rel < 0 || rel >= sessionCount) { saveSession(); return }
+        PlayerSession.updatePosition(this, rel, player.currentPosition.coerceAtLeast(0L))
+        lastSessionTick = SystemClock.elapsedRealtime()
+    }
+
     /** Replaces the queue and starts playing [index]. Speed, aspect, subtitle look etc. carry over. */
-    private fun startQueue(entries: List<Entry>, index: Int) {
+    private fun startQueue(entries: List<Entry>, index: Int, autoPlay: Boolean = true) {
+        endTempSpeed()
+        queueGen++
         val start = index.coerceIn(0, entries.lastIndex)
         val startPos = if (Prefs.resume(this)) Store.position(this, entries[start].uri) else 0L
         externalSubs = null; externalActive = false; shownExternal = emptyList()
@@ -430,9 +559,10 @@ class PlayerActivity : AppCompatActivity() {
         b.errorPanel.isVisible = false
         player.setMediaItems(entries.map { buildItem(it) }, start, startPos)
         player.setPlaybackSpeed(Prefs.speed(this))
-        player.pauseAtEndOfMediaItems = !Prefs.autoplayNext(this)
+        applyModes()
         player.prepare()
-        player.playWhenReady = true
+        player.playWhenReady = autoPlay
+        saveSession()
     }
 
     private fun buildItem(e: Entry): MediaItem {
@@ -491,6 +621,7 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady) endTempSpeed()
             updatePlayButton()
             if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) setControlsVisible(true)
         }
@@ -521,7 +652,11 @@ class PlayerActivity : AppCompatActivity() {
             resetTrackParamsForNewItem()
             updatePipParams()
             if (browserOpen) renderBrowser(false)
+            if (mediaItem != null) saveSession()
         }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { renderModes(); updateNavButtons(); updatePipParams() }
+        override fun onRepeatModeChanged(repeatMode: Int) { applyModes(); renderModes(); updateNavButtons(); updatePipParams() }
 
         override fun onTracksChanged(tracks: Tracks) {
             val id = player.currentMediaItem?.mediaId ?: return
@@ -542,6 +677,7 @@ class PlayerActivity : AppCompatActivity() {
         override fun onCues(cueGroup: CueGroup) { if (!externalActive) b.subtitleView.setCues(cueGroup.cues) }
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            if (tempSpeedActive) return // temporary long-press speed: the speed button keeps showing the real choice
             b.btnSpeed.text = formatSpeed(playbackParameters.speed)
             if (speedPanelOpen) refreshSpeedPanel(playbackParameters.speed)
         }
@@ -555,6 +691,9 @@ class PlayerActivity : AppCompatActivity() {
         }
         override fun onAudioDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
             audioDecoder = decoderName
+        }
+        override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
+            boost.reattach(audioSessionId)
         }
     }
 
@@ -633,7 +772,23 @@ class PlayerActivity : AppCompatActivity() {
         b.btnLockRight.setOnClickListener { lockControls() }
         b.btnUnlock.setOnClickListener { unlockControls() }
         b.btnUnlockRight.setOnClickListener { unlockControls() }
-        b.btnRotate.setOnClickListener { rotateScreen(); scheduleHide() }
+        b.btnRotate.setOnClickListener { v ->
+            // Small turn of the icon toward the new orientation, then it settles on the new state.
+            v.animate().cancel()
+            v.animate().rotation(if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) -90f else 90f)
+                .setDuration(260).setInterpolator(OvershootInterpolator(1.6f))
+                .withEndAction { v.rotation = 0f; renderRotateButton() }.start()
+            rotateScreen(); scheduleHide()
+        }
+        b.btnRotate.setOnLongClickListener {
+            // Back to automatic: follow the video (or the orientation chosen in Settings).
+            userRotated = false
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            applyOrientation(player.videoSize.takeIf { it.width > 0 && it.height > 0 })
+            renderRotateButton()
+            showIndicator(R.drawable.ic_screen_rotation, "Rotation follows the video", null); hideIndicatorSoon()
+            true
+        }
         b.btnPip.setOnClickListener { enterPip() }
         b.btnRetry.setOnClickListener { retry() }
         b.btnErrorClose.setOnClickListener { finish() }
@@ -769,6 +924,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun tick() {
+        if (playerReady && player.isPlaying && SystemClock.elapsedRealtime() - lastSessionTick >= 5_000L) {
+            updateSessionPosition()
+            savePosition() // Store resume position too, so a killed process loses at most a few seconds
+        }
         if (controlsVisible) updateProgress()
         if (::focus.isInitialized && focus.active) focusTick()
         if (b.pipProgress.isVisible) updatePipProgress()
@@ -782,7 +941,12 @@ class PlayerActivity : AppCompatActivity() {
         b.controls.animate().cancel()
         val slide = dp(28).toFloat()
         listOf(b.topBar, b.bottomBar, b.centerControls).forEach { it.animate().cancel() }
-        b.focusPill.animate().translationY(if (visible) dp(52).toFloat() else 0f).setDuration(300).setInterpolator(Motion.emphasized).start()
+        // Focus counter follows the controls (the session keeps counting while it's hidden).
+        if (visible && focusPillWanted()) {
+            b.focusText.text = "Focus ${FocusFmt.clock(focus.elapsedMs())}"
+            b.focusPill.translationY = dp(52).toFloat()
+            fadeIn(b.focusPill)
+        } else if (!visible) fadeOut(b.focusPill)
         if (visible) {
             // Top bar drops in, bottom bar rises, centre buttons pop — all on one soft curve.
             if (!b.controls.isVisible) {
@@ -861,13 +1025,54 @@ class PlayerActivity : AppCompatActivity() {
     private fun applyOrientation(vs: VideoSize?) {
         if (userRotated) return
         val pref = Prefs.orientation(this)
-        requestedOrientation = when {
+        requestOrientationProgrammatic(when {
             pref == "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             pref == "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             pref == "sensor" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
             vs != null -> orientationFor(vs)
             else -> return
+        })
+    }
+
+    /**
+     * Orientation changes the player makes by itself (to match the video / Settings) are not "the user rotated
+     * the device", so they must not switch the aspect ratio to Auto. Mark the rotation we expect.
+     */
+    private fun requestOrientationProgrammatic(req: Int) {
+        val landscapeNow = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val wantsLand = req == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE || req == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        val wantsPort = req == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT || req == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        if ((wantsLand && !landscapeNow) || (wantsPort && landscapeNow)) {
+            autoOrientPending = true
+            handler.removeCallbacks(clearAutoOrientRunnable)
+            handler.postDelayed(clearAutoOrientRunnable, 1500)
         }
+        if (requestedOrientation != req) requestedOrientation = req
+        renderRotateButton()
+    }
+
+    /** Device rotated: Auto aspect for the new shape, and drop any manual pinch zoom / pan. Not saved as the user's choice. */
+    private fun applyAutoAspectAfterRotation() {
+        aspect = AspectMode.AUTO
+        b.videoLayout.mode = AspectMode.AUTO // also resets the manual zoom/pan transform
+        b.btnAspectLabel.text = aspect.short
+    }
+
+    /** Rotation button: icon shows whether rotation follows the video (auto) or is locked by the user, and to which side. */
+    private fun renderRotateButton() {
+        if (!::b.isInitialized) return
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val btn = b.btnRotate
+        val icon = when {
+            !userRotated -> R.drawable.ic_screen_rotation
+            landscape -> R.drawable.ic_screen_lock_landscape
+            else -> R.drawable.ic_screen_lock_portrait
+        }
+        if (btn.tag != icon) { btn.setImageResource(icon); btn.tag = icon }
+        btn.imageTintList = android.content.res.ColorStateList.valueOf(if (userRotated) ThemeManager.primary(this) else 0xFFFFFFFF.toInt())
+        btn.contentDescription = if (userRotated)
+            "Screen locked to ${if (landscape) "landscape" else "portrait"}. Tap to rotate, press and hold to follow the video again"
+        else "Rotate screen to ${if (landscape) "portrait" else "landscape"}"
     }
 
     private fun orientationFor(vs: VideoSize): Int =
@@ -879,6 +1084,7 @@ class PlayerActivity : AppCompatActivity() {
         val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        renderRotateButton()
     }
 
     // ------------------------------------------------------------------ aspect ratio
@@ -890,7 +1096,7 @@ class PlayerActivity : AppCompatActivity() {
         Prefs.saveAspect(this, m)
         if (m == AspectMode.AUTO) {
             val vs = player.videoSize
-            if (vs.width > 0 && vs.height > 0) { userRotated = false; requestedOrientation = orientationFor(vs) }
+            if (vs.width > 0 && vs.height > 0) { userRotated = false; requestOrientationProgrammatic(orientationFor(vs)) }
         }
         showIndicator(R.drawable.ic_aspect, m.label, null)
         hideIndicatorSoon()
@@ -908,7 +1114,7 @@ class PlayerActivity : AppCompatActivity() {
         if (b.videoLayout.isZoomed) acts += PlayerSheet.Action("Reset zoom", R.drawable.ic_zoom) { b.videoLayout.resetZoom() }
         sheet.show("Aspect ratio", AspectMode.values().map { m ->
             PlayerSheet.Option(m.label, aspectHint(m), selected = m == aspect) { setAspect(m) }
-        }, acts, footer = "Tip: tap the aspect button to cycle, pinch the video to zoom.")
+        }, acts, footer = "Tip: tap the aspect button to cycle, pinch the video to zoom and drag with two fingers to move it. Rotating the phone switches to Auto.")
     }
 
     private fun aspectHint(m: AspectMode): String? = when (m) {
@@ -933,8 +1139,17 @@ class PlayerActivity : AppCompatActivity() {
                 return true
             }
             override fun onDoubleTap(e: MotionEvent): Boolean {
+                lastDoubleTapAt = SystemClock.uptimeMillis()
                 if (!locked) handleDoubleTap(e.x)
                 return true
+            }
+            override fun onLongPress(e: MotionEvent) {
+                // Press and hold = temporary speed. GestureDetector already cancels this when the finger moves past
+                // the touch slop or a second finger lands, so it never fights swipes, pinch or the 3-finger gesture.
+                if (locked || scaling || threeFinger || drag != Drag.NONE || speedPanelOpen || sheet.isOpen) return
+                if (SystemClock.uptimeMillis() - lastDoubleTapAt < 500) return
+                if (!player.isPlaying) return
+                startTempSpeed()
             }
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 if (locked || scaling || e1 == null || e2.pointerCount > 1) return false
@@ -942,18 +1157,26 @@ class PlayerActivity : AppCompatActivity() {
                 return true
             }
         })
-        gestures.setIsLongpressEnabled(false)
+        gestures.setIsLongpressEnabled(true)
 
         scaleGestures = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
                 if (locked || !Prefs.gesture(this@PlayerActivity, "gesture_pinch_zoom")) return false
+                if (threeFinger) return false
                 scaling = true
+                endTempSpeed()
                 if (drag == Drag.SEEK) userSeeking = false
+                if (drag == Drag.BRIGHTNESS || drag == Drag.VOLUME) { handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 400) }
                 drag = Drag.IGNORE
+                scaleBefore = b.videoLayout.userScale
+                lastFocusX = detector.focusX; lastFocusY = detector.focusY
                 return true
             }
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 b.videoLayout.setUserScale(b.videoLayout.userScale * detector.scaleFactor)
+                // Two-finger drag moves the zoomed picture; single-finger swipes stay brightness/volume/seek.
+                b.videoLayout.panBy(detector.focusX - lastFocusX, detector.focusY - lastFocusY)
+                lastFocusX = detector.focusX; lastFocusY = detector.focusY
                 showIndicator(R.drawable.ic_zoom, "Zoom ${(b.videoLayout.userScale * 100).roundToInt()}%", null)
                 return true
             }
@@ -967,10 +1190,52 @@ class PlayerActivity : AppCompatActivity() {
         })
 
         b.gestureLayer.setOnTouchListener { _, ev ->
-            scaleGestures.onTouchEvent(ev)
-            gestures.onTouchEvent(ev)
-            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) endDrag()
+            // Hold-for-speed only while playing, so a slow hold-then-swipe still works on a paused video.
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) gestures.setIsLongpressEnabled(player.isPlaying && !locked && !speedPanelOpen)
+            handleThreeFinger(ev)
+            // Once three fingers are down this touch belongs to the screenshot gesture only.
+            if (!threeFinger) {
+                scaleGestures.onTouchEvent(ev)
+                gestures.onTouchEvent(ev)
+            }
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                endDrag()
+                endTempSpeed()
+                threeFinger = false; threeDone = false
+            }
             true
+        }
+    }
+
+    private fun avgX(ev: MotionEvent): Float { var s = 0f; for (i in 0 until ev.pointerCount) s += ev.getX(i); return s / ev.pointerCount }
+    private fun avgY(ev: MotionEvent): Float { var s = 0f; for (i in 0 until ev.pointerCount) s += ev.getY(i); return s / ev.pointerCount }
+
+    /** Deliberate three-finger swipe down = save the current video frame (only when enabled in Settings). */
+    private fun handleThreeFinger(ev: MotionEvent) {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (ev.pointerCount == 3 && !threeFinger && !locked && Prefs.threeFingerScreenshot(this)) {
+                    threeFinger = true; threeDone = false
+                    // Stop whatever this touch had started (pinch, swipe, hold) without applying it.
+                    val wasScaling = scaling
+                    val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                    scaleGestures.onTouchEvent(cancel); gestures.onTouchEvent(cancel); cancel.recycle()
+                    if (wasScaling) { if (scaleBefore < 1.05f) b.videoLayout.resetZoom(false) else b.videoLayout.setUserScale(scaleBefore) }
+                    if (drag == Drag.SEEK) { userSeeking = false; b.indicator.isVisible = false }
+                    if (drag == Drag.BRIGHTNESS || drag == Drag.VOLUME) { handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 300) }
+                    drag = Drag.IGNORE
+                    scaling = true // blocks a leftover single finger from starting a swipe in this touch
+                    endTempSpeed()
+                    threeStartX = avgX(ev); threeStartY = avgY(ev)
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (threeFinger && !threeDone && ev.pointerCount >= 3) {
+                    val dy = avgY(ev) - threeStartY
+                    val dx = avgX(ev) - threeStartX
+                    if (dy > dp(90) && abs(dx) < dy * 0.6f) { threeDone = true; captureFrame() }
+                }
+            }
         }
     }
 
@@ -1003,8 +1268,8 @@ class PlayerActivity : AppCompatActivity() {
             val tdx = e2.x - e1.x
             val tdy = e2.y - e1.y
             if (abs(tdx) < touchSlop * 1.5f && abs(tdy) < touchSlop * 1.5f) return
+            // Zoomed or stretched video doesn't change what a single finger does (panning is a two-finger drag).
             drag = when {
-                b.videoLayout.isZoomed -> Drag.PAN
                 abs(tdx) > abs(tdy) * 1.2f ->
                     if (Prefs.gesture(this, "gesture_horizontal_seek") && player.isCurrentMediaItemSeekable && player.duration > 0) Drag.SEEK else Drag.IGNORE
                 abs(tdy) > abs(tdx) * 1.2f -> verticalDragFor(e1.x, w)
@@ -1012,13 +1277,12 @@ class PlayerActivity : AppCompatActivity() {
             }
             when (drag) {
                 Drag.SEEK -> { seekStart = player.currentPosition; seekTarget = seekStart; userSeeking = true }
-                Drag.VOLUME -> volumeLevel = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                Drag.VOLUME -> volumeLevel = currentVolumeLevel()
                 Drag.BRIGHTNESS -> brightness = currentBrightness()
                 else -> {}
             }
         }
         when (drag) {
-            Drag.PAN -> b.videoLayout.panBy(-dx, -dy)
             Drag.SEEK -> {
                 val dur = player.duration
                 val span = min(dur, 120_000L).coerceAtLeast(30_000L) // full screen width = up to 2 minutes
@@ -1036,10 +1300,10 @@ class PlayerActivity : AppCompatActivity() {
             }
             Drag.VOLUME -> {
                 val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                volumeLevel = (volumeLevel + dy / h * max * 1.5f).coerceIn(0f, max.toFloat())
-                try { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volumeLevel.roundToInt(), 0) } catch (_: SecurityException) { }
-                val pct = if (max > 0) (volumeLevel / max * 100).roundToInt() else 0
-                showSideLevel(if (pct == 0) R.drawable.ic_volume_off else R.drawable.ic_volume, pct)
+                val upper = if (boostAvailable()) max * 2f else max.toFloat()
+                val prev = volumeLevel
+                volumeLevel = (volumeLevel + dy / h * max * 1.5f).coerceIn(0f, upper)
+                applyVolumeLevel(prev, max)
             }
             else -> {}
         }
@@ -1081,17 +1345,34 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /** Brightness/volume level pill, shown at the edge of the side being swiped. */
-    private fun showSideLevel(icon: Int, pct: Int) {
+    private fun showSideLevel(icon: Int, pct: Int, boosted: Boolean = false) {
         handler.removeCallbacks(hideSideRunnable)
         val left = dragSide == "left"
         val box = if (left) b.sideLeft else b.sideRight
         val other = if (left) b.sideRight else b.sideLeft
         val track = if (left) b.sideLeftTrack else b.sideRightTrack
         val fill = if (left) b.sideLeftFill else b.sideRightFill
-        (if (left) b.sideLeftIcon else b.sideRightIcon).setImageResource(icon)
-        (if (left) b.sideLeftText else b.sideRightText).text = "$pct%"
+        val iconView = if (left) b.sideLeftIcon else b.sideRightIcon
+        val textView = if (left) b.sideLeftText else b.sideRightText
+        iconView.setImageResource(icon)
+        val accent = ThemeManager.primary(this)
+        if (boosted) {
+            // Boost range looks different on purpose: accent text/icon, the "100%" track filled faintly in accent,
+            // and the bar shows only the extra amplification (101–200%). System volume is already at its maximum.
+            textView.text = "Boost\n$pct%"
+            textView.setTextColor(accent)
+            iconView.imageTintList = android.content.res.ColorStateList.valueOf(accent)
+            track.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 0x55))
+        } else {
+            textView.text = "$pct%"
+            textView.setTextColor(0xFFFFFFFF.toInt())
+            iconView.imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+            track.backgroundTintList = null
+        }
+        textView.gravity = android.view.Gravity.CENTER
+        val shown = if (boosted) pct - 100 else pct
         val trackH = if (track.height > 0) track.height else dp(120)
-        fill.layoutParams = fill.layoutParams.apply { height = (trackH * pct.coerceIn(0, 100) / 100f).roundToInt() }
+        fill.layoutParams = fill.layoutParams.apply { height = (trackH * shown.coerceIn(0, 100) / 100f).roundToInt() }
         if (other.isVisible) { other.animate().cancel(); other.isVisible = false }
         b.indicator.isVisible = false
         fadeIn(box)
@@ -1580,7 +1861,6 @@ class PlayerActivity : AppCompatActivity() {
         handler.removeCallbacks(hideControlsRunnable)
         val o = ArrayList<PlayerSheet.Option>()
         o += PlayerSheet.Option("Playback speed", null, icon = R.drawable.ic_speed, trailing = formatSpeed(player.playbackParameters.speed)) { showSpeedDialog() }
-        o += PlayerSheet.Option("Aspect ratio", null, icon = R.drawable.ic_aspect, trailing = aspect.short) { showAspectDialog() }
         if (Prefs.focusFeature(this)) o += PlayerSheet.Option("Focus Mode", if (focus.active) "Focused ${FocusFmt.clock(focus.elapsedMs())}" else "Track real watching time, fewer distractions",
             icon = R.drawable.ic_focus, trailing = if (focus.active) "On" else "Off") { if (focus.active) endFocus(false) else startFocus(true) }
         o += PlayerSheet.Option("Focus stats", null, icon = R.drawable.ic_insights) { startActivity(Intent(this, FocusActivity::class.java)) }
@@ -1595,7 +1875,6 @@ class PlayerActivity : AppCompatActivity() {
             if (on) connectSession() else disconnectSession()
             toast(if (on) "Background audio on" else "Background audio off")
         }
-        o += PlayerSheet.Option("Lock screen", null, icon = R.drawable.ic_lock) { lockControls() }
         o += PlayerSheet.Option("All settings", null, icon = R.drawable.ic_tune) { startActivity(Intent(this, SettingsActivity::class.java)) }
         sheet.show("Player options", o, radio = false)
     }
@@ -1713,19 +1992,24 @@ class PlayerActivity : AppCompatActivity() {
         b.btnFocus.alpha = if (on) 1f else 0.85f
         b.btnFocus.imageTintList = android.content.res.ColorStateList.valueOf(if (on) ThemeManager.primary(this) else 0xFFFFFFFF.toInt())
         b.btnFocus.contentDescription = if (on) "Focus Mode on. Tap to end the session" else "Start Focus Mode"
-        val showPill = on && Prefs.focusShowTimer(this) && !isInPipSafe()
-        if (showPill && !b.focusPill.isVisible) fadeIn(b.focusPill) else if (!showPill) b.focusPill.isVisible = false
+        // The counter only shows together with the other controls; the session keeps counting either way.
+        val showPill = focusPillWanted() && controlsVisible && b.controls.isVisible
+        if (showPill && !b.focusPill.isVisible) { b.focusPill.translationY = dp(52).toFloat(); fadeIn(b.focusPill) }
+        else if (!showPill) { b.focusPill.animate().cancel(); b.focusPill.isVisible = false }
         b.focusGoal.isVisible = on && Prefs.focusGoalMs(this) > 0
         if (on) b.focusText.text = "Focus ${FocusFmt.clock(focus.elapsedMs())}"
-        // Minimal controls: hide extras, keep everything needed to watch.
+        // Minimal controls: hide only the distracting extra (quick video browser). PiP, rotation and lock stay
+        // available in Focus Mode — they are watching tools, not distractions.
         val minimal = on && Prefs.focusMinimal(this)
         b.btnBrowse.isVisible = !minimal
-        b.btnLockRight.isVisible = !minimal
-        b.btnRotate.isVisible = !minimal
-        b.btnPip.isVisible = !minimal && pipSupported()
+        b.btnLockRight.isVisible = true
+        b.btnRotate.isVisible = true
+        b.btnPip.isVisible = pipSupported()
         if (!on) { handler.removeCallbacks(hideBreakRunnable); b.breakCard.isVisible = false }
-        if (!on && Prefs.focusMinimal(this)) b.btnPip.isVisible = pipSupported()
     }
+
+    private fun focusPillWanted(): Boolean =
+        ::focus.isInitialized && focus.active && Prefs.focusShowTimer(this) && !isInPipSafe()
 
     // ------------------------------------------------------------------ PiP & background
 
@@ -2016,6 +2300,9 @@ class PlayerActivity : AppCompatActivity() {
         val window = scope.subList(from, to)
         browserFolderId = item.bucketId; browserFolderName = item.bucketName
         userRotated = false
+        source = if (browserScopeAll) PlayerSession.SOURCE_ALL else PlayerSession.SOURCE_FOLDER
+        sourceId = if (browserScopeAll) null else item.bucketId
+        launchShuffled = false; b.shuffleBadge.isVisible = false
         startQueue(window.map { Entry(it.uri.toString(), it.name) }, idx - from)
         closeBrowser()
     }
@@ -2060,6 +2347,216 @@ class PlayerActivity : AppCompatActivity() {
                 if (current) closeBrowser() else playFromBrowser(item, browserAdapter.scope)
             }
         }
+    }
+
+    // ------------------------------------------------------------------ v2.1: playback modes
+
+    private fun setupModes() {
+        listOf(b.btnShuffle, b.btnLoop, b.btnAutoNext, b.btnRotate).forEach { Motion.pressable(it, 0.86f) }
+        b.btnShuffle.setOnClickListener { v ->
+            val on = !player.shuffleModeEnabled
+            player.shuffleModeEnabled = on // ExoPlayer plays a shuffled order; the queue's own order stays intact
+            Prefs.setPlayerShuffle(this, on)
+            Motion.haptic(v)
+            modeFeedback(R.drawable.ic_shuffle, if (on) "Shuffle on" else "Shuffle off · original order")
+            saveSession()
+        }
+        b.btnLoop.setOnClickListener { v ->
+            val next = when (player.repeatMode) {
+                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
+                else -> Player.REPEAT_MODE_OFF
+            }
+            player.repeatMode = next
+            Prefs.setPlayerRepeat(this, next)
+            applyModes()
+            Motion.haptic(v)
+            modeFeedback(if (next == Player.REPEAT_MODE_ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat, when (next) {
+                Player.REPEAT_MODE_ONE -> "Loop this video"
+                Player.REPEAT_MODE_ALL -> "Loop the whole queue"
+                else -> "Loop off"
+            })
+        }
+        b.btnAutoNext.setOnClickListener { v ->
+            val on = !Prefs.autoplayNext(this)
+            Prefs.setAutoplayNext(this, on)
+            applyModes()
+            Motion.haptic(v)
+            modeFeedback(R.drawable.ic_autoplay_next, if (on) "Auto-play next on" else "Auto-play next off · stops after this video")
+        }
+        renderModes()
+        renderRotateButton()
+    }
+
+    private fun modeFeedback(icon: Int, text: String) {
+        renderModes()
+        updateNavButtons()
+        updatePipParams()
+        showIndicator(icon, text, null); hideIndicatorSoon()
+        scheduleHide()
+    }
+
+    /**
+     * Applies Loop / Auto-play next to the engine. Auto-play next off = pause at the end of each video
+     * (unless a loop mode is on: looping one video or the queue means "keep going").
+     */
+    private fun applyModes() {
+        if (!playerReady) return
+        player.pauseAtEndOfMediaItems = !Prefs.autoplayNext(this) && player.repeatMode == Player.REPEAT_MODE_OFF
+    }
+
+    private fun renderModes() {
+        if (!playerReady) return
+        val accent = ThemeManager.primary(this)
+        fun style(v: ImageView, on: Boolean, desc: String) {
+            v.imageTintList = android.content.res.ColorStateList.valueOf(if (on) accent else 0xFFFFFFFF.toInt())
+            v.alpha = if (on) 1f else 0.72f
+            v.isSelected = on
+            v.contentDescription = desc
+            TooltipCompat.setTooltipText(v, desc)
+        }
+        val shuffle = player.shuffleModeEnabled
+        style(b.btnShuffle, shuffle, if (shuffle) "Shuffle: on" else "Shuffle: off")
+        val rep = player.repeatMode
+        b.btnLoop.setImageResource(if (rep == Player.REPEAT_MODE_ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat)
+        style(b.btnLoop, rep != Player.REPEAT_MODE_OFF, when (rep) {
+            Player.REPEAT_MODE_ONE -> "Loop: this video"
+            Player.REPEAT_MODE_ALL -> "Loop: whole queue"
+            else -> "Loop: off"
+        })
+        val auto = Prefs.autoplayNext(this)
+        style(b.btnAutoNext, auto, if (auto) "Auto-play next: on" else "Auto-play next: off")
+    }
+
+    // ------------------------------------------------------------------ v2.1: long-press temporary speed
+
+    private fun startTempSpeed() {
+        if (tempSpeedActive || !playerReady) return
+        val target = Prefs.longPressSpeed(this)
+        tempSpeedPrev = player.playbackParameters.speed
+        if (abs(target - tempSpeedPrev) < 0.001f) return
+        tempSpeedActive = true
+        player.setPlaybackSpeed(target)
+        // Show the speed the engine really uses, never just the requested one.
+        val actual = player.playbackParameters.speed
+        b.tempSpeedPill.text = formatSpeed(actual).replace("x", "×")
+        b.tempSpeedPill.contentDescription = "Playing at ${formatSpeed(actual)} while held"
+        fadeIn(b.tempSpeedPill)
+        Motion.haptic(b.gestureLayer, long = true)
+    }
+
+    /** Restores the speed from before the hold. Never saved as the user's speed. */
+    private fun endTempSpeed() {
+        if (!tempSpeedActive) return
+        tempSpeedActive = false
+        if (playerReady) player.setPlaybackSpeed(tempSpeedPrev)
+        if (::b.isInitialized) fadeOut(b.tempSpeedPill)
+    }
+
+    // ------------------------------------------------------------------ v2.1: volume boost
+
+    private fun boostAvailable() = Prefs.volumeBoost(this) && !boost.unsupported
+
+    /** Swipe level in "system steps": 0..max is system volume, max..2*max is the player's boost. */
+    private fun currentVolumeLevel(): Float {
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if (boost.boostPct > 0 && (cur < max || !Prefs.volumeBoost(this))) setBoost(0) // volume lowered elsewhere: drop the boost
+        return cur + if (boost.boostPct > 0) boost.boostPct / 100f * max else 0f
+    }
+
+    private fun applyVolumeLevel(prev: Float, max: Int) {
+        if (max <= 0) return
+        if (volumeLevel <= max) {
+            if (boost.boostPct > 0) setBoost(0)
+            try { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volumeLevel.roundToInt(), 0) } catch (_: SecurityException) { }
+            val pct = (volumeLevel / max * 100).roundToInt()
+            showSideLevel(if (pct == 0) R.drawable.ic_volume_off else R.drawable.ic_volume, pct)
+            return
+        }
+        // Boost range: only when crossing up from below do we top the system volume up to its maximum.
+        // While inside the boost range the system volume is never changed; only the player's gain is.
+        if (prev <= max && audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) < max) {
+            try { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, max, 0) } catch (_: SecurityException) { }
+        }
+        val pct = ((volumeLevel - max) / max * 100).roundToInt().coerceIn(1, 100)
+        if (setBoost(pct)) showSideLevel(R.drawable.ic_volume, 100 + pct, boosted = true)
+        else { volumeLevel = max.toFloat(); showSideLevel(R.drawable.ic_volume, 100) }
+    }
+
+    private fun ensureAudioSession(): Int {
+        var id = player.audioSessionId
+        if (id == C.AUDIO_SESSION_ID_UNSET) {
+            id = audioManager.generateAudioSessionId()
+            if (id > 0) player.setAudioSessionId(id) else id = 0
+        }
+        return id
+    }
+
+    /** 0..100 extra percent. Returns false (and explains once) when the device can't amplify this audio. */
+    private fun setBoost(pct: Int): Boolean {
+        if (!playerReady) return false
+        if (pct > 0 && !Prefs.volumeBoost(this)) return false
+        val ok = boost.set(if (pct > 0) ensureAudioSession() else player.audioSessionId, pct)
+        if (!ok && pct > 0 && !boostWarned) {
+            boostWarned = true
+            toast("Volume boost isn't supported for this audio on your device")
+        }
+        return ok
+    }
+
+    /** Hardware volume keys continue into / out of the boost range when boost is enabled. */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (playerReady && boostAvailable() && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val up = keyCode == KeyEvent.KEYCODE_VOLUME_UP
+            if ((up && cur >= max) || (!up && boost.boostPct > 0 && cur >= max)) {
+                val p = (boost.boostPct + if (up) 10 else -10).coerceIn(0, 100)
+                if (setBoost(p)) {
+                    dragSide = Prefs.volumeSide(this)
+                    if (p > 0) showSideLevel(R.drawable.ic_volume, 100 + p, boosted = true) else showSideLevel(R.drawable.ic_volume, 100)
+                    handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 900)
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    // ------------------------------------------------------------------ v2.1: three-finger frame capture
+
+    /** Saves the current video frame (no controls or subtitles) to Pictures/VelaPlayer. */
+    private fun captureFrame() {
+        if (!playerReady) return
+        if (Build.VERSION.SDK_INT < 29 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestWrite.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE); return
+        }
+        if (player.videoFormat?.drmInitData != null) {
+            toast("This video is protected (DRM), so Android doesn't allow capturing its frames."); return
+        }
+        val vs = player.videoSize
+        if (vs.width <= 0 || vs.height <= 0) { toast("There's no video frame to capture yet."); return }
+        var w = (vs.width * (if (vs.pixelWidthHeightRatio > 0f) vs.pixelWidthHeightRatio else 1f)).roundToInt()
+        var h = vs.height
+        val scale = min(1f, 3840f / maxOf(w, h))
+        w = (w * scale).roundToInt().coerceAtLeast(1); h = (h * scale).roundToInt().coerceAtLeast(1)
+        val bmp = try { if (b.videoLayout.textureView.isAvailable) b.videoLayout.textureView.getBitmap(w, h) else null } catch (_: Throwable) { null }
+        if (bmp == null) { toast("Couldn't capture this frame. The video may be protected or not on screen yet."); return }
+        Motion.haptic(b.gestureLayer, long = true)
+        b.videoLayout.animate().cancel()
+        b.videoLayout.animate().alpha(0.35f).setDuration(70).withEndAction { b.videoLayout.animate().alpha(1f).setDuration(240).start() }.start()
+        val name = FrameCapture.fileName(player.currentMediaItem?.mediaMetadata?.title?.toString(), player.currentPosition)
+        val app = applicationContext
+        Thread {
+            val result = runCatching { FrameCapture.save(app, bmp, name) }
+            bmp.recycle()
+            runOnUiThread {
+                if (result.isSuccess) toast("Screenshot saved to Pictures/${FrameCapture.FOLDER}")
+                else toast("Couldn't save the screenshot: ${result.exceptionOrNull()?.message ?: "storage error"}")
+            }
+        }.start()
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()

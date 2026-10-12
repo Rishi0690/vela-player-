@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.1 player settings (kept separate from arrays.xml to keep merges clean). -->
+<resources>
+    <string-array name="long_press_speed_entries">
+        <item>0.25x</item><item>0.5x</item><item>0.75x</item><item>1.25x</item><item>1.5x</item><item>1.75x</item><item>2x</item><item>2.5x</item><item>3x</item><item>4x</item>
+    </string-array>
+    <string-array name="long_press_speed_values">
+        <item>0.25</item><item>0.5</item><item>0.75</item><item>1.25</item><item>1.5</item><item>1.75</item><item>2.0</item><item>2.5</item><item>3.0</item><item>4.0</item>
+    </string-array>
+</resources>
