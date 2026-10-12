@@ -1,0 +1,30 @@
+<resources>
+    <string-array name="aspect_entries">
+        <item>Fit to screen</item><item>Stretch</item><item>Zoom (crop)</item><item>Fill screen</item>
+        <item>Original size (100%)</item><item>16:9</item><item>4:3</item><item>21:9 Ultrawide</item><item>Auto (source ratio)</item>
+    </string-array>
+    <string-array name="aspect_values">
+        <item>FIT</item><item>STRETCH</item><item>ZOOM</item><item>FILL</item>
+        <item>ORIGINAL</item><item>R16_9</item><item>R4_3</item><item>R21_9</item><item>AUTO</item>
+    </string-array>
+    <string-array name="speed_entries">
+        <item>0.25x</item><item>0.5x</item><item>0.75x</item><item>1x</item><item>1.25x</item><item>1.5x</item><item>1.75x</item><item>2x</item><item>2.5x</item><item>3x</item><item>4x</item>
+    </string-array>
+    <string-array name="speed_values">
+        <item>0.25</item><item>0.5</item><item>0.75</item><item>1.0</item><item>1.25</item><item>1.5</item><item>1.75</item><item>2.0</item><item>2.5</item><item>3.0</item><item>4.0</item>
+    </string-array>
+    <string-array name="seek_entries"><item>5 seconds</item><item>10 seconds</item><item>15 seconds</item><item>30 seconds</item></string-array>
+    <string-array name="seek_values"><item>5</item><item>10</item><item>15</item><item>30</item></string-array>
+    <string-array name="orientation_entries"><item>Auto (match the video)</item><item>Landscape</item><item>Portrait</item><item>Follow device sensor</item></string-array>
+    <string-array name="orientation_values"><item>auto</item><item>landscape</item><item>portrait</item><item>sensor</item></string-array>
+    <string-array name="sub_color_entries"><item>White</item><item>Yellow</item><item>Cyan</item><item>Green</item><item>Pink</item><item>Light gray</item></string-array>
+    <string-array name="sub_color_values"><item>#FFFFFFFF</item><item>#FFFFEB3B</item><item>#FF00E5FF</item><item>#FF76FF03</item><item>#FFFF80AB</item><item>#FFBDBDBD</item></string-array>
+    <string-array name="sub_bg_entries"><item>Outline</item><item>Drop shadow</item><item>Semi-transparent box</item><item>Black box</item></string-array>
+    <string-array name="sub_bg_values"><item>outline</item><item>shadow</item><item>semi</item><item>black</item></string-array>
+    <string-array name="decoder_entries"><item>Hardware first (recommended)</item><item>Software only</item></string-array>
+    <string-array name="decoder_values"><item>hw</item><item>sw</item></string-array>
+    <string-array name="buffer_entries"><item>Low (saves data)</item><item>Normal</item><item>High (smoother on slow networks)</item></string-array>
+    <string-array name="buffer_values"><item>low</item><item>normal</item><item>high</item></string-array>
+    <string-array name="theme_entries"><item>Dark</item><item>Light</item><item>Follow system</item></string-array>
+    <string-array name="theme_values"><item>dark</item><item>light</item><item>system</item></string-array>
+</resources>

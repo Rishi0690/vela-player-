@@ -1,0 +1,7 @@
+<resources>
+    <color name="accent">#8B6CFF</color>
+    <color name="accent_dark">#5B3FD6</color>
+    <color name="bg_dark">#0E0D14</color>
+    <color name="surface_dark">#17151F</color>
+    <color name="launcher_bg">#16122B</color>
+</resources>

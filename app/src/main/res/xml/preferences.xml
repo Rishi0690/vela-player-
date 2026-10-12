@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="Playback" app:iconSpaceReserved="false">
+        <ListPreference app:key="default_aspect" app:title="Default aspect ratio" app:entries="@array/aspect_entries" app:entryValues="@array/aspect_values" app:defaultValue="FIT" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="remember_aspect" app:title="Remember last aspect ratio" app:summary="Start with the mode you picked last time" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="default_speed" app:title="Default playback speed" app:entries="@array/speed_entries" app:entryValues="@array/speed_values" app:defaultValue="1.0" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="remember_speed" app:title="Remember playback speed" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="seek_interval" app:title="Seek interval" app:entries="@array/seek_entries" app:entryValues="@array/seek_values" app:defaultValue="10" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="resume" app:title="Resume where you left off" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="autoplay_next" app:title="Auto-play next video" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="default_orientation" app:title="Default screen orientation" app:entries="@array/orientation_entries" app:entryValues="@array/orientation_values" app:defaultValue="auto" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="keep_screen_on" app:title="Keep screen awake while playing" app:defaultValue="true" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Gestures" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat app:key="gesture_double_tap_seek" app:title="Double-tap left/right to seek" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_double_tap_center" app:title="Double-tap center to play/pause" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_brightness" app:title="Swipe left side for brightness" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_volume" app:title="Swipe right side for volume" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_horizontal_seek" app:title="Swipe sideways to seek" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_pinch_zoom" app:title="Pinch to zoom, drag to pan" app:defaultValue="true" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Subtitles &amp; audio" app:iconSpaceReserved="false">
+        <SeekBarPreference app:key="sub_size" app:title="Subtitle size (%)" app:min="50" android:max="250" app:defaultValue="100" app:showSeekBarValue="true" app:iconSpaceReserved="false" />
+        <SeekBarPreference app:key="sub_position" app:title="Subtitle position from bottom (%)" app:min="0" android:max="40" app:defaultValue="8" app:showSeekBarValue="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="sub_color" app:title="Subtitle color" app:entries="@array/sub_color_entries" app:entryValues="@array/sub_color_values" app:defaultValue="#FFFFFFFF" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="sub_bg" app:title="Subtitle background" app:entries="@array/sub_bg_entries" app:entryValues="@array/sub_bg_values" app:defaultValue="outline" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="sub_auto" app:title="Turn on subtitles automatically" app:summary="Picks a track in your preferred language when a video has one" app:defaultValue="false" app:iconSpaceReserved="false" />
+        <EditTextPreference app:key="pref_sub_lang" app:title="Preferred subtitle language" app:dialogMessage="Language code, like en, hi or es" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <EditTextPreference app:key="pref_audio_lang" app:title="Preferred audio language" app:dialogMessage="Language code, like en, hi or ja" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Advanced" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat app:key="background_audio" app:title="Background audio" app:summary="Keep audio playing when you leave the player (shows a media notification)" app:defaultValue="false" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="auto_pip" app:title="Picture-in-picture when leaving" app:summary="Shrink to a floating window if you go Home during playback" app:defaultValue="false" app:iconSpaceReserved="false" />
+        <ListPreference app:key="decoder" app:title="Video decoder" app:entries="@array/decoder_entries" app:entryValues="@array/decoder_values" app:defaultValue="hw" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="buffer" app:title="Network buffer" app:entries="@array/buffer_entries" app:entryValues="@array/buffer_values" app:defaultValue="normal" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="theme" app:title="Theme" app:entries="@array/theme_entries" app:entryValues="@array/theme_values" app:defaultValue="dark" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <Preference app:key="reset_all" app:title="Reset all settings" app:summary="Restores defaults. Your playlists and favorites stay." app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+</PreferenceScreen>
