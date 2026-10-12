@@ -50,8 +50,36 @@
             android:layout_marginBottom="4dp"
             android:alpha="0.7"
             android:paddingHorizontal="4dp"
-            android:text="Hiding only removes videos from Vela. Files are not encrypted and stay visible in other apps and file managers."
+            android:text="@string/vault_not_encrypted"
             android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <!-- v2.3: count + Play all / Shuffle / Edit order (item_collection_header is inflated in here). -->
+        <FrameLayout
+            android:id="@+id/vaultHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <HorizontalScrollView
+            android:id="@+id/vaultFilterScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:scrollbars="none">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/vaultFilters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:selectionRequired="true"
+                app:singleLine="true"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip android:id="@+id/vaultFAll" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="All" />
+                <com.google.android.material.chip.Chip android:id="@+id/vaultFProgress" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="In progress" />
+                <com.google.android.material.chip.Chip android:id="@+id/vaultFUnwatched" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Unwatched" />
+                <com.google.android.material.chip.Chip android:id="@+id/vaultFWatched" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Watched" />
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
 
         <FrameLayout
             android:layout_width="match_parent"

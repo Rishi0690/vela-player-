@@ -7,7 +7,11 @@
     <Preference app:key="sec_playback" app:title="Playback" app:summary="Speed, aspect ratio, subtitles, audio, picture-in-picture" app:icon="@drawable/ic_play" />
     <Preference app:key="sec_playlists" app:title="Playlists &amp; selection" app:summary="Long-press, adding videos, playlist covers" app:icon="@drawable/ic_playlist" />
     <Preference app:key="sec_focus" app:title="Focus Mode" app:summary="Timer, goals, break reminders, Do Not Disturb, history" app:icon="@drawable/ic_focus" />
-    <Preference app:key="sec_vault" app:title="Hidden Vault" app:summary="Hide private videos, vault security, auto-lock" app:icon="@drawable/vault_ic_hide" />
+    <!-- v2.3: only the entry instructions live here; every vault setting is inside the vault itself. Removed at runtime
+         when "Hide Hidden Vault instructions from main Settings" is on (VaultAuth.hideInstructions). -->
+    <PreferenceCategory app:key="vault_section" app:title="Hidden Vault" app:iconSpaceReserved="true">
+        <Preference app:key="vault_instructions" app:selectable="false" app:title="How to open" app:summary="@string/vault_instructions" app:icon="@drawable/vault_ic_hide" />
+    </PreferenceCategory>
     <PreferenceCategory app:title="" app:iconSpaceReserved="true">
         <Preference app:key="reset_all" app:title="Reset all settings" app:summary="Restores defaults. Playlists, favorites, saved themes, focus history and the Hidden Vault stay." app:icon="@drawable/ic_replay" />
     </PreferenceCategory>

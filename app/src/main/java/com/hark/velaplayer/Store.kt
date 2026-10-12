@@ -111,6 +111,23 @@ object Store {
         savePlaylists(c, m)
         return fresh.size to skipped
     }
+    /**
+     * v2.3 manual order: [visibleOrder] is the new top-to-bottom order of the entries the user could see and drag.
+     * Entries not in it (e.g. videos hidden in the vault) keep their exact slots, so nothing is lost or moved
+     * between playlists. Unknown uris are ignored. Saved permanently in the playlist's own list.
+     */
+    fun reorderPlaylist(c: Context, name: String, visibleOrder: List<String>) {
+        val m = playlists(c); val l = m[name] ?: return
+        val byUri = l.associateBy { it.uri }
+        val moving = visibleOrder.distinct().mapNotNull { byUri[it] }
+        if (moving.isEmpty()) return
+        val movingSet = moving.map { it.uri }.toHashSet()
+        val it = moving.iterator()
+        val out = l.map { e -> if (e.uri in movingSet && it.hasNext()) it.next() else e }
+        if (out == l) return
+        m[name] = out.toMutableList(); savePlaylists(c, m)
+    }
+
     /** Removes entries from the playlist only. The video files are never deleted. */
     fun removeManyFromPlaylist(c: Context, name: String, uris: Collection<String>) {
         val set = uris.toSet(); val m = playlists(c); m[name]?.removeAll { it.uri in set }; savePlaylists(c, m)

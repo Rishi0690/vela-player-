@@ -46,6 +46,10 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 | `VideoPickerActivity.kt` | Multi-video picker for playlists: search, folder filter, ordered selection, document import, duplicate handling |
 | `SettingsActivity.kt` | Category settings screens |
 | `AspectFrameLayout.kt`, `Fmt.kt` | Helpers |
+| `Vault.kt` / `VaultAuth.kt` | Hidden Vault records (hidden list, custom order, vault-only resume) and credentials (PBKDF2 PIN/pattern, biometric flag, lockout, v2.3 setup choice none/pin/pattern, vault-only settings in `vela_vault_auth`) |
+| `VaultActivity.kt` / `VaultViews.kt` / `VaultBio.kt` | Vault screen: v2.3 welcome (security or no password), lock screen, vault library (Play all/Shuffle, filter, sort incl. custom order + drag reorder, multi-select bulk actions); PIN pad, pattern view, shared PIN/pattern flows, biometric prompt |
+| `VaultSettingsActivity.kt` | v2.3 vault settings, only reachable from inside the vault (security, auto-lock, hide main-Settings instructions, appearance, unhide all) |
+| `HoldTitleView.kt` | v2.3 Home "Vela Player" title: 5 s continuous hold opens the Hidden Vault |
 
 ## Resources
 - Layouts: `res/layout/` (`activity_*`, `item_*` list + `*_grid` variants, dialogs)

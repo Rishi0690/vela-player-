@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v2.3 Hidden Vault: exact wording shown in main Settings. -->
+    <string name="vault_instructions">To access your Hidden Vault, go to the Home screen and press and hold the Vela Player name for 5 seconds.</string>
+    <string name="vault_not_encrypted">Hiding only removes videos from Vela. Files are not encrypted and stay visible in other apps and file managers.</string>
+</resources>

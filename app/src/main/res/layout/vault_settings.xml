@@ -7,14 +7,14 @@
     android:orientation="vertical">
 
     <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/vaultSecToolbar"
+        android:id="@+id/vaultSetToolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:navigationIcon="@drawable/ic_arrow_back"
-        app:title="Vault security" />
+        app:title="Vault settings" />
 
     <ScrollView
-        android:id="@+id/vaultSecHost"
+        android:id="@+id/vaultSetHost"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
