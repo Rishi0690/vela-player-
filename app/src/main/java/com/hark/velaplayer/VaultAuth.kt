@@ -48,8 +48,42 @@ object VaultAuth {
     fun describe(c: Context): String = when (method(c)) {
         PIN -> if (biometricEnabled(c)) "Fingerprint / biometric, PIN as backup" else "PIN"
         PATTERN -> if (biometricEnabled(c)) "Fingerprint / biometric, pattern as backup" else "Pattern"
-        else -> "Not set up"
+        else -> if (setupDone(c)) "No password (opens without authentication)" else "Not set up"
     }
+
+    // ---------------------------------------------------------------- v2.3 setup choice + vault settings
+    // Kept in this private file (not the app settings) so "Reset all settings" never changes vault behaviour.
+
+    /** The welcome choice was made (security set up, or "Use without password"). v2.2 users with a PIN/pattern count as done. */
+    fun setupDone(c: Context): Boolean = sp(c).getBoolean("setup_done", false) || isConfigured(c)
+
+    /** "none" | "pin" | "pattern": the stored mode (NONE also covers password-free). */
+    fun mode(c: Context): String = if (isConfigured(c)) method(c) else NONE
+
+    /** Password-free vault: the user chose it on purpose (welcome or vault settings). */
+    fun isPasswordFree(c: Context) = setupDone(c) && !isConfigured(c)
+
+    /** Finishes the welcome flow; call after a secret was saved or "Use without password" was picked. */
+    fun completeSetup(c: Context) { sp(c).edit().putBoolean("setup_done", true).commit(); sync(c) }
+
+    /** Removes the PIN/pattern and biometric (callers verify the current method first). Hidden videos are untouched. */
+    fun clearSecret(c: Context) {
+        sp(c).edit().remove("method").remove("salt").remove("hash").remove("iter").remove("bio").remove("fails").remove("lock_until")
+            .putBoolean("setup_done", true).commit()
+        sync(c)
+    }
+
+    /** Keeps [Vault]'s in-memory password-free flag in step with the stored choice. Call at start-up and after changes. */
+    fun sync(c: Context) { Vault.setOpenWithoutAuth(isPasswordFree(c)) }
+
+    /** "Hide Hidden Vault instructions from main Settings" (default off). Only changeable inside the vault. */
+    fun hideInstructions(c: Context) = sp(c).getBoolean("hide_instructions", false)
+    fun setHideInstructions(c: Context, on: Boolean) = sp(c).edit().putBoolean("hide_instructions", on).apply()
+
+    fun showThumbnails(c: Context) = sp(c).getBoolean("show_thumbs", true)
+    fun setShowThumbnails(c: Context, on: Boolean) = sp(c).edit().putBoolean("show_thumbs", on).apply()
+
+    fun setLockAfterMin(c: Context, min: Int) = sp(c).edit().putString("lock_after", min.toString()).apply()
 
     // ---------------------------------------------------------------- secret
 
@@ -63,7 +97,9 @@ object VaultAuth {
             .putString("hash", Base64.encodeToString(hash, Base64.NO_WRAP))
             .putInt("iter", ITERATIONS)
             .remove("fails").remove("lock_until")
-            .apply()
+            .putBoolean("setup_done", true)
+            .commit()
+        sync(c)
     }
 
     sealed class Result {
@@ -114,13 +150,15 @@ object VaultAuth {
     // ---------------------------------------------------------------- session / inactivity
 
     /** "Lock after inactivity" in minutes; 0 = immediately (whenever the vault screen is left, even for the player). */
-    fun lockAfterMin(c: Context): Int = Prefs.sp(c).getString("vault_lock_after", "5")?.toIntOrNull()?.coerceAtLeast(0) ?: 5
+    fun lockAfterMin(c: Context): Int = (sp(c).getString("lock_after", null) ?: Prefs.sp(c).getString("vault_lock_after", "5"))
+        ?.toIntOrNull()?.coerceAtLeast(0) ?: 5
 
     @Volatile private var lastActive = 0L
     fun touch() { lastActive = SystemClock.elapsedRealtime() }
 
     /** True when an already unlocked vault may be shown again without asking (within the inactivity period). */
     fun sessionValid(c: Context): Boolean {
+        if (isPasswordFree(c)) return true
         if (!Vault.isUnlocked()) return false
         val min = lockAfterMin(c)
         if (min <= 0) return false

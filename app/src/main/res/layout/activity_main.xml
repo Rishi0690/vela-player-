@@ -14,8 +14,22 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Vela Player"
-            app:titleTextAppearance="@style/TextAppearance.Material3.HeadlineSmall" />
+            app:title=""
+            app:titleTextAppearance="@style/TextAppearance.Material3.HeadlineSmall">
+
+            <!-- v2.3: the app name is its own view (same look as the old toolbar title) so a 5 s hold can open the Hidden Vault. -->
+            <com.hark.velaplayer.HoldTitleView
+                android:id="@+id/l23AppTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|start"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:maxLines="1"
+                android:text="Vela Player"
+                android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+                android:textColor="?attr/colorOnSurface" />
+        </com.google.android.material.appbar.MaterialToolbar>
 
         <HorizontalScrollView
             android:id="@+id/chipScroll"

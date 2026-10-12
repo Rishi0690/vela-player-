@@ -1,0 +1,278 @@
+package com.hark.velaplayer
+
+import android.app.Activity
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.core.widget.TextViewCompat
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
+
+/**
+ * v2.3 Hidden Vault settings. Reachable only from inside an open vault (toolbar gear); never from main Settings.
+ *
+ * - Security: set / change PIN or pattern, fingerprint on top, switch method, or "No password". Every change to an
+ *   existing PIN/pattern is verified first (same counter + lockout as the lock screen). Going from no password to a
+ *   PIN/pattern needs no verification. Hidden videos are never touched by any of this.
+ * - Lock after inactivity (only with security), hide the main-Settings instructions, appearance, data, and the
+ *   honest note that hiding isn't encryption.
+ * Leaving the app from here locks a secured vault and closes this screen; a recreated screen whose vault is
+ * locked closes at once, so it can't be used to bypass the lock.
+ */
+class VaultSettingsActivity : ThemedActivity() {
+
+    private lateinit var host: ScrollView
+    private lateinit var toolbar: MaterialToolbar
+    /** The current method was confirmed in this visit (reset when the app is left). */
+    private var verified = false
+    private var inSubPanel = false
+    private var changed = false
+    /** Set while a switch is changed from code, so its listener doesn't run. */
+    private var quiet = false
+
+    private val back = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() { if (inSubPanel) showMain() else done() }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        VaultAuth.sync(this)
+        if (!Vault.isUnlocked()) { finish(); return }
+        setContentView(R.layout.vault_settings)
+        host = findViewById(R.id.vaultSetHost)
+        toolbar = findViewById(R.id.vaultSetToolbar)
+        toolbar.setNavigationOnClickListener { if (inSubPanel) showMain() else done() }
+        onBackPressedDispatcher.addCallback(this, back)
+        showMain()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!Vault.isUnlocked()) finish()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations && !isFinishing) {
+            verified = false
+            if (VaultAuth.isConfigured(this)) { Vault.lock(); finish() }
+        }
+    }
+
+    override fun onUserInteraction() { super.onUserInteraction(); if (Vault.isUnlocked()) VaultAuth.touch() }
+
+    private fun done() { setResult(if (changed) Activity.RESULT_OK else Activity.RESULT_CANCELED); finish() }
+
+    private fun setPanel(v: View, sub: Boolean, title: String = "Vault settings") {
+        inSubPanel = sub
+        toolbar.title = title
+        host.removeAllViews()
+        host.addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        host.scrollTo(0, 0)
+    }
+
+    private fun sub(v: View) = setPanel(v, true, "Vault security")
+
+    // ------------------------------------------------------------------ UI helpers
+
+    private val dp get() = resources.displayMetrics.density
+    private fun col() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, (4 * dp).toInt(), 0, (32 * dp).toInt()) }
+
+    private fun header(parent: LinearLayout, s: String) = parent.addView(TextView(this).apply {
+        text = s
+        TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+        setTextColor(ThemeManager.primary(this@VaultSettingsActivity))
+        setPadding((20 * dp).toInt(), (20 * dp).toInt(), (20 * dp).toInt(), (6 * dp).toInt())
+    })
+
+    private fun note(parent: LinearLayout, s: String) = parent.addView(TextView(this).apply {
+        text = s; alpha = 0.7f
+        TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+        setPadding((20 * dp).toInt(), (4 * dp).toInt(), (20 * dp).toInt(), (8 * dp).toInt())
+    })
+
+    private fun texts(title: String, summary: String?): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(TextView(context).apply { text = title; TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodyLarge) })
+        if (!summary.isNullOrBlank()) addView(TextView(context).apply {
+            text = summary; alpha = 0.7f
+            TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+        })
+    }
+
+    private fun rowBase(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = (64 * dp).toInt()
+        setPadding((20 * dp).toInt(), (10 * dp).toInt(), (20 * dp).toInt(), (10 * dp).toInt())
+    }
+
+    private fun row(parent: LinearLayout, title: String, summary: String?, danger: Boolean = false, onClick: () -> Unit) {
+        val r = rowBase()
+        val t = texts(title, summary)
+        if (danger) (t.getChildAt(0) as TextView).setTextColor(0xFFE5534B.toInt())
+        r.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val tv = android.util.TypedValue(); theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+        r.setBackgroundResource(tv.resourceId)
+        r.isClickable = true
+        r.setOnClickListener { onClick() }
+        parent.addView(r)
+    }
+
+    private fun switchRow(parent: LinearLayout, title: String, summary: String?, checked: Boolean, enabled: Boolean = true, onChange: (MaterialSwitch, Boolean) -> Unit) {
+        val r = rowBase()
+        r.addView(texts(title, summary), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val sw = MaterialSwitch(this)
+        sw.isChecked = checked; sw.isEnabled = enabled
+        sw.contentDescription = title
+        sw.setOnCheckedChangeListener { _, on -> if (!quiet) onChange(sw, on) }
+        r.setOnClickListener { if (sw.isEnabled) sw.toggle() }
+        if (!enabled) r.alpha = 0.5f
+        r.addView(sw)
+        parent.addView(r)
+    }
+
+    // ------------------------------------------------------------------ main page
+
+    private fun showMain() {
+        val c = col()
+        val secured = VaultAuth.isConfigured(this)
+        val m = VaultAuth.method(this)
+
+        header(c, "Security")
+        note(c, "Unlock: " + VaultAuth.describe(this))
+        if (secured) {
+            row(c, if (m == VaultAuth.PIN) "Change PIN" else "Switch to PIN", "Your current ${word()} is needed first") { verifyThen("to change vault security") { newSecret(VaultAuth.PIN) } }
+            row(c, if (m == VaultAuth.PATTERN) "Change pattern" else "Switch to pattern", "Your current ${word()} is needed first") { verifyThen("to change vault security") { newSecret(VaultAuth.PATTERN) } }
+        } else {
+            row(c, "Set up a PIN", "Ask for a PIN every time the vault opens. Your hidden videos stay as they are.") { newSecret(VaultAuth.PIN) }
+            row(c, "Set up a pattern", "Ask for a pattern every time the vault opens. Your hidden videos stay as they are.") { newSecret(VaultAuth.PATTERN) }
+        }
+        when {
+            VaultAuth.biometricAvailable(this) -> switchRow(c, "Unlock with fingerprint / biometric",
+                if (secured) "Your ${word()} stays as the backup" else "Set up a PIN or pattern first; it's the backup when fingerprint can't be used",
+                VaultAuth.biometricEnabled(this), enabled = secured) { s, on -> toggleBio(s, on) }
+            VaultAuth.biometricNeedsEnroll(this) -> note(c, "Fingerprint unlock: add a fingerprint in Android's Settings › Security first. Until then, use a PIN or pattern.")
+            else -> note(c, "Fingerprint unlock isn't available on this phone. Use a PIN or pattern instead.")
+        }
+        if (secured) row(c, "Use without password", "The vault will open without any authentication") {
+            verifyThen("to remove vault security") { confirmNoPassword() }
+        } else note(c, "The vault currently opens without any authentication. Anyone who holds the Vela Player name on the Home screen for 5 seconds can open it.")
+
+        if (secured) {
+            header(c, "Auto-lock")
+            val labels = resources.getStringArray(R.array.vault_lock_entries)
+            val values = resources.getStringArray(R.array.vault_lock_values)
+            val cur = values.indexOf(VaultAuth.lockAfterMin(this).toString()).coerceAtLeast(0)
+            row(c, "Lock after inactivity", labels[cur]) {
+                MaterialAlertDialogBuilder(this).setTitle("Lock after inactivity")
+                    .setSingleChoiceItems(labels, cur) { d, i -> VaultAuth.setLockAfterMin(this, values[i].toInt()); d.dismiss(); showMain() }
+                    .setNegativeButton("Cancel", null).show()
+            }
+            note(c, "The vault always locks when you close it or leave the app.")
+        }
+
+        header(c, "Main Settings")
+        switchRow(c, "Hide Hidden Vault instructions from main Settings",
+            "Removes the Hidden Vault section from Vela's Settings. Holding the Vela Player name on Home for 5 seconds still opens the vault.",
+            VaultAuth.hideInstructions(this)) { _, on ->
+            VaultAuth.setHideInstructions(this, on)
+            toast(if (on) "Instructions hidden from Settings" else "Instructions shown in Settings again")
+        }
+
+        header(c, "Appearance & privacy")
+        switchRow(c, "Grid view by default", "Show the vault as a grid instead of a list", Prefs.viewMode(this, "vault") == "grid") { _, on ->
+            Prefs.setViewMode(this, "vault", if (on) "grid" else "list"); changed = true
+        }
+        switchRow(c, "Show thumbnails", "Off shows a plain icon instead of a frame from each video", VaultAuth.showThumbnails(this)) { _, on ->
+            VaultAuth.setShowThumbnails(this, on); changed = true
+        }
+
+        header(c, "Data")
+        val n = Vault.count(this)
+        row(c, "Unhide all videos", if (n == 0) "The vault is empty" else "Return all $n video${if (n == 1) "" else "s"} to the normal library", danger = n > 0) {
+            if (n == 0) return@row
+            MaterialAlertDialogBuilder(this).setTitle("Unhide all $n video${if (n == 1) "" else "s"}?")
+                .setMessage("They go back to the normal library with their resume points. No files are deleted, moved or changed.")
+                .setPositiveButton("Unhide all") { _, _ ->
+                    Vault.unhide(this, Vault.items(this).map { it.uri }); changed = true
+                    toast("All videos are back in the library"); showMain()
+                }.setNegativeButton("Cancel", null).show()
+        }
+        row(c, "Reset custom order", "Go back to newest hidden first. Videos stay in the vault.") {
+            Vault.setOrder(this, emptyList()); changed = true; toast("Custom order reset")
+        }
+
+        header(c, "About hiding")
+        note(c, getString(R.string.vault_not_encrypted) + " The vault is app-level privacy, not file encryption.")
+        setPanel(c, false)
+    }
+
+    private fun word() = if (VaultAuth.method(this) == VaultAuth.PIN) "PIN" else "pattern"
+
+    // ------------------------------------------------------------------ actions
+
+    private fun verifyThen(reason: String, then: () -> Unit) {
+        if (verified || !VaultAuth.isConfigured(this)) { then(); return }
+        VaultSecretFlow.verify(this, reason, ::sub, onCancel = { showMain() }, onOk = { verified = true; then() })
+    }
+
+    private fun newSecret(method: String) {
+        VaultSecretFlow.enterNew(this, method, ::sub, onCancel = { showMain() }, onDone = { s ->
+            val wasFree = !VaultAuth.isConfigured(this)
+            // Stay inside the vault: it's unlocked now and simply asks next time.
+            VaultAuth.unlockNow()
+            VaultAuth.setSecret(this, method, s)
+            VaultAuth.unlockNow()
+            verified = true; changed = true
+            toast(if (method == VaultAuth.PIN) "PIN saved" else "Pattern saved")
+            if (wasFree && VaultAuth.biometricAvailable(this)) offerBio() else showMain()
+        })
+    }
+
+    private fun offerBio() {
+        MaterialAlertDialogBuilder(this).setTitle("Also unlock with fingerprint?")
+            .setMessage("Your ${word()} stays as the backup when fingerprint can't be used.")
+            .setPositiveButton("Use fingerprint") { _, _ ->
+                VaultBio.prompt(this, "Confirm fingerprint", "Cancel",
+                    onOk = { VaultAuth.setBiometric(this, true); toast("Fingerprint unlock is on"); showMain() },
+                    onFail = { msg -> msg?.let { toast(it) }; showMain() })
+            }
+            .setNegativeButton("Not now") { _, _ -> showMain() }
+            .setOnCancelListener { showMain() }
+            .show()
+    }
+
+    private fun toggleBio(s: MaterialSwitch, on: Boolean) {
+        quiet = true; s.isChecked = !on; quiet = false // only changes after verification
+        verifyThen(if (on) "to turn on fingerprint unlock" else "to turn off fingerprint unlock") {
+            if (!on) { VaultAuth.setBiometric(this, false); toast("Fingerprint unlock is off"); showMain(); return@verifyThen }
+            VaultBio.prompt(this, "Confirm fingerprint", "Cancel",
+                onOk = { VaultAuth.setBiometric(this, true); toast("Fingerprint unlock is on"); showMain() },
+                onFail = { msg -> msg?.let { toast(it) }; showMain() })
+        }
+    }
+
+    private fun confirmNoPassword() {
+        showMain()
+        MaterialAlertDialogBuilder(this).setTitle("Use the vault without a password?")
+            .setMessage("The Hidden Vault will open without any authentication, so anyone with your phone who holds the Vela Player name on the Home screen can see your hidden videos. Your hidden videos stay in the vault. You can set up security again here at any time.")
+            .setPositiveButton("Remove security") { _, _ ->
+                VaultAuth.clearSecret(this)
+                changed = true
+                toast("The vault now opens without a password")
+                showMain()
+            }
+            .setNegativeButton("Keep security", null).show()
+    }
+
+    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+}

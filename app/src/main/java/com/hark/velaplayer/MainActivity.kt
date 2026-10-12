@@ -37,6 +37,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -141,8 +142,16 @@ class MainActivity : ThemedActivity() {
     private val selected = LinkedHashSet<String>()
     private val selecting get() = actionMode != null
 
+    // ---- v2.3: playlist "Edit order" (drag & drop, saved in Store) ----
+    private var reorderMode: ActionMode? = null
+    private val reordering get() = reorderMode != null
+    /** The playlist being reordered (the order is saved into this one only). */
+    private var reorderPlaylistName: String? = null
+    private var reorderDirty = false
+    private lateinit var touchHelper: ItemTouchHelper
+
     private val backCallback = object : OnBackPressedCallback(false) {
-        override fun handleOnBackPressed() { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
+        override fun handleOnBackPressed() { reorderMode?.finish(); openPlaylist = null; openFolder = null; filter = "all"; refresh() }
     }
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { loadLibrary() }
@@ -172,6 +181,8 @@ class MainActivity : ThemedActivity() {
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
         setSupportActionBar(b.toolbar)
+        // v2.3: the app name is the HoldTitleView inside the toolbar (same look), not the action bar title.
+        supportActionBar?.setDisplayShowTitleEnabled(false)
         onBackPressedDispatcher.addCallback(this, backCallback)
 
         sort = Prefs.sp(this).getString("library_sort", "date_desc") ?: "date_desc"
@@ -185,12 +196,15 @@ class MainActivity : ThemedActivity() {
         b.list.layoutManager = grid
         b.list.adapter = adapter
         b.list.layoutAnimation = android.view.animation.AnimationUtils.loadLayoutAnimation(this, R.anim.list_layout)
+        touchHelper = ItemTouchHelper(reorderCallback).also { it.attachToRecyclerView(b.list) }
+        setupVaultHold()
         (b.list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
         b.list.itemAnimator?.apply { addDuration = 260; removeDuration = 200; moveDuration = 260 }
         // Toolbar gets a soft shadow once the list scrolls under it.
         val lift = 4 * resources.displayMetrics.density
         b.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (dy != 0) b.l23AppTitle.cancelHold()
                 val target = if (rv.canScrollVertically(-1)) lift else 0f
                 if (b.toolbar.tag != target) {
                     b.toolbar.tag = target
@@ -220,6 +234,8 @@ class MainActivity : ThemedActivity() {
                 else -> Tab.FOLDERS
             }
             if (newTab == tab) return@setOnCheckedStateChangeListener
+            b.l23AppTitle.cancelHold()
+            reorderMode?.finish()
             Motion.haptic(group)
             val dir = if (tabOrder().indexOf(newTab) > tabOrder().indexOf(tab)) 1 else -1
             tab = newTab
@@ -235,18 +251,19 @@ class MainActivity : ThemedActivity() {
         }
         b.tabSwipe.host = object : TabSwipeLayout.Host {
             override fun canSwipeTo(direction: Int): Boolean {
-                if (selecting || !Prefs.swipeTabs(this@MainActivity)) return false
+                if (selecting || reordering || !Prefs.swipeTabs(this@MainActivity)) return false
                 val i = tabOrder().indexOf(tab) + direction
                 return i in tabOrder().indices
             }
             override fun onSwipeTo(direction: Int) {
+                b.l23AppTitle.cancelHold()
                 val next = tabOrder().getOrNull(tabOrder().indexOf(tab) + direction) ?: return
                 swipeSwitching = true
                 chipFor(next).isChecked = true
                 swipeSwitching = false
             }
         }
-        b.header.setOnClickListener { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
+        b.header.setOnClickListener { reorderMode?.finish(); openPlaylist = null; openFolder = null; filter = "all"; refresh() }
         b.fab.setOnClickListener { newPlaylistDialog(null, openPickerAfter = true) }
         b.btnGrant.setOnClickListener { requestPermission() }
         b.accessBannerButton.setOnClickListener { openAppSettings() }
@@ -300,6 +317,8 @@ class MainActivity : ThemedActivity() {
 
     override fun onPause() {
         super.onPause()
+        b.l23AppTitle.cancelHold()
+        if (reorderDirty) saveReorder()
         rememberScroll()
         saveUiState()
     }
@@ -610,7 +629,7 @@ class MainActivity : ThemedActivity() {
                     listOfNotNull(countText(list.size), Fmt.time(totalDuration(list)).takeIf { list.isNotEmpty() },
                         if (missing > 0) "$missing unavailable" else null).joinToString(" · "),
                     coversFor(list))
-                list.forEach { rows += videoRow(it) }
+                playlistSorted(list.map { videoRow(it) }).forEach { rows += it }
             }
         }
 
@@ -632,7 +651,8 @@ class MainActivity : ThemedActivity() {
 
         val ctxKey = screenKey()
         val newScreen = ctxKey != lastScreenKey
-        if (newScreen && lastScreenKey.isNotEmpty()) { actionMode?.finish(); rememberScroll(lastScreenKey) }
+        if (newScreen && lastScreenKey.isNotEmpty()) { actionMode?.finish(); if (reordering && openPlaylist != reorderPlaylistName) reorderMode?.finish(); rememberScroll(lastScreenKey) }
+        updateReorderMenu()
         lastScreenKey = ctxKey
         applyViewMode(animate = false)
         // Selection survives actions; anything that disappeared (deleted, removed) drops out of it.
@@ -714,9 +734,14 @@ class MainActivity : ThemedActivity() {
         sv.queryHint = "Search videos"
         sv.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(q: String?): Boolean { sv.clearFocus(); return true }
-            override fun onQueryTextChange(q: String?): Boolean { query = q ?: ""; refresh(); return true }
+            override fun onQueryTextChange(q: String?): Boolean {
+                val nq = q ?: ""
+                if (nq.isNotBlank() && reordering) reorderMode?.finish()
+                query = nq; refresh(); return true
+            }
         })
         applyViewMode(animate = false)
+        updateReorderMenu()
         return true
     }
 
@@ -727,8 +752,9 @@ class MainActivity : ThemedActivity() {
                 Prefs.setViewMode(this, section(), now)
                 applyViewMode(animate = true)
             }
-            R.id.action_sort -> sortDialog()
-            R.id.action_select -> startSelection(null)
+            R.id.action_sort -> if (tab == Tab.PLAYLISTS && openPlaylist != null) playlistSortDialog() else sortDialog()
+            R.id.l23_action_reorder -> startReorder()
+            R.id.action_select -> if (reordering) toast("Tap ✓ to finish editing the order first") else startSelection(null)
             R.id.action_focus -> startActivity(Intent(this, FocusActivity::class.java))
             R.id.action_open_url -> urlDialog()
             R.id.action_open_file -> openFile.launch(arrayOf("video/*"))
@@ -810,6 +836,7 @@ class MainActivity : ThemedActivity() {
 
     private fun onVideoClick(position: Int) {
         val row = adapter.rows.getOrNull(position) as? Row.Video ?: return
+        if (reordering) return
         if (selecting) { toggleSelection(position); return }
         if (row.unavailable) { toast("This video was moved or deleted. Long-press to remove it."); return }
         val videos = adapter.rows.filterIsInstance<Row.Video>().filter { !it.unavailable }
@@ -834,6 +861,7 @@ class MainActivity : ThemedActivity() {
     private fun selectableRows(): List<Row> = adapter.rows.filter { if (selectingPlaylists()) it is Row.Playlist else it is Row.Video }
 
     private fun startSelection(first: Row?) {
+        if (reordering) return
         if (selectableRows().isEmpty()) { toast("Nothing to select here"); return }
         if (actionMode == null) actionMode = startSupportActionMode(selectionCallback)
         b.fab.hide()
@@ -997,6 +1025,7 @@ class MainActivity : ThemedActivity() {
 
 
     private fun onVideoLongPress(row: Row.Video, position: Int) {
+        if (reordering) return
         if (selecting) { toggleSelection(position); return }
         if (Prefs.longPressAction(this) == "select") startSelection(row) else onVideoOptions(row)
     }
@@ -1079,6 +1108,9 @@ class MainActivity : ThemedActivity() {
         a += Action("Play all", R.drawable.ic_play) { play(entries(), 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
         a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries().shuffled(), 0, shuffled = true, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
         a += Action("Add videos", R.drawable.ic_playlist_add) { openPicker(row.name) }
+        if (row.count > 1) a += Action("Edit order", R.drawable.l23_ic_drag_handle) {
+            openPlaylist = row.name; filter = "all"; refresh(); b.list.post { startReorder() }
+        }
         a += Action("Select", R.drawable.ic_select) { startSelection(row) }
         a += Action("Rename", R.drawable.ic_edit) { newPlaylistDialog(row.name) }
         a += Action("Delete playlist", R.drawable.ic_delete, danger = true) {
@@ -1276,12 +1308,11 @@ class MainActivity : ThemedActivity() {
         val list = entries.distinctBy { it.uri }
         if (list.isEmpty()) return
         val n = list.size
-        val setUp = VaultAuth.isConfigured(this)
         MaterialAlertDialogBuilder(this)
             .setTitle(if (n == 1) "Hide this video?" else "Hide $n videos?")
             .setMessage("${if (n == 1) "It" else "They"} will only be removed from Vela's library and kept in the Hidden Vault " +
-                "(Settings › Hidden Vault). Files are not deleted, moved or encrypted and stay visible in other apps and file managers." +
-                if (setUp) "" else "\n\nSet up a PIN or pattern in Settings › Hidden Vault to open the vault.")
+                "(press and hold the Vela Player name on Home for 5 seconds to open it). Files are not deleted, moved or encrypted " +
+                "and stay visible in other apps and file managers.")
             .setPositiveButton("Hide") { _, _ ->
                 val added = Vault.hide(this, list)
                 actionMode?.finish()
@@ -1382,6 +1413,11 @@ class MainActivity : ThemedActivity() {
             is Row.Header -> "header"
         }
         fun key(r: Row): String = keyOf(r)
+        /** v2.3 drag & drop: moves one row (no rebuild, so the dragged view keeps following the finger). */
+        fun move(from: Int, to: Int) {
+            val l = rows.toMutableList(); val r = l.removeAt(from); l.add(to, r); rows = l
+            notifyItemMoved(from, to)
+        }
         /** New screen: rebuild and play the staggered entrance. Same screen: animate only what changed. */
         @android.annotation.SuppressLint("NotifyDataSetChanged")
         fun submit(r: List<Row>, newScreen: Boolean) {
@@ -1453,9 +1489,11 @@ class MainActivity : ThemedActivity() {
 
     /** The views a video row needs, from either the list or the grid layout. */
     class VideoViews(val root: View, val thumb: ImageView, val title: TextView, val subtitle: TextView, val duration: TextView,
-                     val progress: LinearProgressIndicator, val fav: ImageView, val watched: ImageView, val more: ImageButton, val check: TextView) {
+                     val progress: LinearProgressIndicator, val fav: ImageView, val watched: ImageView, val more: ImageButton, val check: TextView,
+                     /** v2.3 drag handle (list layout only; the grid drags with a long press). */
+                     val handle: ImageView? = null) {
         companion object {
-            fun of(v: ItemVideoBinding) = VideoViews(v.root, v.thumb, v.title, v.subtitle, v.durationBadge, v.progress, v.favIcon, v.watchedIcon, v.more, v.selectCheck)
+            fun of(v: ItemVideoBinding) = VideoViews(v.root, v.thumb, v.title, v.subtitle, v.durationBadge, v.progress, v.favIcon, v.watchedIcon, v.more, v.selectCheck, v.l23DragHandle)
             fun of(v: ItemVideoGridBinding) = VideoViews(v.root, v.thumb, v.title, v.subtitle, v.durationBadge, v.progress, v.favIcon, v.watchedIcon, v.more, v.selectCheck)
         }
     }
@@ -1477,9 +1515,17 @@ class MainActivity : ThemedActivity() {
         private var row: Row.Video? = null
         init {
             v.root.setOnClickListener { val p = bindingAdapterPosition; if (p != RecyclerView.NO_POSITION) onVideoClick(p) }
-            v.root.setOnLongClickListener { val p = bindingAdapterPosition; val r = row; if (p != RecyclerView.NO_POSITION && r != null) { Motion.haptic(it, true); onVideoLongPress(r, p) }; true }
+            v.root.setOnLongClickListener {
+                val p = bindingAdapterPosition; val r = row
+                if (reordering) { if (p != RecyclerView.NO_POSITION) { Motion.haptic(it, true); touchHelper.startDrag(this) }; return@setOnLongClickListener true }
+                if (p != RecyclerView.NO_POSITION && r != null) { Motion.haptic(it, true); onVideoLongPress(r, p) }; true
+            }
             v.more.setOnClickListener { row?.let { onVideoOptions(it) } }
             Motion.pressable(v.root, 0.97f)
+            v.handle?.setOnTouchListener { h, e ->
+                if (reordering && e.actionMasked == android.view.MotionEvent.ACTION_DOWN) { Motion.haptic(h); touchHelper.startDrag(this) }
+                false
+            }
         }
         fun bind(row: Row.Video) {
             this.row = row
@@ -1512,7 +1558,12 @@ class MainActivity : ThemedActivity() {
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
             bindSelection()
         }
-        fun bindSelection() { showSelection(v.root, v.check, row?.let { selKey(it) }); v.more.isVisible = !selecting }
+        fun bindSelection() {
+            showSelection(v.root, v.check, row?.let { selKey(it) })
+            v.more.isVisible = !selecting && !reordering
+            v.handle?.isVisible = reordering
+            if (reordering) v.root.contentDescription = "${row?.entry?.title ?: "Video"}. " + if (adapter.grid) "Long-press and drag to move" else "Drag the handle to move"
+        }
     }
 
     private inner class FolderVH(val v: FolderViews) : RecyclerView.ViewHolder(v.root) {
@@ -1590,12 +1641,15 @@ class MainActivity : ThemedActivity() {
             v.btnPlayAll.setOnClickListener { playCollection(false) }
             v.btnShuffle.setOnClickListener { playCollection(true) }
             v.btnAdd.setOnClickListener { openPlaylist?.let { openPicker(it) } }
+            v.l23BtnReorder.setOnClickListener { if (reordering) reorderMode?.finish() else startReorder() }
             Motion.pressable(v.btnPlayAll, 0.95f); Motion.pressable(v.btnShuffle, 0.95f); Motion.pressable(v.btnAdd, 0.9f)
         }
         fun bind(row: Row.Header) {
             v.title.text = row.title
             v.subtitle.text = row.subtitle
             v.btnAdd.isVisible = row.playlist
+            v.l23BtnReorder.isVisible = row.playlist && adapter.rows.count { it is Row.Video } > 1
+            v.l23BtnReorder.isChecked = reordering
             v.cover.isVisible = row.playlist
             if (row.playlist) ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context))
         }
@@ -1657,6 +1711,129 @@ class MainActivity : ThemedActivity() {
             v.filters.setOnCheckedStateChangeListener { _, ids ->
                 val nf = when (ids.firstOrNull()) { R.id.fProgress -> "progress"; R.id.fUnwatched -> "unwatched"; R.id.fWatched -> "watched"; else -> "all" }
                 if (nf != filter) { filter = nf; b.list.post { refresh() } }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ v2.3 playlist order
+
+    /** Display order of the open playlist: the saved custom order unless the user picked another sort. */
+    private fun playlistSorted(rows: List<Row.Video>): List<Row.Video> = when (Prefs.sp(this).getString("l23_playlist_sort", "custom")) {
+        "name_asc" -> rows.sortedBy { it.entry.title.lowercase() }
+        "name_desc" -> rows.sortedByDescending { it.entry.title.lowercase() }
+        "duration_desc" -> rows.sortedByDescending { it.item?.durationMs ?: Store.duration(this, it.entry.uri) }
+        "duration_asc" -> rows.sortedBy { it.item?.durationMs ?: Store.duration(this, it.entry.uri) }
+        else -> rows
+    }
+
+    private fun playlistSortDialog() {
+        val labels = arrayOf("Custom order (your arrangement)", "Name A–Z", "Name Z–A", "Longest first", "Shortest first")
+        val keys = arrayOf("custom", "name_asc", "name_desc", "duration_desc", "duration_asc")
+        val cur = Prefs.sp(this).getString("l23_playlist_sort", "custom")
+        MaterialAlertDialogBuilder(this).setTitle("Sort playlist by")
+            .setSingleChoiceItems(labels, keys.indexOf(cur).coerceAtLeast(0)) { d, i ->
+                Prefs.sp(this).edit().putString("l23_playlist_sort", keys[i]).apply()
+                if (keys[i] != "custom") reorderMode?.finish()
+                refresh(); d.dismiss()
+            }.show()
+    }
+
+    private fun updateReorderMenu() {
+        menuRef?.findItem(R.id.l23_action_reorder)?.isVisible = tab == Tab.PLAYLISTS && openPlaylist != null && !reordering
+    }
+
+    /** Enters "Edit order" for the open playlist (multi-select, search and tab swipes are off meanwhile). */
+    private fun startReorder() {
+        val pl = openPlaylist ?: return
+        if (reordering) return
+        if (query.isNotBlank()) { toast("Clear the search to edit the order"); return }
+        if (adapter.rows.count { it is Row.Video } < 2) { toast("Add at least two videos to arrange them"); return }
+        actionMode?.finish()
+        if (Prefs.sp(this).getString("l23_playlist_sort", "custom") != "custom") {
+            Prefs.sp(this).edit().putString("l23_playlist_sort", "custom").apply()
+            toast("Showing your custom order")
+            refresh()
+        }
+        reorderPlaylistName = pl
+        reorderDirty = false
+        reorderMode = startSupportActionMode(reorderActionCallback)
+        b.swipeRefresh.isEnabled = false
+        b.fab.hide()
+        adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL)
+        adapter.rows.indexOfFirst { it is Row.Header }.takeIf { it >= 0 }?.let { adapter.notifyItemChanged(it) }
+        updateReorderMenu()
+    }
+
+    private fun saveReorder() {
+        val pl = reorderPlaylistName ?: return
+        if (!reorderDirty) return
+        reorderDirty = false
+        Store.reorderPlaylist(this, pl, adapter.rows.filterIsInstance<Row.Video>().map { it.entry.uri })
+    }
+
+    private val reorderActionCallback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            mode.title = "Edit order"
+            mode.subtitle = if (adapter.grid) "Long-press a video, then drag it" else "Drag ☰ to move a video"
+            return true
+        }
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
+        override fun onDestroyActionMode(mode: ActionMode) {
+            saveReorder()
+            reorderMode = null
+            reorderPlaylistName = null
+            b.swipeRefresh.isEnabled = true
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL)
+            adapter.rows.indexOfFirst { it is Row.Header }.takeIf { it >= 0 }?.let { adapter.notifyItemChanged(it) }
+            updateReorderMenu()
+        }
+    }
+
+    private val reorderCallback = object : ItemTouchHelper.Callback() {
+        private val lift get() = 10 * resources.displayMetrics.density
+        override fun isLongPressDragEnabled() = false
+        override fun isItemViewSwipeEnabled() = false
+        override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
+            if (!reordering || vh !is VideoVH) return 0
+            val dirs = if (adapter.grid) ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
+            else ItemTouchHelper.UP or ItemTouchHelper.DOWN
+            return makeMovementFlags(dirs, 0)
+        }
+        override fun canDropOver(rv: RecyclerView, current: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder) = target is VideoVH
+        override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+            val from = vh.bindingAdapterPosition; val to = target.bindingAdapterPosition
+            if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+            if (adapter.rows.getOrNull(to) !is Row.Video) return false
+            adapter.move(from, to)
+            reorderDirty = true
+            Motion.haptic(rv)
+            return true
+        }
+        override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
+        override fun onSelectedChanged(vh: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(vh, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
+                vh.itemView.animate().translationZ(lift).scaleX(1.03f).scaleY(1.03f).alpha(0.96f).setDuration(160).setInterpolator(Motion.emphasized).start()
+                vh.itemView.isActivated = true
+            }
+        }
+        override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+            super.clearView(rv, vh)
+            vh.itemView.animate().translationZ(0f).scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).setInterpolator(Motion.emphasized).start()
+            vh.itemView.isActivated = false
+            saveReorder() // every drop is saved right away
+        }
+    }
+
+    // ------------------------------------------------------------------ v2.3 Home → Hidden Vault
+
+    /** Holding the "Vela Player" name for 5 s opens the Hidden Vault (welcome on first use, else its lock screen). */
+    private fun setupVaultHold() {
+        b.l23AppTitle.canHold = { !selecting && !reordering }
+        b.l23AppTitle.onHoldComplete = {
+            if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                try { startActivity(Intent(this, VaultActivity::class.java)) } catch (_: Exception) { }
             }
         }
     }

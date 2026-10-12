@@ -22,6 +22,14 @@ import androidx.appcompat.view.ActionMode
 import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.ItemTouchHelper
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.core.widget.TextViewCompat
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.chip.ChipGroup
+import com.hark.velaplayer.databinding.ItemCollectionHeaderBinding
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -31,7 +39,13 @@ import com.hark.velaplayer.databinding.ItemVideoGridBinding
 import java.util.concurrent.Executors
 
 /**
- * Hidden Vault (v2.2). Authenticates before anything is shown; FLAG_SECURE keeps the app-switcher preview blank.
+ * Hidden Vault (v2.2, reworked in v2.3).
+ *
+ * v2.3: opened by holding the Vela Player name on Home for 5 s. The first visit shows a welcome screen
+ * (set up PIN / pattern / fingerprint, or use without password). A password-free vault opens straight away;
+ * a secured one keeps the v2.2 lock rules below. Vault settings live only inside the vault (toolbar gear).
+ *
+ * v2.2: Authenticates before anything is shown; FLAG_SECURE keeps the app-switcher preview blank.
  *
  * Locking: closing the vault, leaving it (background / another app), the inactivity timer, and any normal library
  * screen resuming all call [Vault.lock]. The one exception is launching the player (or the "Add videos" picker)
@@ -57,17 +71,24 @@ class VaultActivity : ThemedActivity() {
     private var rows: List<VRow> = emptyList()
     private var shown: List<VRow> = emptyList()
     private var query = ""
-    private var sort = "hidden"
+    private var sort = "custom"
+    /** v2.3 filter: all, progress, unwatched, watched. */
+    private var filter = "all"
     private var gridMode = false
+    private var thumbs = true
+    private lateinit var header: ItemCollectionHeaderBinding
+    private lateinit var filters: ChipGroup
+    private lateinit var touchHelper: ItemTouchHelper
+    /** v2.3 "Edit order" (custom order drag & drop), saved in [Vault.setOrder]. */
+    private var reorderMode: ActionMode? = null
+    private var reorderDirty = false
     private var menuRef: Menu? = null
     private var panel: VaultLockPanel? = null
     private var autoBioTried = false
-    /** Set while the player / picker / setup screen is opened from here, so onStop doesn't lock for that trip. */
+    /** Set while the player / picker / settings screen is opened from here, so onStop doesn't lock for that trip. */
     private var childOpen = false
-    /** The trip is to the player (inactivity / "Immediately" apply on return). The picker and security screens lock on their own background. */
+    /** The trip is to the player (inactivity / "Immediately" apply on return). The picker and settings screens lock on their own background. */
     private var childIsPlayer = false
-    /** Nothing was configured when setup started (only then does a successful setup open the vault). */
-    private var setupFromScratch = false
 
     private var actionMode: ActionMode? = null
     private val selected = LinkedHashSet<String>()
@@ -79,12 +100,13 @@ class VaultActivity : ThemedActivity() {
         }
     }
 
-    private val setupLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+    private val settingsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
         childOpen = false
-        if (r.resultCode == Activity.RESULT_OK && setupFromScratch && VaultAuth.isConfigured(this)) {
-            setupFromScratch = false
-            VaultAuth.unlockNow(); render()
-        } else render()
+        // Settings may have unhidden videos, changed the order, view or thumbnails: always reload.
+        gridMode = Prefs.viewMode(this, "vault") == "grid"
+        thumbs = VaultAuth.showThumbnails(this)
+        rows = emptyList()
+        render()
     }
 
     private val pickLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -115,6 +137,18 @@ class VaultActivity : ThemedActivity() {
         list = findViewById(R.id.vaultList)
         empty = findViewById(R.id.vaultEmpty)
         addFab = findViewById(R.id.vaultAdd)
+        filters = findViewById(R.id.vaultFilters)
+        header = ItemCollectionHeaderBinding.inflate(layoutInflater, findViewById(R.id.vaultHeader), true)
+        header.cover.isVisible = false
+        header.btnAdd.isVisible = false
+        header.btnPlayAll.setOnClickListener { playAll(false) }
+        header.btnShuffle.setOnClickListener { playAll(true) }
+        header.l23BtnReorder.setOnClickListener { if (reorderMode != null) reorderMode?.finish() else startReorder() }
+        Motion.pressable(header.btnPlayAll, 0.95f); Motion.pressable(header.btnShuffle, 0.95f); Motion.pressable(header.l23BtnReorder, 0.9f)
+        filters.setOnCheckedStateChangeListener { _, ids ->
+            val nf = when (ids.firstOrNull()) { R.id.vaultFProgress -> "progress"; R.id.vaultFUnwatched -> "unwatched"; R.id.vaultFWatched -> "watched"; else -> "all" }
+            if (nf != filter) { filter = nf; if (nf != "all") reorderMode?.finish(); show() }
+        }
         setSupportActionBar(toolbar)
         toolbar.setNavigationOnClickListener { closeVault() }
         findViewById<MaterialToolbar>(R.id.vaultLockToolbar).setNavigationOnClickListener { closeVault() }
@@ -122,13 +156,16 @@ class VaultActivity : ThemedActivity() {
 
         // A fresh launch (not a rotation) only reuses an unlocked vault inside the inactivity period
         // (e.g. coming back from the player's vault shortcut); otherwise it always asks again.
+        VaultAuth.sync(this)
         if (savedInstanceState == null && !VaultAuth.sessionValid(this)) Vault.lock()
-        sort = Prefs.sp(this).getString("vault_sort", "hidden") ?: "hidden"
+        sort = Prefs.sp(this).getString("vault_sort", "custom") ?: "custom"
         gridMode = Prefs.viewMode(this, "vault") == "grid"
+        thumbs = VaultAuth.showThumbnails(this)
         lm = GridLayoutManager(this, 1)
         list.layoutManager = lm
         list.adapter = adapter
         (list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
+        touchHelper = ItemTouchHelper(reorderCallback).also { it.attachToRecyclerView(list) }
         addFab.setOnClickListener { openAddPicker() }
         render()
     }
@@ -169,6 +206,7 @@ class VaultActivity : ThemedActivity() {
     override fun onStop() {
         super.onStop()
         if (!isChangingConfigurations && !childOpen) {
+            reorderMode?.finish() // saves a pending order before the list is cleared
             Vault.lock()
             clearContent()
             autoBioTried = false
@@ -195,6 +233,7 @@ class VaultActivity : ThemedActivity() {
 
     private fun lockNow() {
         actionMode?.finish()
+        reorderMode?.finish()
         Vault.lock()
         clearContent()
         render()
@@ -219,28 +258,104 @@ class VaultActivity : ThemedActivity() {
             if (rows.isEmpty()) load() else show()
         } else {
             actionMode?.finish()
+            reorderMode?.finish()
             showLockPanel()
         }
         invalidateOptionsMenu()
     }
 
+    // ------------------------------------------------------------------ v2.3 welcome (first entry)
+
+    private fun showInLock(v: android.view.View) {
+        panel = v as? VaultLockPanel
+        lockHost.removeAllViews()
+        lockHost.addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        lockHost.scrollTo(0, 0)
+    }
+
+    private fun showWelcome() {
+        val dp = resources.displayMetrics.density
+        fun px(v: Int) = (v * dp).toInt()
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(px(20), px(8), px(20), px(32)) }
+        fun text(s: String, style: Int, alpha: Float = 1f, top: Int = 8, center: Boolean = false) = TextView(this).apply {
+            text = s; TextViewCompat.setTextAppearance(this, style); this.alpha = alpha
+            if (center) gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(top) }
+        }
+        col.addView(android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.vault_ic_hide)
+            imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(this@VaultActivity))
+            layoutParams = LinearLayout.LayoutParams(px(48), px(48)).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL; topMargin = px(8) }
+        })
+        col.addView(text("Welcome to Hidden Vault", com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall, top = 12, center = true))
+        col.addView(text("Keep private videos out of your library. You can protect the vault with a PIN, a pattern or your fingerprint, or use it without a password. You can change this later in Vault settings.",
+            com.google.android.material.R.style.TextAppearance_Material3_BodyMedium, 0.75f, 8, true))
+
+        fun card(title: String, body: String, build: (LinearLayout) -> Unit) = MaterialCardView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(20) }
+            radius = 20 * dp
+            val inner = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(px(16), px(14), px(16), px(16)) }
+            inner.addView(text(title, com.google.android.material.R.style.TextAppearance_Material3_TitleMedium, top = 0))
+            inner.addView(text(body, com.google.android.material.R.style.TextAppearance_Material3_BodyMedium, 0.75f, 4))
+            build(inner)
+            addView(inner)
+        }
+        fun button(label: String, icon: Int, outlined: Boolean, run: () -> Unit) = MaterialButton(this, null,
+            if (outlined) com.google.android.material.R.attr.materialButtonOutlinedStyle else com.google.android.material.R.attr.materialButtonStyle).apply {
+            text = label; setIconResource(icon)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(52)).apply { topMargin = px(10) }
+            setOnClickListener { run() }
+        }
+        val bio = VaultAuth.biometricAvailable(this)
+        col.addView(card("Option A · Set up security", "Ask for authentication every time the vault opens after it locks.") { c ->
+            c.addView(button("PIN", R.drawable.ic_lock, false) { welcomeSecret(VaultAuth.PIN, false) })
+            c.addView(button("Pattern", R.drawable.ic_grid, true) { welcomeSecret(VaultAuth.PATTERN, false) })
+            if (bio) {
+                c.addView(button("Fingerprint (with PIN backup)", R.drawable.ic_lock_open, true) { welcomeSecret(VaultAuth.PIN, true) })
+                c.addView(text("Fingerprint needs a PIN or pattern as a backup for when it can't be used.", com.google.android.material.R.style.TextAppearance_Material3_BodySmall, 0.7f, 6))
+            } else if (VaultAuth.biometricNeedsEnroll(this)) {
+                c.addView(text("To use fingerprint, first add one in Android's Settings › Security. You can turn it on later in Vault settings.", com.google.android.material.R.style.TextAppearance_Material3_BodySmall, 0.7f, 6))
+            }
+        })
+        col.addView(card("Option B · Use without password", "The vault will open without any authentication. Anyone who holds the Vela Player name on the Home screen for 5 seconds can see your hidden videos.") { c ->
+            c.addView(button("Use without password", R.drawable.ic_lock_open, true) { usePasswordFree() })
+        })
+        col.addView(text(getString(R.string.vault_not_encrypted), com.google.android.material.R.style.TextAppearance_Material3_BodySmall, 0.7f, 20))
+        showInLock(col)
+    }
+
+    private fun welcomeSecret(method: String, withBio: Boolean) {
+        VaultSecretFlow.enterNew(this, method, ::showInLock, onCancel = { showWelcome() }, onDone = { secret ->
+            VaultAuth.setSecret(this, method, secret)
+            VaultAuth.completeSetup(this)
+            if (withBio) {
+                VaultBio.prompt(this, "Confirm fingerprint", "Skip",
+                    onOk = { VaultAuth.setBiometric(this, true); toast("Vault secured with fingerprint and PIN"); unlocked() },
+                    onFail = { m -> toast(m ?: "Fingerprint skipped. You can turn it on in Vault settings."); unlocked() })
+            } else {
+                toast(if (method == VaultAuth.PIN) "Vault secured with a PIN" else "Vault secured with a pattern")
+                unlocked()
+            }
+        }, note = if (withBio) "This PIN is the backup for fingerprint unlock." else null)
+    }
+
+    private fun usePasswordFree() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Use without password?")
+            .setMessage("The Hidden Vault won't ask for a PIN, pattern or fingerprint. It is not password-protected. You can set up security later in Vault settings without losing anything.")
+            .setPositiveButton("Use without password") { _, _ ->
+                VaultAuth.completeSetup(this) // stores the choice and opens the vault (password-free counts as unlocked)
+                Vault.markUnlocked()
+                render()
+            }
+            .setNegativeButton("Back", null).show()
+    }
+
     private fun showLockPanel() {
         val p = VaultLockPanel(this)
-        panel = p
-        lockHost.removeAllViews()
-        lockHost.addView(p, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        if (!VaultAuth.isConfigured(this)) {
-            p.setTexts("Set up the Hidden Vault", "Choose a PIN or pattern first. You'll need it every time the vault is opened.\n\n" +
-                "Hiding only removes videos from Vela. Files are not encrypted and stay visible in other apps and file managers.")
-            p.secondary.isVisible = true
-            p.secondary.text = "Set up PIN or pattern"
-            p.secondary.setOnClickListener {
-                setupFromScratch = true
-                childOpen = true
-                setupLauncher.launch(Intent(this, VaultSecurityActivity::class.java).putExtra(VaultSecurityActivity.EXTRA_SETUP, true))
-            }
-            return
-        }
+        showInLock(p)
+        if (!VaultAuth.setupDone(this)) { showWelcome(); return }
+        if (!VaultAuth.isConfigured(this)) { VaultAuth.sync(this); Vault.markUnlocked(); main.post { render() }; return }
         val word = if (VaultAuth.method(this) == VaultAuth.PIN) "PIN" else "pattern"
         p.setTexts("Hidden Vault", "Enter your $word to open the vault")
         p.showInput(VaultAuth.method(this)) { s ->
@@ -280,7 +395,7 @@ class VaultActivity : ThemedActivity() {
             val lib = VideoRepository.load(this, respectHideTs = false, respectVault = false)
             val byUri = lib.associateBy { it.uri.toString() }
             val fullLookup = lib.isNotEmpty()
-            val list = Vault.items(this).map { it ->
+            val list = Vault.orderedItems(this).map { it ->
                 val v = byUri[it.uri]
                 val pos = Vault.position(this, it.uri)
                 val dur = Vault.duration(this, it.uri).takeIf { d -> d > 0 } ?: v?.durationMs ?: 0L
@@ -296,14 +411,25 @@ class VaultActivity : ThemedActivity() {
         }
     }
 
+    private fun durationOf(r: VRow) = r.video?.durationMs?.takeIf { it > 0 } ?: Vault.duration(this, r.item.uri)
+
     private fun show() {
         if (!Vault.isUnlocked()) return
         val q = query.trim().lowercase()
         var l = if (q.isEmpty()) rows else rows.filter { it.item.title.lowercase().contains(q) }
+        l = when (filter) {
+            "progress" -> l.filter { it.progress > 0f }
+            "watched" -> l.filter { Vault.isWatched(this, it.item.uri) }
+            "unwatched" -> l.filter { !Vault.isWatched(this, it.item.uri) }
+            else -> l
+        }
         l = when (sort) {
             "name" -> l.sortedBy { it.item.title.lowercase() }
             "played" -> l.sortedByDescending { it.lastPlayed }
-            else -> l.sortedByDescending { it.item.hiddenAt }
+            "hidden" -> l.sortedByDescending { it.item.hiddenAt }
+            "longest" -> l.sortedByDescending { durationOf(it) }
+            "largest" -> l.sortedByDescending { it.video?.size ?: 0L }
+            else -> l // "custom": the saved manual order (rows are loaded in it)
         }
         shown = l
         selected.retainAll(shown.map { it.item.uri }.toHashSet())
@@ -312,10 +438,45 @@ class VaultActivity : ThemedActivity() {
         empty.isVisible = shown.isEmpty()
         empty.text = when {
             rows.isEmpty() -> "The vault is empty.\n\nSelect videos in the library and choose \"Hide in vault\", or tap Add videos."
-            else -> "Nothing matches \"$query\"."
+            q.isNotEmpty() -> "Nothing matches \"$query\"."
+            else -> "No videos match this filter."
         }
-        toolbar.subtitle = if (rows.isEmpty()) null else if (rows.size == 1) "1 video" else "${rows.size} videos"
+        toolbar.subtitle = null
+        bindHeader()
         updateActionMode()
+    }
+
+    private fun bindHeader() {
+        val has = rows.isNotEmpty()
+        findViewById<android.view.View>(R.id.vaultHeader).isVisible = has
+        findViewById<android.view.View>(R.id.vaultFilterScroll).isVisible = has
+        if (!has) return
+        val playable = shown.filter { !it.unavailable }
+        header.title.text = if (shown.size == rows.size) (if (rows.size == 1) "1 video" else "${rows.size} videos")
+            else "${shown.size} of ${rows.size} videos"
+        val parts = ArrayList<String>()
+        val dur = shown.sumOf { durationOf(it) }
+        if (dur > 0) parts += Fmt.time(dur)
+        val size = shown.sumOf { it.video?.size ?: 0L }
+        if (size > 0) parts += Formatter.formatShortFileSize(this, size)
+        val watched = shown.count { Vault.isWatched(this, it.item.uri) }
+        if (watched > 0) parts += "$watched watched"
+        val missing = shown.count { it.unavailable }
+        if (missing > 0) parts += "$missing unavailable"
+        header.subtitle.text = parts.joinToString(" · ")
+        header.btnPlayAll.isEnabled = playable.isNotEmpty()
+        header.btnShuffle.isEnabled = playable.size > 0
+        header.l23BtnReorder.isVisible = rows.size > 1
+        header.l23BtnReorder.isChecked = reorderMode != null
+    }
+
+    private fun playAll(shuffle: Boolean) {
+        if (reorderMode != null) return
+        val playable = shown.filter { !it.unavailable }
+        if (playable.isEmpty()) { toast("Nothing to play here"); return }
+        if (playable.size < shown.size) toast("Skipping ${shown.size - playable.size} unavailable video(s)")
+        // Shuffle only randomizes this playback queue; the saved custom order is never changed.
+        play(if (shuffle) playable.shuffled() else playable, 0, shuffle)
     }
 
     private fun applyMode() {
@@ -333,8 +494,12 @@ class VaultActivity : ThemedActivity() {
         if (query.isNotEmpty()) { menu.findItem(R.id.vault_search).expandActionView(); sv.setQuery(query, false) }
         sv.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(q: String?): Boolean { sv.clearFocus(); return true }
-            override fun onQueryTextChange(q: String?): Boolean { query = q ?: ""; show(); return true }
+            override fun onQueryTextChange(q: String?): Boolean {
+                query = q ?: ""; if (query.isNotBlank()) reorderMode?.finish(); show(); return true
+            }
         })
+        menu.findItem(R.id.vault_lock)?.isVisible = VaultAuth.isConfigured(this)
+        menu.findItem(R.id.vault_reorder)?.isVisible = rows.size > 1 && reorderMode == null
         applyMode()
         return true
     }
@@ -348,16 +513,19 @@ class VaultActivity : ThemedActivity() {
                 applyMode(); @Suppress("NotifyDataSetChanged") adapter.notifyDataSetChanged()
             }
             R.id.vault_sort -> {
-                val labels = arrayOf("Recently hidden", "Name A–Z", "Last played")
-                val keys = arrayOf("hidden", "name", "played")
+                val labels = arrayOf("Custom order (your arrangement)", "Recently hidden", "Name A–Z", "Last played", "Longest first", "Largest first")
+                val keys = arrayOf("custom", "hidden", "name", "played", "longest", "largest")
                 MaterialAlertDialogBuilder(this).setTitle("Sort by")
                     .setSingleChoiceItems(labels, keys.indexOf(sort).coerceAtLeast(0)) { d, i ->
-                        sort = keys[i]; Prefs.sp(this).edit().putString("vault_sort", sort).apply(); show(); d.dismiss()
+                        sort = keys[i]; Prefs.sp(this).edit().putString("vault_sort", sort).apply()
+                        if (sort != "custom") reorderMode?.finish()
+                        show(); d.dismiss()
                     }.show()
             }
-            R.id.vault_select -> startSelection(null)
+            R.id.vault_select -> if (reorderMode != null) toast("Tap ✓ to finish editing the order first") else startSelection(null)
             R.id.vault_add -> openAddPicker()
-            R.id.vault_security -> { childOpen = true; setupFromScratch = false; setupLauncher.launch(Intent(this, VaultSecurityActivity::class.java)) }
+            R.id.vault_reorder -> startReorder()
+            R.id.vault_settings -> { reorderMode?.finish(); actionMode?.finish(); childOpen = true; settingsLauncher.launch(Intent(this, VaultSettingsActivity::class.java)) }
             R.id.vault_lock -> { lockNow(); toast("Vault locked") }
             else -> return super.onOptionsItemSelected(item)
         }
@@ -375,7 +543,7 @@ class VaultActivity : ThemedActivity() {
         pickLauncher.launch(Intent(this, VideoPickerActivity::class.java).putExtra(VideoPickerActivity.EXTRA_VAULT_PICK, true))
     }
 
-    private fun play(list: List<VRow>, index: Int) {
+    private fun play(list: List<VRow>, index: Int, shuffled: Boolean = false) {
         val playable = list.filter { !it.unavailable }
         if (playable.isEmpty()) { toast("These videos can't be found on the phone"); return }
         val start = list.getOrNull(index)?.let { playable.indexOf(it) }?.coerceAtLeast(0) ?: 0
@@ -388,6 +556,7 @@ class VaultActivity : ThemedActivity() {
             .putExtra(PlayerActivity.EXTRA_INDEX, start - from)
             .putExtra(PlayerSession.EXTRA_SOURCE, Vault.SOURCE_VAULT)
             .putExtra(Vault.EXTRA_VAULT, true)
+            .putExtra(PlayerActivity.EXTRA_SHUFFLED, shuffled)
         childOpen = true; childIsPlayer = true
         VaultAuth.touch()
         try { startActivity(i) } catch (_: Exception) { childOpen = false; toast("Couldn't open the player") }
@@ -413,6 +582,9 @@ class VaultActivity : ThemedActivity() {
             if (row.progress > 0f) { labels += "Play from start"; acts += { Vault.clearPosition(this, row.item.uri); play(shown, shown.indexOf(row)) } }
         }
         labels += "Select"; acts += { startSelection(row) }
+        val w = Vault.isWatched(this, row.item.uri)
+        labels += if (w) "Mark as unwatched" else "Mark as watched"; acts += { Vault.setWatched(this, listOf(row.item.uri), !w); load() }
+        if (rows.size > 1) { labels += "Edit order"; acts += { startReorder() } }
         labels += "Unhide (remove from vault)"; acts += { unhide(listOf(row.item.uri)) }
         labels += "Details"; acts += { details(row) }
         MaterialAlertDialogBuilder(this).setTitle(row.item.title)
@@ -440,6 +612,7 @@ class VaultActivity : ThemedActivity() {
     // ------------------------------------------------------------------ multi-select
 
     private fun startSelection(first: VRow?) {
+        if (reorderMode != null) return
         if (shown.isEmpty()) { toast("Nothing to select"); return }
         if (actionMode == null) actionMode = startSupportActionMode(selCallback)
         first?.let { selected.add(it.item.uri) }
@@ -469,6 +642,11 @@ class VaultActivity : ThemedActivity() {
             menu.findItem(R.id.vsel_all).title = if (any && selected.size >= shown.size) "Deselect all" else "Select all"
             menu.findItem(R.id.vsel_play).isVisible = any
             menu.findItem(R.id.vsel_unhide).isVisible = any
+            menu.findItem(R.id.vsel_shuffle).isVisible = selected.size > 1
+            val sel = selected.toList()
+            menu.findItem(R.id.vsel_watched).isVisible = sel.any { !Vault.isWatched(this@VaultActivity, it) }
+            menu.findItem(R.id.vsel_unwatched).isVisible = sel.any { Vault.isWatched(this@VaultActivity, it) }
+            menu.findItem(R.id.vsel_restart).isVisible = sel.any { Vault.position(this@VaultActivity, it) > 0 }
             return true
         }
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
@@ -483,6 +661,21 @@ class VaultActivity : ThemedActivity() {
                     play(sel, 0)
                 }
                 R.id.vsel_unhide -> unhide(selected.toList())
+                R.id.vsel_shuffle -> {
+                    val sel = selected.mapNotNull { u -> shown.firstOrNull { it.item.uri == u } }.filter { !it.unavailable }
+                    if (sel.isNotEmpty()) play(sel.shuffled(), 0, true)
+                }
+                R.id.vsel_watched, R.id.vsel_unwatched -> {
+                    val on = item.itemId == R.id.vsel_watched
+                    val n = selected.size
+                    Vault.setWatched(this@VaultActivity, selected.toList(), on)
+                    toast(if (on) "Marked $n as watched" else "Marked $n as unwatched")
+                    mode.finish(); load()
+                }
+                R.id.vsel_restart -> {
+                    selected.forEach { Vault.clearPosition(this@VaultActivity, it) }
+                    toast("Resume points cleared"); mode.finish(); load()
+                }
             }
             return true
         }
@@ -514,6 +707,7 @@ class VaultActivity : ThemedActivity() {
         init {
             v.root.setOnClickListener {
                 val p = bindingAdapterPosition; if (p == RecyclerView.NO_POSITION) return@setOnClickListener
+                if (reorderMode != null) return@setOnClickListener
                 if (actionMode != null) { toggle(p); return@setOnClickListener }
                 val r = shown[p]
                 if (r.unavailable) { toast("This video was moved or deleted. Long-press to unhide it.") ; return@setOnClickListener }
@@ -522,11 +716,16 @@ class VaultActivity : ThemedActivity() {
             v.root.setOnLongClickListener {
                 val p = bindingAdapterPosition; if (p == RecyclerView.NO_POSITION) return@setOnLongClickListener true
                 Motion.haptic(it, true)
+                if (reorderMode != null) { touchHelper.startDrag(this); return@setOnLongClickListener true }
                 if (actionMode != null) toggle(p) else if (Prefs.longPressAction(this@VaultActivity) == "select") startSelection(shown[p]) else options(shown[p])
                 true
             }
             v.more.setOnClickListener { row?.let { options(it) } }
             Motion.pressable(v.root, 0.97f)
+            v.handle?.setOnTouchListener { h, e ->
+                if (reorderMode != null && e.actionMasked == android.view.MotionEvent.ACTION_DOWN) { Motion.haptic(h); touchHelper.startDrag(this) }
+                false
+            }
         }
         fun bind(r: VRow) {
             row = r
@@ -538,7 +737,10 @@ class VaultActivity : ThemedActivity() {
                 if (item.height > 0) parts += "${item.height}p"
                 if (item.size > 0) parts += Formatter.formatShortFileSize(itemView.context, item.size)
             }
-            if (!gridMode && Vault.isWatched(itemView.context, r.item.uri)) parts += "Watched"
+            if (!gridMode) {
+                if (Vault.isWatched(itemView.context, r.item.uri)) parts += "Watched"
+                else if (r.progress > 0f) parts += "${Math.round(r.progress * 100)}% watched"
+            }
             v.subtitle.text = parts.joinToString(" · ")
             v.root.alpha = if (r.unavailable) 0.55f else 1f
             val dur = item?.durationMs ?: Vault.duration(itemView.context, r.item.uri)
@@ -548,7 +750,8 @@ class VaultActivity : ThemedActivity() {
             v.progress.progress = (r.progress * 1000).toInt()
             v.fav.isVisible = false
             v.watched.isVisible = Vault.isWatched(itemView.context, r.item.uri) && Prefs.showWatchStats(itemView.context)
-            ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(r.item.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
+            if (thumbs) ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(r.item.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
+            else ThumbLoader.load(v.thumb, null as Uri?) // privacy option: plain placeholder
             bindSel(r)
         }
         fun bindSel(r: VRow) {
@@ -558,7 +761,89 @@ class VaultActivity : ThemedActivity() {
             v.check.isVisible = selecting
             v.check.setBackgroundResource(if (on) R.drawable.bg_select_on else R.drawable.bg_select_off)
             v.check.text = if (on) "✓" else ""
-            v.more.isVisible = !selecting
+            v.more.isVisible = !selecting && reorderMode == null
+            v.handle?.isVisible = reorderMode != null
+        }
+    }
+
+    // ------------------------------------------------------------------ v2.3 custom order
+
+    private fun startReorder() {
+        if (reorderMode != null || !Vault.isUnlocked()) return
+        if (rows.size < 2) { toast("Hide at least two videos to arrange them"); return }
+        actionMode?.finish()
+        var reset = false
+        if (query.isNotBlank()) { menuRef?.findItem(R.id.vault_search)?.collapseActionView(); query = ""; reset = true }
+        if (filter != "all") { filter = "all"; filters.check(R.id.vaultFAll); reset = true }
+        if (sort != "custom") { sort = "custom"; Prefs.sp(this).edit().putString("vault_sort", sort).apply(); toast("Showing your custom order"); reset = true }
+        if (reset) show()
+        reorderDirty = false
+        reorderMode = startSupportActionMode(reorderActionCallback)
+        addFab.hide()
+        adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel")
+        bindHeader(); invalidateOptionsMenu()
+    }
+
+    private fun saveReorder() {
+        if (!reorderDirty) return
+        reorderDirty = false
+        // Only ever saved from the full, unfiltered custom-order list, so every vault item is in it.
+        if (shown.size == rows.size) {
+            Vault.setOrder(this, shown.map { it.item.uri })
+            val pos = shown.withIndex().associate { it.value.item.uri to it.index }
+            rows = rows.sortedBy { pos[it.item.uri] ?: Int.MAX_VALUE }
+        }
+    }
+
+    private val reorderActionCallback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            mode.title = "Edit order"
+            mode.subtitle = if (gridMode) "Long-press a video, then drag it" else "Drag ☰ to move a video"
+            return true
+        }
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
+        override fun onDestroyActionMode(mode: ActionMode) {
+            saveReorder()
+            reorderMode = null
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel")
+            if (Vault.isUnlocked()) { addFab.show(); bindHeader() }
+            invalidateOptionsMenu()
+        }
+    }
+
+    private val reorderCallback = object : ItemTouchHelper.Callback() {
+        override fun isLongPressDragEnabled() = false
+        override fun isItemViewSwipeEnabled() = false
+        override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
+            if (reorderMode == null) return 0
+            val dirs = if (gridMode) ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
+            else ItemTouchHelper.UP or ItemTouchHelper.DOWN
+            return makeMovementFlags(dirs, 0)
+        }
+        override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+            val from = vh.bindingAdapterPosition; val to = target.bindingAdapterPosition
+            if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION || from >= shown.size || to >= shown.size) return false
+            val l = shown.toMutableList(); val r = l.removeAt(from); l.add(to, r); shown = l
+            adapter.notifyItemMoved(from, to)
+            reorderDirty = true
+            Motion.haptic(rv)
+            return true
+        }
+        override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
+        override fun onSelectedChanged(vh: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(vh, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
+                vh.itemView.animate().translationZ(10 * resources.displayMetrics.density).scaleX(1.03f).scaleY(1.03f).alpha(0.96f)
+                    .setDuration(160).setInterpolator(Motion.emphasized).start()
+                vh.itemView.isActivated = true
+            }
+        }
+        override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+            super.clearView(rv, vh)
+            vh.itemView.animate().translationZ(0f).scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).setInterpolator(Motion.emphasized).start()
+            vh.itemView.isActivated = false
+            saveReorder()
         }
     }
 

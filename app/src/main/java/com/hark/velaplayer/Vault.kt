@@ -64,6 +64,7 @@ object Vault {
         }
         writeItems(c, cur.filter { it.uri !in set })
         val e = sp(c).edit(); set.forEach { e.remove("pos:$it").remove("dur:$it").remove("time:$it") }; e.apply()
+        val order = savedOrder(c); if (order.any { it in set }) setOrder(c, order.filter { it !in set })
     }
 
     fun rename(c: Context, uri: String, title: String) = writeItems(c, items(c).map { if (it.uri == uri) it.copy(title = title) else it })
@@ -90,9 +91,42 @@ object Vault {
         val h = hiddenSet(c); return if (h.isEmpty()) list else list.filter { it.uri !in h }
     }
 
+    // ---- v2.3: manual "Custom order" (uris, top to bottom). Items not in the saved order show first, newest hidden first. ----
+    fun savedOrder(c: Context): List<String> = try {
+        val a = JSONArray(sp(c).getString("order", "[]")); (0 until a.length()).map { a.getString(it) }
+    } catch (_: Exception) { emptyList() }
+
+    fun setOrder(c: Context, uris: List<String>) {
+        val a = JSONArray(); uris.distinct().forEach { a.put(it) }
+        sp(c).edit().putString("order", a.toString()).apply()
+    }
+
+    /** All vault items in the custom order (never changes the hidden list itself). */
+    fun orderedItems(c: Context): List<Item> {
+        val all = items(c)
+        val pos = HashMap<String, Int>(); savedOrder(c).forEachIndexed { i, u -> if (u !in pos) pos[u] = i }
+        val fresh = all.filter { it.uri !in pos }.sortedByDescending { it.hiddenAt }
+        val known = all.filter { it.uri in pos }.sortedBy { pos[it.uri] }
+        return fresh + known
+    }
+
+    /** v2.3 bulk: watched / unwatched for vault videos only. */
+    fun setWatched(c: Context, uris: Collection<String>, watched: Boolean) {
+        val e = sp(c).edit()
+        uris.forEach { u -> if (watched) e.remove("pos:$u").remove("dur:$u").putBoolean("watched:$u", true) else e.remove("watched:$u") }
+        e.apply()
+    }
+
     // ---- in-memory unlock state (process death = locked) ----
     @Volatile private var unlockedAt = 0L
-    fun isUnlocked(): Boolean = unlockedAt != 0L
+    /**
+     * v2.3: true while the user deliberately chose "Use without password" (kept in sync by [VaultAuth]).
+     * Then the vault counts as unlocked at all times, so no screen ever asks for authentication.
+     */
+    @Volatile private var openWithoutAuth = false
+    fun setOpenWithoutAuth(on: Boolean) { openWithoutAuth = on }
+    fun isPasswordFree(): Boolean = openWithoutAuth
+    fun isUnlocked(): Boolean = openWithoutAuth || unlockedAt != 0L
     fun markUnlocked() { unlockedAt = SystemClock.elapsedRealtime() }
     fun lock() { unlockedAt = 0L }
 }

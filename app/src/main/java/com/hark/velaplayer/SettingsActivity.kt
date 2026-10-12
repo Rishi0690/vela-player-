@@ -32,13 +32,14 @@ class SettingsActivity : ThemedActivity() {
         const val EXTRA_HIGHLIGHT = "highlight"
         private val TITLES = mapOf(
             "appearance" to "Appearance & personalization", "library" to "Library & display", "gestures" to "Gestures",
-            "playback" to "Playback", "playlists" to "Playlists & selection", "focus" to "Focus Mode", "vault" to "Hidden Vault"
+            "playback" to "Playback", "playlists" to "Playlists & selection", "focus" to "Focus Mode"
         )
         private val XML = mapOf(
             "appearance" to R.xml.prefs_appearance, "library" to R.xml.prefs_library, "gestures" to R.xml.prefs_gestures,
-            "playback" to R.xml.prefs_playback, "playlists" to R.xml.prefs_playlists, "focus" to R.xml.prefs_focus,
-            "vault" to R.xml.prefs_vault
+            "playback" to R.xml.prefs_playback, "playlists" to R.xml.prefs_playlists, "focus" to R.xml.prefs_focus
         )
+        /** v2.3: the Hidden Vault instruction rows, left out of the screen and search while hidden from inside the vault. */
+        private val VAULT_KEYS = setOf("vault_section", "vault_instructions")
     }
 
     private lateinit var b: ActivitySettingsBinding
@@ -92,7 +93,8 @@ class SettingsActivity : ThemedActivity() {
             results.submit(emptyList()); return
         }
         // Built once per visit by reading every settings XML, so new settings appear without code changes.
-        val idx = index ?: SettingsSearch.build(this, XML, TITLES).also { index = it }
+        val idx = (index ?: SettingsSearch.build(this, XML, TITLES).also { index = it })
+            .let { all -> if (VaultAuth.hideInstructions(this)) all.filter { it.key !in VAULT_KEYS } else all }
         val found = SettingsSearch.search(idx, query)
         results.submit(found)
         b.searchResults.isVisible = found.isNotEmpty()
@@ -158,7 +160,10 @@ class SettingsActivity : ThemedActivity() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.preferences, rootKey)
-            listOf("appearance", "library", "gestures", "playback", "playlists", "focus", "vault").forEach { s ->
+            // v2.3: the Hidden Vault section only explains how to open the vault (no list, no controls) and can be
+            // removed from inside the vault.
+            if (VaultAuth.hideInstructions(requireContext())) findPreference<Preference>("vault_section")?.let { preferenceScreen.removePreference(it) }
+            listOf("appearance", "library", "gestures", "playback", "playlists", "focus").forEach { s ->
                 findPreference<Preference>("sec_$s")?.setOnPreferenceClickListener { (activity as SettingsActivity).open(s); true }
             }
             findPreference<Preference>("reset_all")?.setOnPreferenceClickListener {
@@ -202,10 +207,6 @@ class SettingsActivity : ThemedActivity() {
 
         override fun onResume() {
             super.onResume()
-            findPreference<Preference>("vault_security")?.summary = "Unlock with: " + VaultAuth.describe(requireContext())
-            findPreference<Preference>("vault_open")?.summary = Vault.count(requireContext()).let { n ->
-                (if (n == 1) "1 hidden video" else "$n hidden videos") + " · authentication required"
-            }
             // Came back from Android's Do Not Disturb access screen.
             if (askingDnd) {
                 askingDnd = false
@@ -239,12 +240,6 @@ class SettingsActivity : ThemedActivity() {
                 fun summary() { val m = Prefs.focusGoalMin(ctx); p.summary = if (m > 0) FocusFmt.dur(m * 60_000L) + " a day" else "No limit" }
                 summary()
                 p.setOnPreferenceClickListener { FocusLimitDialog.show(requireActivity()) { summary() }; true }
-            }
-            findPreference<Preference>("vault_open")?.setOnPreferenceClickListener {
-                startActivity(Intent().setClassName(ctx.packageName, "com.hark.velaplayer.VaultActivity")); true
-            }
-            findPreference<Preference>("vault_security")?.setOnPreferenceClickListener {
-                startActivity(Intent(ctx, VaultSecurityActivity::class.java)); true
             }
             findPreference<Preference>("focus_dashboard")?.setOnPreferenceClickListener { startActivity(Intent(ctx, FocusActivity::class.java)); true }
             findPreference<Preference>("focus_clear")?.setOnPreferenceClickListener {
