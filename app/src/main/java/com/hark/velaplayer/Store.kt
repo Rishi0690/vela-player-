@@ -29,6 +29,10 @@ object Store {
         e.apply()
     }
     fun clearPosition(c: Context, uri: String) = sp(c).edit().remove("pos:$uri").apply()
+    /** v2.2 vault: drop resume/history keys only (favorites and playlists untouched). */
+    fun forgetProgressOnly(c: Context, uris: Collection<String>) {
+        val e = sp(c).edit(); uris.forEach { e.remove("pos:$it").remove("dur:$it").remove("title:$it").remove("time:$it") }; e.apply()
+    }
 
     // ---- watched history (a video counts as watched once it was played to the end) ----
     fun markWatched(c: Context, uri: String) = sp(c).edit().remove("pos:$uri").putBoolean("watched:$uri", true).apply()

@@ -160,5 +160,6 @@ object Prefs {
     fun threeFingerScreenshot(c: Context) = sp(c).getBoolean("three_finger_screenshot", false)
     /** Temporary speed while the video is pressed and held (default 2x). */
     fun longPressSpeed(c: Context): Float = sp(c).getString("long_press_speed", "2.0")?.toFloatOrNull()?.coerceIn(0.25f, 4f) ?: 2f
-    fun volumeBoost(c: Context) = sp(c).getBoolean("volume_boost", false)
+    /** v2.2: boost up to 200% is always on (no setting); VolumeBoost still falls back to 100% where the device has no LoudnessEnhancer. */
+    fun volumeBoost(c: Context) = true
 }
