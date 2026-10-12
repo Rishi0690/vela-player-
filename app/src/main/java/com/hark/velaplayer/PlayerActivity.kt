@@ -554,7 +554,8 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun setupControls() {
         b.btnBack.setOnClickListener { finish() }
-        b.btnPlay.setOnClickListener { togglePlayPause(); scheduleHide() }
+        b.btnPlay.setOnClickListener { Motion.bounce(it); togglePlayPause(); scheduleHide() }
+        listOf(b.btnRewind, b.btnForward, b.btnPrev, b.btnNext, b.btnUnlock, b.btnUnlockRight).forEach { Motion.pressable(it, 0.88f) }
         b.btnRewind.setOnClickListener { showSeekFeedback(-1, seekBy(-seekIntervalMs)); scheduleHide() }
         b.btnForward.setOnClickListener { showSeekFeedback(1, seekBy(seekIntervalMs)); scheduleHide() }
         b.btnPrev.setOnClickListener { savePosition(); player.seekToPreviousMediaItem(); scheduleHide() }
@@ -656,14 +657,14 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun fadeIn(v: View) {
         v.animate().cancel()
-        if (!v.isVisible) { v.alpha = 0f; v.isVisible = true }
-        v.animate().alpha(1f).setDuration(120).start()
+        if (!v.isVisible) { v.alpha = 0f; v.scaleX = 0.92f; v.scaleY = 0.92f; v.isVisible = true }
+        v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200).setInterpolator(Motion.emphasized).start()
     }
 
     private fun fadeOut(v: View) {
         if (!v.isVisible) return
         v.animate().cancel()
-        v.animate().alpha(0f).setDuration(220).withEndAction { v.isVisible = false }.start()
+        v.animate().alpha(0f).setDuration(220).setInterpolator(Motion.emphasizedAccel).withEndAction { v.isVisible = false }.start()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
@@ -714,15 +715,29 @@ class PlayerActivity : AppCompatActivity() {
         if (visible && Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode) return
         controlsVisible = visible
         b.controls.animate().cancel()
+        val slide = dp(28).toFloat()
+        listOf(b.topBar, b.bottomBar, b.centerControls).forEach { it.animate().cancel() }
         if (visible) {
+            // Top bar drops in, bottom bar rises, centre buttons pop — all on one soft curve.
+            if (!b.controls.isVisible) {
+                b.controls.alpha = 0f
+                b.topBar.translationY = -slide; b.bottomBar.translationY = slide
+                b.centerControls.scaleX = 0.88f; b.centerControls.scaleY = 0.88f
+            }
             b.controls.isVisible = true
-            b.controls.animate().alpha(1f).setDuration(180).start()
+            b.controls.animate().alpha(1f).setDuration(220).setInterpolator(Motion.emphasized).start()
+            b.topBar.animate().translationY(0f).setDuration(340).setInterpolator(Motion.emphasized).start()
+            b.bottomBar.animate().translationY(0f).setDuration(340).setInterpolator(Motion.emphasized).start()
+            b.centerControls.animate().scaleX(1f).scaleY(1f).setDuration(340).setInterpolator(Motion.emphasized).start()
             updateProgress(); updatePlayButton(); updateNavButtons()
             scheduleHide()
         } else {
             handler.removeCallbacks(hideControlsRunnable)
             b.seekPreview.isVisible = false
-            b.controls.animate().alpha(0f).setDuration(180).withEndAction {
+            b.topBar.animate().translationY(-slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
+            b.bottomBar.animate().translationY(slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
+            b.centerControls.animate().scaleX(0.92f).scaleY(0.92f).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
+            b.controls.animate().alpha(0f).setDuration(220).setInterpolator(Motion.emphasizedAccel).withEndAction {
                 if (!controlsVisible) b.controls.isVisible = false
             }.start()
         }

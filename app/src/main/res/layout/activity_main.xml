@@ -14,7 +14,8 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Vela Player" />
+            app:title="Vela Player"
+            app:titleTextAppearance="@style/TextAppearance.Material3.HeadlineSmall" />
 
         <HorizontalScrollView
             android:layout_width="match_parent"
@@ -30,10 +31,10 @@
                 app:singleLine="true"
                 app:singleSelection="true">
 
-                <com.google.android.material.chip.Chip android:id="@+id/chipFolders" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="Folders" app:chipIcon="@drawable/ic_folder" app:chipIconVisible="true" />
-                <com.google.android.material.chip.Chip android:id="@+id/chipAll" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="All videos" app:chipIcon="@drawable/ic_video_library" app:chipIconVisible="true" />
-                <com.google.android.material.chip.Chip android:id="@+id/chipFavorites" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Favorites" />
-                <com.google.android.material.chip.Chip android:id="@+id/chipPlaylists" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Playlists" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipFolders" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="Folders" app:chipIcon="@drawable/ic_folder" app:chipIconVisible="true" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipAll" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="All videos" app:chipIcon="@drawable/ic_video_library" app:chipIconVisible="true" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipFavorites" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Favorites" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipPlaylists" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Playlists" />
             </com.google.android.material.chip.ChipGroup>
         </HorizontalScrollView>
 

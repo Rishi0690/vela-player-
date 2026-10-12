@@ -44,7 +44,14 @@ object ThumbLoader {
             val sys = systemThumb(ctx, uri, mediaId)
             val bmp = if (sys != null && !isDark(sys)) sys else (frameThumb(ctx, uri, durationMs) ?: sys)
             if (bmp != null) cache.put(key, bmp) else failed.add(key)
-            main.post { if (iv.tag == key && bmp != null) show(iv, bmp) }
+            main.post {
+                if (iv.tag == key && bmp != null) {
+                    show(iv, bmp)
+                    // Soft fade-in when a thumbnail arrives (cached ones show instantly).
+                    iv.alpha = 0f
+                    iv.animate().alpha(1f).setDuration(240).setInterpolator(Motion.emphasized).start()
+                }
+            }
         }
     }
 

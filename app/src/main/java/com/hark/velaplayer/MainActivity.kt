@@ -80,6 +80,7 @@ class MainActivity : AppCompatActivity() {
     private var sort = "date_desc"
     private var loaded = false
     private var bannerDismissed = false
+    private var lastScreenKey = ""
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
@@ -117,6 +118,20 @@ class MainActivity : AppCompatActivity() {
         sort = Prefs.sp(this).getString("library_sort", "date_desc") ?: "date_desc"
         b.list.layoutManager = LinearLayoutManager(this)
         b.list.adapter = adapter
+        b.list.layoutAnimation = android.view.animation.AnimationUtils.loadLayoutAnimation(this, R.anim.list_layout)
+        (b.list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
+        b.list.itemAnimator?.apply { addDuration = 260; removeDuration = 200; moveDuration = 260 }
+        // Toolbar gets a soft shadow once the list scrolls under it.
+        val lift = 4 * resources.displayMetrics.density
+        b.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                val target = if (rv.canScrollVertically(-1)) lift else 0f
+                if (b.toolbar.elevation != target && b.toolbar.tag != target) {
+                    b.toolbar.tag = target
+                    b.toolbar.animate().translationZ(target).setDuration(180).start()
+                }
+            }
+        })
 
         // Open on the section chosen in Settings (Folders, All videos, or the last one used) and put it first.
         val start = Prefs.homeStartSection(this)
@@ -125,7 +140,8 @@ class MainActivity : AppCompatActivity() {
             b.chipAll.isChecked = true; tab = Tab.ALL
         } else { b.chipFolders.isChecked = true; tab = Tab.FOLDERS }
 
-        b.chips.setOnCheckedStateChangeListener { _, ids ->
+        b.chips.setOnCheckedStateChangeListener { group, ids ->
+            Motion.haptic(group)
             tab = when (ids.firstOrNull()) {
                 R.id.chipAll -> Tab.ALL
                 R.id.chipFavorites -> Tab.FAVORITES
@@ -207,12 +223,14 @@ class MainActivity : AppCompatActivity() {
         val folderObj = openFolder?.let { id -> folders.firstOrNull { it.id == id } ?: VideoRepository.folders(library, false).firstOrNull { it.id == id } }
         if (openFolder != null && folderObj == null) openFolder = null
         backCallback.isEnabled = openPlaylist != null || openFolder != null
-        b.header.isVisible = openPlaylist != null || openFolder != null
+        val showHeader = openPlaylist != null || openFolder != null
+        if (showHeader && !b.header.isVisible) Motion.enter(b.header, -12 * resources.displayMetrics.density)
+        else b.header.isVisible = showHeader
         b.header.text = when {
             openFolder != null -> "‹  ${folderObj?.name ?: ""}"
             else -> "‹  ${openPlaylist ?: ""}"
         }
-        b.fab.isVisible = tab == Tab.PLAYLISTS && openPlaylist == null
+        if (tab == Tab.PLAYLISTS && openPlaylist == null) b.fab.show() else b.fab.hide()
         val favs = Store.favorites(this).map { it.uri }.toSet()
         val watched = Store.watchedSet(this)
         val inProgress = Store.inProgressSet(this)
@@ -287,7 +305,11 @@ class MainActivity : AppCompatActivity() {
         val inVideoList = (tab == Tab.ALL || (tab == Tab.FOLDERS && openFolder != null))
         if ((inVideoList && filter != "progress") || tab == Tab.FAVORITES) filtered = sortRows(filtered)
 
-        adapter.submit(filtered)
+        val ctxKey = "$tab|$openFolder|$openPlaylist|$filter"
+        val newScreen = ctxKey != lastScreenKey
+        lastScreenKey = ctxKey
+        adapter.submit(filtered, newScreen)
+        if (newScreen) b.list.scheduleLayoutAnimation()
         val empty = filtered.none { it !is Row.Summary && it !is Row.ContinueStrip }
         b.emptyView.isVisible = empty && filtered.isEmpty()
         b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission()
@@ -406,7 +428,8 @@ class MainActivity : AppCompatActivity() {
     private fun showSheet(title: String, subtitle: String?, actions: List<Action>) {
         val d = BottomSheetDialog(this)
         val dp = resources.displayMetrics.density
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, (12 * dp).toInt(), 0, (16 * dp).toInt()) }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, (16 * dp).toInt()) }
+        root.addView(com.google.android.material.bottomsheet.BottomSheetDragHandleView(this))
         root.addView(TextView(this).apply {
             text = title; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
@@ -433,6 +456,11 @@ class MainActivity : AppCompatActivity() {
                 setBackgroundResource(tv.resourceId)
                 setOnClickListener { d.dismiss(); a.run() }
             })
+        }
+        // Rows slide in one after another as the sheet opens.
+        for (i in 0 until root.childCount) root.getChildAt(i).let { c ->
+            c.alpha = 0f; c.translationY = 16 * dp
+            c.animate().alpha(1f).translationY(0f).setStartDelay(40L + i * 22L).setDuration(260).setInterpolator(Motion.emphasized).start()
         }
         d.setContentView(android.widget.ScrollView(this).apply { addView(root) })
         d.show()
@@ -765,8 +793,26 @@ class MainActivity : AppCompatActivity() {
 
     private inner class Adapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         var rows: List<Row> = emptyList()
+        private fun key(r: Row): String = when (r) {
+            is Row.Video -> "v:" + r.entry.uri
+            is Row.Folder -> "f:" + r.folder.id
+            is Row.Playlist -> "p:" + r.name
+            is Row.Summary -> "summary"
+            is Row.ContinueStrip -> "strip"
+        }
+        /** New screen: rebuild and play the staggered entrance. Same screen: animate only what changed. */
         @android.annotation.SuppressLint("NotifyDataSetChanged")
-        fun submit(r: List<Row>) { rows = r; notifyDataSetChanged() }
+        fun submit(r: List<Row>, newScreen: Boolean) {
+            val old = rows
+            rows = r
+            if (newScreen || old.isEmpty()) { notifyDataSetChanged(); return }
+            androidx.recyclerview.widget.DiffUtil.calculateDiff(object : androidx.recyclerview.widget.DiffUtil.Callback() {
+                override fun getOldListSize() = old.size
+                override fun getNewListSize() = r.size
+                override fun areItemsTheSame(o: Int, n: Int) = key(old[o]) == key(r[n])
+                override fun areContentsTheSame(o: Int, n: Int) = old[o] == r[n]
+            }).dispatchUpdatesTo(this)
+        }
 
         override fun getItemCount() = rows.size
         override fun getItemViewType(position: Int) = when (rows[position]) {
@@ -818,8 +864,9 @@ class MainActivity : AppCompatActivity() {
             v.watchedIcon.isVisible = row.watched && Prefs.showWatchStats(itemView.context)
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
             itemView.setOnClickListener { val p = bindingAdapterPosition; if (p != RecyclerView.NO_POSITION) onVideoClick(p) }
-            itemView.setOnLongClickListener { onVideoLongClick(row); true }
+            itemView.setOnLongClickListener { Motion.haptic(it, true); onVideoLongClick(row); true }
             v.more.setOnClickListener { onVideoLongClick(row) }
+            Motion.pressable(itemView, 0.97f)
         }
     }
 
@@ -843,8 +890,9 @@ class MainActivity : AppCompatActivity() {
             v.watchedBar.progress = if (n > 0) row.watched * 1000 / n else 0
             ThumbLoader.load(v.thumb, f.videos.maxByOrNull { it.dateAdded })
             itemView.setOnClickListener { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
-            itemView.setOnLongClickListener { onFolderLongClick(row); true }
+            itemView.setOnLongClickListener { Motion.haptic(it, true); onFolderLongClick(row); true }
             v.more.setOnClickListener { onFolderLongClick(row) }
+            Motion.pressable(itemView, 0.97f)
         }
     }
 
@@ -886,7 +934,8 @@ class MainActivity : AppCompatActivity() {
             v.progress.progress = (row.progress * 1000).toInt()
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, dur)
             itemView.setOnClickListener { play(all.map { it.entry }, all.indexOf(row).coerceAtLeast(0)) }
-            itemView.setOnLongClickListener { onVideoLongClick(row); true }
+            itemView.setOnLongClickListener { Motion.haptic(it, true); onVideoLongClick(row); true }
+            Motion.pressable(itemView, 0.95f)
         }
     }
 
@@ -912,7 +961,8 @@ class MainActivity : AppCompatActivity() {
             v.name.text = row.name
             v.count.text = if (row.count == 1) "1 video" else "${row.count} videos"
             itemView.setOnClickListener { openPlaylist = row.name; refresh() }
-            itemView.setOnLongClickListener { onPlaylistLongClick(row); true }
+            itemView.setOnLongClickListener { Motion.haptic(it, true); onPlaylistLongClick(row); true }
+            Motion.pressable(itemView, 0.97f)
         }
     }
 }
