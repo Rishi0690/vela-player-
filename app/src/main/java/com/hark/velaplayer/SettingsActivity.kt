@@ -137,8 +137,14 @@ class SettingsActivity : ThemedActivity() {
         }
     }
 
+    private var lastNavAt = 0L
     fun open(section: String, addToBack: Boolean = true, highlight: String? = null) {
-        val t = supportFragmentManager.beginTransaction()
+        // v2.7: ignore rapid repeat taps / re-opening the screen already on top, which stacked duplicate transitions.
+        val now = android.os.SystemClock.uptimeMillis()
+        val fm = supportFragmentManager
+        if (fm.isStateSaved || now - lastNavAt < 350 || fm.findFragmentById(R.id.container)?.tag == section) return
+        lastNavAt = now
+        val t = fm.beginTransaction().setReorderingAllowed(true)
             .setCustomAnimations(R.anim.nav_push_enter, R.anim.nav_push_exit, R.anim.nav_pop_enter, R.anim.nav_pop_exit)
             .replace(R.id.container, SectionFragment().apply { arguments = Bundle().apply { putString(EXTRA_SECTION, section); if (highlight != null) putString(EXTRA_HIGHLIGHT, highlight) } }, section)
         if (addToBack) t.addToBackStack(section)
@@ -157,9 +163,8 @@ class SettingsActivity : ThemedActivity() {
             prepareNavScreen(this, view)
             (activity as? SettingsActivity)?.onScreenShown(true)
         }
-        override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? {
-            navAnimZ(view, nextAnim); return super.onCreateAnimation(transit, enter, nextAnim)
-        }
+        override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? =
+            navAnim(this, nextAnim)
         fun reveal(key: String) = revealPreference(this, key)
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -204,9 +209,8 @@ class SettingsActivity : ThemedActivity() {
             }
         }
 
-        override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? {
-            navAnimZ(view, nextAnim); return super.onCreateAnimation(transit, enter, nextAnim)
-        }
+        override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? =
+            navAnim(this, nextAnim)
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             val section = arguments?.getString(EXTRA_SECTION) ?: "playback"
@@ -434,3 +438,21 @@ private fun prepareNavScreen(f: androidx.fragment.app.Fragment, view: View) {
     if (f.requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) view.setBackgroundColor(tv.data)
 }
 private fun navAnimZ(view: View?, nextAnim: Int) { view?.translationZ = if (nextAnim == R.anim.nav_pop_exit) 0.5f else 0f }
+
+/** v2.7: load the nav animation ourselves so the screen renders into a GPU layer while it moves/fades
+ *  (alpha on a full RecyclerView otherwise redraws every row each frame = stutter), and honour reduced motion. */
+private fun navAnim(f: androidx.fragment.app.Fragment, nextAnim: Int): android.view.animation.Animation? {
+    val v = f.view
+    navAnimZ(v, nextAnim)
+    if (nextAnim == 0) return null
+    val ctx = f.context ?: return null
+    val scale = android.provider.Settings.Global.getFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+    if (scale == 0f) return android.view.animation.AlphaAnimation(1f, 1f).apply { duration = 0 }
+    val a = android.view.animation.AnimationUtils.loadAnimation(ctx, nextAnim)
+    a.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
+        override fun onAnimationStart(an: android.view.animation.Animation) { v?.setLayerType(View.LAYER_TYPE_HARDWARE, null) }
+        override fun onAnimationEnd(an: android.view.animation.Animation) { v?.post { v.setLayerType(View.LAYER_TYPE_NONE, null); v.translationZ = 0f } }
+        override fun onAnimationRepeat(an: android.view.animation.Animation) {}
+    })
+    return a
+}
