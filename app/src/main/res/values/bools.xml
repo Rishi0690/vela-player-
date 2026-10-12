@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark status-bar icons on the light theme so the status bar stays readable. -->
+    <bool name="vela_light_status_bar">true</bool>
+</resources>

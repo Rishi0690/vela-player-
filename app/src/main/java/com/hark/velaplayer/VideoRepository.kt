@@ -18,7 +18,12 @@ data class VideoItem(
 data class VideoFolder(val id: String, val name: String, val path: String?, val videos: List<VideoItem>)
 
 object VideoRepository {
-    fun load(c: Context): List<VideoItem> {
+    /**
+     * All videos MediaStore knows about. With [respectHideTs] (the default) ".ts" files are left out while the
+     * "Hide .ts videos" setting is on. Files are never touched, only filtered from the list.
+     */
+    fun load(c: Context, respectHideTs: Boolean = true): List<VideoItem> {
+        val hideTs = respectHideTs && Prefs.hideTs(c)
         val out = ArrayList<VideoItem>()
         val proj = arrayOf(
             MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DURATION,
@@ -36,6 +41,8 @@ object VideoRepository {
                     val bucketName = cur.getString(9)
                         ?: path?.substringBeforeLast('/', "")?.substringAfterLast('/')?.takeIf { it.isNotEmpty() }
                         ?: "Internal storage"
+                    val display = cur.getString(1)
+                    if (hideTs && isTs(display, path)) continue
                     out += VideoItem(
                         id, ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id),
                         cur.getString(1) ?: "Video $id", cur.getLong(2), cur.getLong(3), cur.getLong(4),
@@ -45,6 +52,20 @@ object VideoRepository {
             }
         } catch (e: Exception) { /* permission missing or provider error: return what we have */ }
         return out
+    }
+
+    /**
+     * A transport-stream file: its display name (or, when the name is missing, its path) ends in ".ts",
+     * ignoring case. ".mts" and ".m2ts" are different extensions and are never matched.
+     */
+    fun isTs(displayName: String?, path: String?): Boolean =
+        if (!displayName.isNullOrBlank()) Prefs.isTsName(displayName) else Prefs.isTsName(path)
+
+    /** Same check for a saved entry (favorites, continue watching): by title, else by the uri's last path segment. */
+    fun isTsEntry(e: Entry, item: VideoItem?): Boolean = when {
+        item != null -> isTs(item.name, item.path)
+        Prefs.isTsName(e.title) -> true
+        else -> Prefs.isTsName(android.net.Uri.parse(e.uri).lastPathSegment)
     }
 
     /** Folders that are system/junk locations most people never want to browse. */

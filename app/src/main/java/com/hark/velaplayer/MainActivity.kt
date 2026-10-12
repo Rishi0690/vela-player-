@@ -42,6 +42,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.snackbar.Snackbar
+import org.json.JSONObject
 import com.hark.velaplayer.databinding.ActivityMainBinding
 import com.hark.velaplayer.databinding.DialogUrlBinding
 import com.hark.velaplayer.databinding.ItemCollectionHeaderBinding
@@ -63,7 +65,8 @@ class MainActivity : ThemedActivity() {
 
     sealed class Row {
         data class Video(val entry: Entry, val item: VideoItem?, val progress: Float, val favorite: Boolean, val watched: Boolean = false, val unavailable: Boolean = false) : Row()
-        data class Playlist(val name: String, val count: Int, val durationMs: Long, val covers: List<Triple<Uri, Long, Long>>, val unavailable: Int) : Row()
+        /** [progress] = share of the playlist watched (0..1), or -1 for an empty playlist. */
+        data class Playlist(val name: String, val count: Int, val durationMs: Long, val covers: List<Triple<Uri, Long, Long>>, val unavailable: Int, val progress: Float = -1f) : Row()
         data class Folder(val folder: VideoFolder, val watched: Int, val inProgress: Int, val showPath: Boolean) : Row()
         /** Library counts + watch filter, shown at the top of All videos and inside a folder. */
         data class Summary(val total: Int, val watched: Int, val inProgress: Int) : Row()
@@ -84,7 +87,10 @@ class MainActivity : ThemedActivity() {
     private var openFolder: String? = null
     /** Watch filter for video lists: all, progress, unwatched, watched. */
     private var filter = "all"
+    /** Every video MediaStore returned (incl. hidden .ts files), so saved entries never look "unavailable". */
     private var library: List<VideoItem> = emptyList()
+    /** What the library screens show: [library] minus ".ts" files while "Hide .ts videos" is on. */
+    private var visible: List<VideoItem> = emptyList()
     private var byUri: Map<String, VideoItem> = emptyMap()
     private var query = ""
     private var sort = "date_desc"
@@ -92,6 +98,22 @@ class MainActivity : ThemedActivity() {
     private var bannerDismissed = false
     private var lastScreenKey = ""
     private var menuRef: Menu? = null
+
+    // ---- v2.1: remembered UI state (screen, open folder/playlist, scroll per screen) ----
+    private val ui by lazy { getSharedPreferences("vela_ui_state", MODE_PRIVATE) }
+    /** Scroll (first visible position, pixel offset) per screen key, persisted in [ui]. */
+    private val scrolls = LinkedHashMap<String, Pair<Int, Int>>()
+    /** Cold start: the screen we restored, waiting for the library to load before it's validated and scrolled. */
+    private var restoring = false
+    private var resumeOffered = false
+    private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "hide_ts" || key == "hide_system_folders") main.post { if (!isDestroyed && loaded) refresh() }
+    }
+    private val storeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        // Playlist progress follows watch progress saved elsewhere (e.g. the player in PiP). Debounced.
+        main.removeCallbacks(storeRefresh); main.postDelayed(storeRefresh, 800)
+    }
+    private val storeRefresh = Runnable { if (!isDestroyed && loaded && tab == Tab.PLAYLISTS && openPlaylist == null) refresh() }
 
     // ---- multi-select ----
     private var actionMode: ActionMode? = null
@@ -121,7 +143,7 @@ class MainActivity : ThemedActivity() {
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
-            play(listOf(Entry(uri.toString(), nameOf(uri))), 0)
+            play(listOf(Entry(uri.toString(), nameOf(uri))), 0, source = PlayerSession.SOURCE_EXTERNAL, sourceId = null)
         }
     }
 
@@ -163,6 +185,9 @@ class MainActivity : ThemedActivity() {
             b.chips.removeView(b.chipAll); b.chips.addView(b.chipAll, 0)
             b.chipAll.isChecked = true; tab = Tab.ALL
         } else { b.chipFolders.isChecked = true; tab = Tab.FOLDERS }
+        loadScrolls()
+        // "Where I left off" (the default): reopen the exact screen, never start playback by itself.
+        if (Prefs.homeOpenMode(this) == "last") restoreUiState()
 
         b.chips.setOnCheckedStateChangeListener { group, ids ->
             Motion.haptic(group)
@@ -176,6 +201,7 @@ class MainActivity : ThemedActivity() {
             if (tab == Tab.ALL) Prefs.saveHomeSection(this, "all")
             openPlaylist = null; openFolder = null; filter = "all"
             refresh()
+            saveUiState()
         }
         b.header.setOnClickListener { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
         b.fab.setOnClickListener { newPlaylistDialog(null, openPickerAfter = true) }
@@ -187,15 +213,112 @@ class MainActivity : ThemedActivity() {
 
         // Ask only when we have no access at all; limited access shows the banner instead of re-asking every launch.
         if (hasPermission() || hasPartialAccess()) loadLibrary() else requestPermission()
+        Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
+        Store.registerListener(this, storeListener)
     }
 
     override fun onResume() {
         super.onResume()
-        // Reload so counts follow videos added/removed while we were away.
+        // Reload so counts follow videos added/removed while we were away (also re-applies "Hide .ts videos").
         if (loaded) { refresh(); loadLibrary() }
     }
 
-    override fun onDestroy() { io.shutdown(); super.onDestroy() }
+    override fun onPause() {
+        super.onPause()
+        rememberScroll()
+        saveUiState()
+    }
+
+    override fun onDestroy() {
+        Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
+        Store.unregisterListener(this, storeListener)
+        main.removeCallbacks(storeRefresh)
+        io.shutdown(); super.onDestroy()
+    }
+
+    // ------------------------------------------------------------------ remembered state (v2.1)
+
+    private fun tabKey(t: Tab) = when (t) { Tab.FOLDERS -> "folders"; Tab.ALL -> "all"; Tab.FAVORITES -> "favorites"; Tab.PLAYLISTS -> "playlists" }
+
+    /** Saves the open screen. Called on every navigation change and in onPause. */
+    private fun saveUiState() {
+        ui.edit().putString("tab", tabKey(tab)).putString("folder", openFolder).putString("playlist", openPlaylist)
+            .putString("filter", filter).apply()
+    }
+
+    /** Cold start: puts back the last screen. The folder/playlist is validated once the library has loaded. */
+    private fun restoreUiState() {
+        val t = when (ui.getString("tab", null)) { "all" -> Tab.ALL; "favorites" -> Tab.FAVORITES; "playlists" -> Tab.PLAYLISTS; "folders" -> Tab.FOLDERS; else -> return }
+        tab = t
+        when (t) {
+            Tab.ALL -> b.chipAll.isChecked = true
+            Tab.FAVORITES -> b.chipFavorites.isChecked = true
+            Tab.PLAYLISTS -> b.chipPlaylists.isChecked = true
+            Tab.FOLDERS -> b.chipFolders.isChecked = true
+        }
+        openFolder = if (t == Tab.FOLDERS) ui.getString("folder", null) else null
+        openPlaylist = if (t == Tab.PLAYLISTS) ui.getString("playlist", null)?.takeIf { Store.playlists(this).containsKey(it) } else null
+        filter = ui.getString("filter", "all")?.takeIf { it in setOf("all", "progress", "unwatched", "watched") } ?: "all"
+        if (t == Tab.FAVORITES || (t == Tab.PLAYLISTS)) filter = "all"
+        restoring = true
+    }
+
+    private fun screenKey() = "$tab|$openFolder|$openPlaylist|$filter"
+
+    private fun loadScrolls() {
+        scrolls.clear()
+        try {
+            val o = JSONObject(ui.getString("scrolls", "{}") ?: "{}")
+            o.keys().forEach { k -> val a = o.getString(k).split(','); if (a.size == 2) scrolls[k] = (a[0].toIntOrNull() ?: 0) to (a[1].toIntOrNull() ?: 0) }
+        } catch (_: Exception) { }
+    }
+
+    /** Remembers where the list is scrolled for the screen that's showing now (kept for the 40 most recent screens). */
+    private fun rememberScroll(key: String = lastScreenKey) {
+        if (key.isEmpty() || !loaded || adapter.itemCount == 0) return
+        val pos = grid.findFirstVisibleItemPosition()
+        if (pos == RecyclerView.NO_POSITION) return
+        val off = (grid.findViewByPosition(pos)?.top ?: 0) - b.list.paddingTop
+        scrolls.remove(key); scrolls[key] = pos to off
+        while (scrolls.size > 40) scrolls.remove(scrolls.keys.first())
+        val o = JSONObject(); scrolls.forEach { (k, v) -> o.put(k, "${v.first},${v.second}") }
+        ui.edit().putString("scrolls", o.toString()).apply()
+    }
+
+    private fun applyScroll(key: String) {
+        val s = scrolls[key]
+        if (s == null || s.first >= adapter.itemCount) { b.list.scrollToPosition(0); return }
+        grid.scrollToPositionWithOffset(s.first, s.second)
+    }
+
+    /** Offers the last player session (never starts it): "Resume <title> · mm:ss". */
+    private fun offerResume() {
+        if (resumeOffered) return
+        resumeOffered = true
+        val s = PlayerSession.load(this) ?: return
+        val cur = s.current ?: return
+        if (ui.getLong("resume_dismissed_at", -1L) == s.savedAt) return
+        // Validate the file: a library video must still exist; a stream or picked file is kept as is.
+        if (isUnavailable(cur.uri)) return
+        if (cur.uri.startsWith("file://") && Uri.parse(cur.uri).path?.let { File(it).exists() } == false) return
+        val pos = s.positionMs.takeIf { it > 0 } ?: Store.position(this, cur.uri)
+        if (pos <= 0L && Store.watchedSet(this).contains(cur.uri)) return
+        val title = cur.title.ifBlank { Uri.parse(cur.uri).lastPathSegment ?: "video" }
+        val text = if (pos > 0) "Resume $title · ${Fmt.time(pos)}" else "Resume $title"
+        Snackbar.make(b.root, text, 10_000)
+            .setAction("Resume") {
+                play(s.entries, s.index, s.shuffled, s.source, s.sourceId)
+            }
+            .addCallback(object : Snackbar.Callback() {
+                override fun onDismissed(bar: Snackbar?, event: Int) {
+                    if (event == com.google.android.material.snackbar.BaseTransientBottomBar.BaseCallback.DISMISS_EVENT_SWIPE) ui.edit().putLong("resume_dismissed_at", s.savedAt).apply()
+                }
+            })
+            .show()
+    }
+
+    /** True when a saved entry is a ".ts" file that "Hide .ts videos" keeps out of the library screens. */
+    private fun hiddenTs(e: Entry, hide: Boolean) = hide && VideoRepository.isTsEntry(e, byUri[e.uri])
 
     // ------------------------------------------------------------------ permissions & loading
 
@@ -230,7 +353,7 @@ class MainActivity : ThemedActivity() {
     private fun loadLibrary() {
         if (io.isShutdown) return
         io.execute {
-            val items = if (hasPermission() || hasPartialAccess()) VideoRepository.load(this) else emptyList()
+            val items = if (hasPermission() || hasPartialAccess()) VideoRepository.load(this, respectHideTs = false) else emptyList()
             main.post {
                 if (isDestroyed) return@post
                 library = items
@@ -239,6 +362,7 @@ class MainActivity : ThemedActivity() {
                 b.swipeRefresh.isRefreshing = false
                 updateAccessBanner()
                 refresh()
+                if (!resumeOffered) offerResume()
             }
         }
     }
@@ -296,10 +420,14 @@ class MainActivity : ThemedActivity() {
 
     private fun refresh() {
         fullAccess = hasPermission()
+        val hideTs = Prefs.hideTs(this)
+        visible = if (hideTs) library.filterNot { VideoRepository.isTs(it.name, it.path) } else library
         val rows = ArrayList<Row>()
-        val folders = VideoRepository.folders(library, Prefs.hideSystemFolders(this))
-        val folderObj = openFolder?.let { id -> folders.firstOrNull { it.id == id } ?: VideoRepository.folders(library, false).firstOrNull { it.id == id } }
-        if (openFolder != null && folderObj == null) openFolder = null
+        val folders = VideoRepository.folders(visible, Prefs.hideSystemFolders(this))
+        val folderObj = openFolder?.let { id -> folders.firstOrNull { it.id == id } ?: VideoRepository.folders(visible, false).firstOrNull { it.id == id } }
+        // A remembered folder that's gone (or holds only hidden videos): fall back to the folder list.
+        if (openFolder != null && folderObj == null && loaded) openFolder = null
+        if (openPlaylist != null && !Store.playlists(this).containsKey(openPlaylist)) openPlaylist = null
         backCallback.isEnabled = openPlaylist != null || openFolder != null
         val showHeader = openPlaylist != null || openFolder != null
         if (showHeader && !b.header.isVisible) Motion.enter(b.header, -12 * resources.displayMetrics.density)
@@ -315,7 +443,7 @@ class MainActivity : ThemedActivity() {
 
         fun continueStrip(): Row.ContinueStrip? {
             if (query.isNotBlank()) return null
-            val list = Store.continueList(this).filter { !isUnavailable(it.uri) }.take(20).map { videoRow(it) }
+            val list = Store.continueList(this).filter { !isUnavailable(it.uri) && !hiddenTs(it, hideTs) }.take(20).map { videoRow(it) }
             return if (list.isEmpty()) null else Row.ContinueStrip(list)
         }
 
@@ -326,7 +454,7 @@ class MainActivity : ThemedActivity() {
             when (filter) {
                 "progress" -> {
                     val set = uris.toSet()
-                    Store.continueList(this).filter { set.contains(it.uri) || (includeStreams && byUri[it.uri] == null && !isUnavailable(it.uri)) }
+                    Store.continueList(this).filter { set.contains(it.uri) || (includeStreams && byUri[it.uri] == null && !isUnavailable(it.uri) && !hiddenTs(it, hideTs)) }
                         .forEach { rows += videoRow(it) }
                 }
                 "watched" -> items.filter { it.uri.toString() in watched }.forEach { rows += videoRow(Entry(it.uri.toString(), it.name)) }
@@ -355,10 +483,13 @@ class MainActivity : ThemedActivity() {
                     rows += Row.Folder(f, u.count { it in watched }, u.count { it in inProgress }, f.name.lowercase() in dupNames)
                 }
             }
-            tab == Tab.ALL -> { if (filter != "progress") continueStrip()?.let { rows += it }; videoList(library, true) }
-            tab == Tab.FAVORITES -> Store.favorites(this).forEach { rows += videoRow(it) }
-            openPlaylist == null -> Store.playlists(this).forEach { (name, list) ->
-                rows += Row.Playlist(name, list.size, totalDuration(list), coversFor(list), list.count { isUnavailable(it.uri) })
+            tab == Tab.ALL -> { if (filter != "progress") continueStrip()?.let { rows += it }; videoList(visible, true) }
+            tab == Tab.FAVORITES -> Store.favorites(this).filter { !hiddenTs(it, hideTs) }.forEach { rows += videoRow(it) }
+            openPlaylist == null -> {
+                val watchedAll = watched
+                Store.playlists(this).forEach { (name, list) ->
+                    rows += Row.Playlist(name, list.size, totalDuration(list), coversFor(list), list.count { isUnavailable(it.uri) }, playlistProgress(list, watchedAll))
+                }
             }
             else -> {
                 val list = Store.playlists(this)[openPlaylist] ?: emptyList()
@@ -387,9 +518,9 @@ class MainActivity : ThemedActivity() {
         val inVideoList = (tab == Tab.ALL || (tab == Tab.FOLDERS && openFolder != null))
         if ((inVideoList && filter != "progress") || tab == Tab.FAVORITES) filtered = sortRows(filtered)
 
-        val ctxKey = "$tab|$openFolder|$openPlaylist|$filter"
+        val ctxKey = screenKey()
         val newScreen = ctxKey != lastScreenKey
-        if (newScreen && lastScreenKey.isNotEmpty()) actionMode?.finish()
+        if (newScreen && lastScreenKey.isNotEmpty()) { actionMode?.finish(); rememberScroll(lastScreenKey) }
         lastScreenKey = ctxKey
         applyViewMode(animate = false)
         // Selection survives actions; anything that disappeared (deleted, removed) drops out of it.
@@ -399,6 +530,12 @@ class MainActivity : ThemedActivity() {
         }
         adapter.submit(filtered, newScreen)
         if (newScreen) b.list.scheduleLayoutAnimation()
+        // Each screen comes back where it was scrolled (also after a cold start, once the library is there).
+        if (loaded && (newScreen || restoring)) {
+            restoring = false
+            applyScroll(ctxKey)
+            saveUiState()
+        }
         val empty = filtered.none { it is Row.Video || it is Row.Folder || it is Row.Playlist }
         b.emptyView.isVisible = empty && filtered.none { it is Row.Summary || it is Row.ContinueStrip }
         b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess()
@@ -411,6 +548,24 @@ class MainActivity : ThemedActivity() {
             openPlaylist != null -> "This playlist is empty. Tap + above to add videos."
             else -> "No playlists yet. Tap + to create one."
         }
+    }
+
+    /**
+     * Playlist progress: average over the playlist's unique videos of 1.0 for a watched video, else
+     * position / duration when both are known (0 otherwise). -1 for an empty playlist.
+     */
+    private fun playlistProgress(list: List<Entry>, watched: Set<String>): Float {
+        val uris = list.map { it.uri }.distinct()
+        if (uris.isEmpty()) return -1f
+        var sum = 0.0
+        uris.forEach { u ->
+            sum += if (u in watched) 1.0 else {
+                val pos = Store.position(this, u)
+                val dur = Store.duration(this, u).takeIf { it > 0 } ?: byUri[u]?.durationMs ?: 0L
+                if (pos > 0 && dur > 0) (pos.toDouble() / dur).coerceIn(0.0, 1.0) else 0.0
+            }
+        }
+        return (sum / uris.size).toFloat().coerceIn(0f, 1f)
     }
 
     private fun videoRowOf(e: Entry, favs: Set<String>, watched: Set<String>): Row.Video {
@@ -495,7 +650,7 @@ class MainActivity : ThemedActivity() {
                 val uri = Uri.parse(url)
                 if (uri.scheme == "http" || uri.scheme == "https") {
                     val title = uri.lastPathSegment?.takeIf { it.isNotBlank() } ?: uri.host ?: "Stream"
-                    play(listOf(Entry(url, title)), 0)
+                    play(listOf(Entry(url, title)), 0, source = PlayerSession.SOURCE_EXTERNAL, sourceId = null)
                 } else toast("Enter a link starting with http:// or https://")
             }
             .setNegativeButton("Cancel", null).show()
@@ -503,7 +658,17 @@ class MainActivity : ThemedActivity() {
 
     // ------------------------------------------------------------------ playing
 
-    private fun play(entries: List<Entry>, index: Int, shuffled: Boolean = false) {
+    /** Playback context of the screen that's showing (see [PlayerSession]). */
+    private fun currentSource(): Pair<String, String?> = when {
+        tab == Tab.FOLDERS && openFolder != null -> PlayerSession.SOURCE_FOLDER to openFolder
+        tab == Tab.FOLDERS || tab == Tab.ALL -> PlayerSession.SOURCE_ALL to null
+        tab == Tab.FAVORITES -> PlayerSession.SOURCE_FAVORITES to null
+        openPlaylist != null -> PlayerSession.SOURCE_PLAYLIST to openPlaylist
+        else -> PlayerSession.SOURCE_PLAYLIST to null
+    }
+
+    private fun play(entries: List<Entry>, index: Int, shuffled: Boolean = false,
+                     source: String = currentSource().first, sourceId: String? = currentSource().second) {
         if (entries.isEmpty()) { toast("Nothing to play"); return }
         // Keep the queue a sensible size for the intent.
         val from = (index - 250).coerceAtLeast(0)
@@ -514,6 +679,9 @@ class MainActivity : ThemedActivity() {
             .putStringArrayListExtra(PlayerActivity.EXTRA_TITLES, ArrayList(window.map { it.title }))
             .putExtra(PlayerActivity.EXTRA_INDEX, index - from)
             .putExtra(PlayerActivity.EXTRA_SHUFFLED, shuffled)
+            .putExtra(PlayerSession.EXTRA_SOURCE, source)
+            .putExtra(PlayerSession.EXTRA_SOURCE_ID, sourceId)
+        rememberScroll(); saveUiState()
         startActivity(i)
     }
 
@@ -621,7 +789,8 @@ class MainActivity : ThemedActivity() {
                     if (selectingPlaylists()) {
                         val pls = Store.playlists(this@MainActivity)
                         val entries = selectedPlaylists().flatMap { pls[it] ?: emptyList() }.filter { !isUnavailable(it.uri) }.distinctBy { it.uri }
-                        play(entries, 0)
+                        val names = selectedPlaylists()
+                        play(entries, 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = names.singleOrNull())
                     } else play(vids.filter { !it.unavailable }.map { it.entry }, 0)
                 }
                 R.id.sel_playlist -> addManyToPlaylistDialog(vids.map { it.entry })
@@ -757,9 +926,9 @@ class MainActivity : ThemedActivity() {
         val sortedEntries = { f.videos.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).map { Entry(it.uri.toString(), it.name) } }
         val allWatched = row.watched >= f.videos.size && f.videos.isNotEmpty()
         val a = ArrayList<Action>()
-        a += Action("Play all", R.drawable.ic_play) { play(sortedEntries(), 0) }
-        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries().shuffled(), 0, shuffled = true) }
-        a += Action("Open", R.drawable.ic_folder) { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
+        a += Action("Play all", R.drawable.ic_play) { play(sortedEntries(), 0, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries().shuffled(), 0, shuffled = true, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
+        a += Action("Open", R.drawable.ic_folder) { openFolder = f.id; filter = "all"; refresh() }
         a += Action("Add all to playlist", R.drawable.ic_playlist_add) { addManyToPlaylistDialog(sortedEntries()) }
         a += Action(if (allWatched) "Mark all as unwatched" else "Mark all as watched", R.drawable.ic_check_circle) {
             Store.setWatchedMany(this, f.videos.map { it.uri.toString() }, !allWatched); refresh()
@@ -789,8 +958,8 @@ class MainActivity : ThemedActivity() {
     private fun onPlaylistOptions(row: Row.Playlist) {
         val entries = { (Store.playlists(this)[row.name] ?: emptyList()).filter { !isUnavailable(it.uri) } }
         val a = ArrayList<Action>()
-        a += Action("Play all", R.drawable.ic_play) { play(entries(), 0) }
-        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries().shuffled(), 0, shuffled = true) }
+        a += Action("Play all", R.drawable.ic_play) { play(entries(), 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries().shuffled(), 0, shuffled = true, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
         a += Action("Add videos", R.drawable.ic_playlist_add) { openPicker(row.name) }
         a += Action("Select", R.drawable.ic_select) { startSelection(row) }
         a += Action("Rename", R.drawable.ic_edit) { newPlaylistDialog(row.name) }
@@ -1152,10 +1321,11 @@ class MainActivity : ThemedActivity() {
             fun of(v: ItemFolderGridBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, null)
         }
     }
-    class PlaylistViews(val root: View, val cover: ImageView, val name: TextView, val count: TextView, val badge: TextView, val more: ImageButton, val check: TextView) {
+    class PlaylistViews(val root: View, val cover: ImageView, val name: TextView, val count: TextView, val badge: TextView, val more: ImageButton, val check: TextView,
+                        val progress: LinearProgressIndicator, val progressText: TextView) {
         companion object {
-            fun of(v: ItemPlaylistBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck)
-            fun of(v: ItemPlaylistGridBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck)
+            fun of(v: ItemPlaylistBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck, v.playlistProgress, v.playlistProgressText)
+            fun of(v: ItemPlaylistGridBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck, v.playlistProgress, v.playlistProgressText)
         }
     }
 
@@ -1207,7 +1377,7 @@ class MainActivity : ThemedActivity() {
             v.root.setOnClickListener {
                 val f = row?.folder ?: return@setOnClickListener
                 if (selecting) return@setOnClickListener
-                openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0)
+                openFolder = f.id; filter = "all"; refresh()
             }
             v.root.setOnLongClickListener { row?.let { Motion.haptic(v.root, true); onFolderLongClick(it) }; true }
             v.more.setOnClickListener { row?.let { onFolderLongClick(it) } }
@@ -1241,7 +1411,7 @@ class MainActivity : ThemedActivity() {
             v.root.setOnClickListener {
                 val p = bindingAdapterPosition
                 if (selecting) { if (p != RecyclerView.NO_POSITION) toggleSelection(p); return@setOnClickListener }
-                row?.let { openPlaylist = it.name; refresh(); b.list.scrollToPosition(0) }
+                row?.let { openPlaylist = it.name; refresh() }
             }
             v.root.setOnLongClickListener { val p = bindingAdapterPosition; row?.let { Motion.haptic(v.root, true); onPlaylistLongPress(it, p) }; true }
             v.more.setOnClickListener { row?.let { onPlaylistOptions(it) } }
@@ -1255,6 +1425,16 @@ class MainActivity : ThemedActivity() {
             if (row.unavailable > 0 && !adapter.grid) parts += "${row.unavailable} unavailable"
             v.count.text = parts.joinToString(" · ")
             v.badge.text = row.count.toString()
+            if (row.progress < 0f) {
+                v.progress.isVisible = false
+                v.progressText.text = "Empty"
+            } else {
+                val pct = Math.round(row.progress * 100)
+                v.progress.isVisible = true
+                v.progress.setProgressCompat((row.progress * 1000).toInt().coerceIn(0, 1000), false)
+                v.progressText.text = if (adapter.grid) "$pct%" else "$pct% watched"
+            }
+            v.progress.contentDescription = if (row.progress < 0f) "Empty playlist" else "${Math.round(row.progress * 100)} percent watched"
             ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context))
             bindSelection()
         }
@@ -1314,7 +1494,7 @@ class MainActivity : ThemedActivity() {
             v.duration.text = if (dur > 0) Fmt.time(dur) else "Resume"
             v.progress.progress = (row.progress * 1000).toInt()
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, dur)
-            itemView.setOnClickListener { play(all.map { it.entry }, all.indexOf(row).coerceAtLeast(0)) }
+            itemView.setOnClickListener { play(all.map { it.entry }, all.indexOf(row).coerceAtLeast(0), source = PlayerSession.SOURCE_CONTINUE, sourceId = null) }
             itemView.setOnLongClickListener { Motion.haptic(it, true); onVideoOptions(row); true }
             Motion.pressable(itemView, 0.95f)
         }

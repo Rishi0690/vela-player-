@@ -24,7 +24,9 @@ class FocusActivity : ThemedActivity() {
         setContentView(b.root)
         b.toolbar.setNavigationOnClickListener { finish() }
         b.btnSettings.setOnClickListener { openFocusSettings() }
-        b.goalButton.setOnClickListener { openFocusSettings() }
+        // Daily limit opens a small dialog right here (no trip to Settings); the progress updates on save.
+        b.goalButton.setOnClickListener { editLimit() }
+        b.goalCard.setOnClickListener { editLimit() }
         b.btnClear.setOnClickListener {
             MaterialAlertDialogBuilder(this).setTitle("Clear focus history?")
                 .setMessage("All focus sessions, daily totals and per-video focus times will be deleted from this phone. Your videos, watch progress and settings are not affected.")
@@ -35,6 +37,8 @@ class FocusActivity : ThemedActivity() {
 
     override fun onResume() { super.onResume(); load() }
     override fun onDestroy() { io.shutdown(); super.onDestroy() }
+
+    private fun editLimit() = FocusLimitDialog.show(this) { load() }
 
     private fun openFocusSettings() = startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_SECTION, "focus"))
 
@@ -57,12 +61,13 @@ class FocusActivity : ThemedActivity() {
         val goal = Prefs.focusGoalMs(this)
         b.todayValue.text = FocusFmt.dur(d.today)
         b.goalBar.isVisible = goal > 0
-        b.goalButton.isVisible = goal <= 0
+        b.goalButton.isVisible = true
+        b.goalButton.text = if (goal > 0) "Daily limit: ${FocusFmt.dur(goal)} · Edit" else "Set a daily limit"
         if (goal > 0) {
             b.goalBar.setProgressCompat(((d.today.toFloat() / goal) * 1000).toInt().coerceIn(0, 1000), true)
             b.goalText.text = if (d.today >= goal) "Goal of ${FocusFmt.dur(goal)} reached today. Nice work!"
             else "${FocusFmt.dur(goal - d.today)} left to reach your ${FocusFmt.dur(goal)} goal"
-        } else b.goalText.text = "Set a daily goal to see your progress here."
+        } else b.goalText.text = "No daily limit. Set one to see your progress here."
         stat(b.statWeek, FocusFmt.dur(d.week), "This week")
         stat(b.statAll, FocusFmt.dur(d.all), "All time")
         stat(b.statVideos, d.videos.toString(), "Videos watched")
@@ -122,5 +127,62 @@ class FocusActivity : ThemedActivity() {
             })
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = (6 * dp).toInt() }
         }
+    }
+}
+
+/**
+ * Compact "Daily focus limit" dialog: hours + minutes pickers (any value from 1 minute to 24 hours),
+ * Save / Cancel / No limit. Writes the same "focus_goal_min" setting the player and Settings use.
+ */
+object FocusLimitDialog {
+    fun show(a: android.app.Activity, onSaved: () -> Unit) {
+        val dp = a.resources.displayMetrics.density
+        val current = Prefs.focusGoalMin(a)
+        val hours = android.widget.NumberPicker(a).apply {
+            minValue = 0; maxValue = 24; value = (current / 60).toInt().coerceIn(0, 24)
+            setFormatter { "${it} h" }; descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        }
+        val mins = android.widget.NumberPicker(a).apply {
+            minValue = 0; maxValue = 59; value = (current % 60).toInt()
+            setFormatter { String.format(java.util.Locale.US, "%02d min", it) }; descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        }
+        val error = TextView(a).apply {
+            setTextColor(ThemeManager.attr(a, androidx.appcompat.R.attr.colorError)); isVisible = false
+            gravity = android.view.Gravity.CENTER
+            androidx.core.widget.TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+        }
+        fun clampMinutes() { if (hours.value == 24) { mins.value = 0; mins.isEnabled = false } else mins.isEnabled = true }
+        hours.setOnValueChangedListener { _, _, _ -> clampMinutes(); error.isVisible = false }
+        mins.setOnValueChangedListener { _, _, _ -> error.isVisible = false }
+        clampMinutes()
+        val row = LinearLayout(a).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER
+            addView(hours, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = (8 * dp).toInt() })
+            addView(mins, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        val box = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), 0)
+            addView(row); addView(error)
+        }
+        val dlg = MaterialAlertDialogBuilder(a)
+            .setTitle("Daily focus limit")
+            .setMessage("How much real focus time per day? Progress on the stats screen and in the player follows it.")
+            .setView(box)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("No limit") { _, _ -> Prefs.setFocusGoalMin(a, 0); onSaved() }
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val total = hours.value * 60L + (if (hours.value == 24) 0 else mins.value)
+                when {
+                    total <= 0L -> { error.text = "Pick at least 1 minute, or tap No limit."; error.isVisible = true }
+                    total > 24 * 60L -> { error.text = "A day has 24 hours at most."; error.isVisible = true }
+                    else -> { Prefs.setFocusGoalMin(a, total); dlg.dismiss(); onSaved() }
+                }
+            }
+        }
+        dlg.show()
     }
 }

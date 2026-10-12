@@ -9,7 +9,7 @@
         <SwitchPreferenceCompat app:key="focus_summary" app:title="Session summary" app:summary="Show a short summary when a focus session ends" app:defaultValue="true" app:iconSpaceReserved="false" />
     </PreferenceCategory>
     <PreferenceCategory app:title="Goals &amp; breaks" app:iconSpaceReserved="false">
-        <ListPreference app:key="focus_goal_min" app:title="Daily focus goal" app:entries="@array/goal_entries" app:entryValues="@array/goal_values" app:defaultValue="0" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <Preference app:key="focus_goal_min" app:title="Daily focus limit" app:summary="No limit" app:persistent="false" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="focus_breaks" app:title="Break reminders" app:summary="A small card in the player suggests a break during long sessions (no notifications)" app:defaultValue="false" app:iconSpaceReserved="false" />
         <ListPreference app:key="focus_break_min" app:title="Remind me every" app:entries="@array/break_entries" app:entryValues="@array/break_values" app:defaultValue="45" app:useSimpleSummaryProvider="true" app:dependency="focus_breaks" app:iconSpaceReserved="false" />
     </PreferenceCategory>

@@ -131,4 +131,20 @@ object Prefs {
         }
         AppCompatDelegate.setDefaultNightMode(mode)
     }
+
+    // ---- v2.1 library ----
+    /** "last" (reopen exactly where the user left off — the default), "folders" or "all". */
+    fun homeOpenMode(c: Context) = sp(c).getString("home_default", "last") ?: "last"
+    /** Hide MPEG transport-stream (.ts) files from the library. The player's navigator reads the same "hide_ts" key. */
+    fun hideTs(c: Context) = sp(c).getBoolean("hide_ts", true)
+    /** True for a file whose extension is exactly ".ts" (case-insensitive). ".mts" / ".m2ts" are NOT matched. */
+    fun isTsName(name: String?): Boolean = name != null && name.trimEnd().endsWith(".ts", ignoreCase = true)
+
+    /** Daily focus limit/goal in minutes (0 = no limit). Same key the Focus settings and the player use. */
+    fun focusGoalMin(c: Context): Long = sp(c).getString("focus_goal_min", "0")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+    fun setFocusGoalMin(c: Context, minutes: Long) = sp(c).edit().putString("focus_goal_min", minutes.coerceAtLeast(0L).toString()).apply()
+
+    /** Focus Mode switched on by the user; survives closing the app (separate from the session timer). */
+    fun focusModeOn(c: Context) = sp(c).getBoolean("focus_mode_on", false)
+    fun setFocusModeOn(c: Context, on: Boolean) = sp(c).edit().putBoolean("focus_mode_on", on).apply()
 }

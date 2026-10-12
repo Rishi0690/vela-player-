@@ -23,16 +23,30 @@ class FocusTracker(private val ctx: Context) {
     private var title: String? = null
     private var mediaMs = 0L
 
+    init {
+        // v2.1: Focus Mode stays on across app closures. The preference is restored here; a new session is
+        // opened, but time is only counted once a video is really playing (see setCounting). Sessions cut
+        // off by a killed process were already closed at their last saved moment (closeAbandoned).
+        if (Prefs.focusModeOn(ctx) && Prefs.focusFeature(ctx)) start()
+    }
+
     fun start() {
         if (active) return
         store.closeAbandoned()
         sessionId = store.startSession(System.currentTimeMillis())
         savedMs = 0L; countingSince = -1L
+        Prefs.setFocusModeOn(ctx, true)
         Dnd.enterIfAllowed(ctx)
     }
 
-    /** Ends the session; returns its id (or -1 if nothing was recorded). */
-    fun stop(): Long {
+    /**
+     * Ends the session; returns its id (or -1 if nothing was recorded).
+     * The "Focus Mode on" preference is cleared only when the user turns focus off: when the player is being
+     * torn down (closed from Recents, PiP window closed, process ending) the session ends but Focus Mode stays on.
+     * Pass [keepEnabled] explicitly to override that detection.
+     */
+    fun stop(keepEnabled: Boolean = isTearingDown()): Long {
+        if (!keepEnabled) Prefs.setFocusModeOn(ctx, false)
         if (!active) return -1
         setCounting(false)
         val id = sessionId
@@ -41,6 +55,9 @@ class FocusTracker(private val ctx: Context) {
         Dnd.restore(ctx)
         return id
     }
+
+    /** Activity.isDestroyed is already true inside onDestroy(), which is where the player ends a session on close. */
+    private fun isTearingDown(): Boolean = (ctx as? android.app.Activity)?.let { it.isDestroyed || it.isChangingConfigurations } ?: false
 
     fun setCounting(on: Boolean) {
         if (!active) { countingSince = -1; return }

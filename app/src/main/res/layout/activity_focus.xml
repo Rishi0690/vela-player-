@@ -12,15 +12,16 @@
         <LinearLayout android:id="@+id/content" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingBottom="24dp">
 
-            <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Filled"
+            <com.google.android.material.card.MaterialCardView android:id="@+id/goalCard" style="@style/Widget.Material3.CardView.Filled"
                 android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="24dp"
+                android:clickable="true" android:focusable="true"
                 app:cardBackgroundColor="?attr/colorPrimaryContainer">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Focus time today" android:textColor="?attr/colorOnPrimaryContainer" android:textAppearance="?attr/textAppearanceLabelLarge" />
                     <TextView android:id="@+id/todayValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="?attr/colorOnPrimaryContainer" android:textAppearance="?attr/textAppearanceDisplaySmall" />
                     <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/goalBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:max="1000" app:trackCornerRadius="4dp" app:trackThickness="8dp" />
                     <TextView android:id="@+id/goalText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:textColor="?attr/colorOnPrimaryContainer" android:textAppearance="?attr/textAppearanceBodyMedium" />
-                    <com.google.android.material.button.MaterialButton android:id="@+id/goalButton" style="@style/Widget.Material3.Button.TonalButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Set a daily goal" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/goalButton" style="@style/Widget.Material3.Button.TonalButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Set a daily limit" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

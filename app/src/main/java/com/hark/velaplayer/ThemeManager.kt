@@ -109,16 +109,45 @@ object ThemeManager {
         } else DEFAULT_SEED
     }
     fun primary(c: Context) = attr(c, androidx.appcompat.R.attr.colorPrimary)
+
+    /** True when the activity is currently drawn with the light (day) palette. */
+    fun isLight(a: Activity): Boolean {
+        val tv = android.util.TypedValue()
+        if (a.theme.resolveAttribute(androidx.appcompat.R.attr.isLightTheme, tv, true)) return tv.data != 0
+        val night = a.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        return night != android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    /**
+     * Status bar that stays readable: the theme's surface color behind it, dark icons on the light theme and
+     * light icons on the dark theme. Light/Dark/System changes recreate the activity, so this re-runs then.
+     * The navigation bar is left as the system/theme draws it.
+     */
+    @Suppress("DEPRECATION")
+    fun styleStatusBar(a: Activity) {
+        val w = a.window ?: return
+        val light = isLight(a)
+        val surface = attr(a, com.google.android.material.R.attr.colorSurface)
+        // Before Android 6 icons are always white, so keep a dark bar there in light mode.
+        w.statusBarColor = if (light && Build.VERSION.SDK_INT < 23) 0xFF000000.toInt() else surface
+        androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightStatusBars = light && Build.VERSION.SDK_INT >= 23
+    }
 }
 
 /** Base for screens that follow the theme: applies it, and recreates when it changes elsewhere. */
 abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
     private var themeVersion = -1
     protected open val isPlayerTheme = false
+    /**
+     * Screens that manage the system bars themselves (fullscreen / immersive, like the player) return false
+     * so the status-bar styling below never fights them.
+     */
+    protected open val styleSystemBars = true
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         ThemeManager.apply(this, isPlayerTheme)
         themeVersion = ThemeManager.version(this)
         super.onCreate(savedInstanceState)
+        if (styleSystemBars && !isPlayerTheme) ThemeManager.styleStatusBar(this)
     }
     override fun onResume() {
         super.onResume()

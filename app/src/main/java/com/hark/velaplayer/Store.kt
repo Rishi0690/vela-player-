@@ -11,6 +11,12 @@ data class Entry(val uri: String, val title: String)
 object Store {
     private fun sp(c: Context) = c.getSharedPreferences("vela_store", Context.MODE_PRIVATE)
 
+    /** Lets a screen follow store changes (progress, playlists, favorites). Keep a strong reference to [l]. */
+    fun registerListener(c: Context, l: android.content.SharedPreferences.OnSharedPreferenceChangeListener) =
+        sp(c).registerOnSharedPreferenceChangeListener(l)
+    fun unregisterListener(c: Context, l: android.content.SharedPreferences.OnSharedPreferenceChangeListener) =
+        sp(c).unregisterOnSharedPreferenceChangeListener(l)
+
     // ---- resume positions ----
     fun savePosition(c: Context, uri: String, title: String, pos: Long, dur: Long) {
         val e = sp(c).edit()
