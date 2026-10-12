@@ -5,14 +5,14 @@
         <item name="shapeAppearanceOverlay">@style/DialogShape</item>
         <item name="android:windowAnimationStyle">@style/VelaDialogAnim</item>
         <item name="android:windowBlurBehindEnabled">true</item>
-        <item name="android:windowBlurBehindRadius">28dp</item>
+        <item name="android:windowBlurBehindRadius">16dp</item>
         <item name="android:backgroundDimAmount">0.28</item>
     </style>
 
     <style name="VelaBottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/VelaBottomSheetStyle</item>
         <item name="android:windowBlurBehindEnabled">true</item>
-        <item name="android:windowBlurBehindRadius">24dp</item>
+        <item name="android:windowBlurBehindRadius">16dp</item>
         <item name="android:backgroundDimAmount">0.25</item>
     </style>
 </resources>

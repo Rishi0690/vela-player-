@@ -1,4 +1,3 @@
-<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="180" android:interpolator="@android:interpolator/fast_out_linear_in">
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="130" android:interpolator="@android:interpolator/fast_out_linear_in">
     <alpha android:fromAlpha="1" android:toAlpha="0" />
-    <scale android:fromXScale="1" android:toXScale="0.94" android:fromYScale="1" android:toYScale="0.94" android:pivotX="50%" android:pivotY="50%" />
 </set>

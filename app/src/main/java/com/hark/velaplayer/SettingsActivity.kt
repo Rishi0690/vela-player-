@@ -200,7 +200,7 @@ class SettingsActivity : ThemedActivity() {
             (activity as? SettingsActivity)?.onScreenShown(false)
             if (savedInstanceState == null) arguments?.getString(EXTRA_HIGHLIGHT)?.let { key ->
                 // Wait for the open animation so the row is laid out, then scroll to it and flash it.
-                view.postDelayed({ if (isAdded) revealPreference(this, key) }, 400)
+                view.postDelayed({ if (isAdded) revealPreference(this, key) }, 320)
             }
         }
 
@@ -433,4 +433,4 @@ private fun prepareNavScreen(f: androidx.fragment.app.Fragment, view: View) {
     val tv = android.util.TypedValue()
     if (f.requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) view.setBackgroundColor(tv.data)
 }
-private fun navAnimZ(view: View?, nextAnim: Int) { view?.translationZ = if (nextAnim == R.anim.nav_pop_exit) 24f else 0f }
+private fun navAnimZ(view: View?, nextAnim: Int) { view?.translationZ = if (nextAnim == R.anim.nav_pop_exit) 0.5f else 0f }

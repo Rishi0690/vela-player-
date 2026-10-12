@@ -1,4 +1,5 @@
-<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="340" android:interpolator="@anim/ios_curve">
-    <translate android:fromXDelta="-28%" android:toXDelta="0" />
-    <alpha android:fromAlpha="0.55" android:toAlpha="1" />
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="260" android:startOffset="50"
+    android:interpolator="@android:interpolator/linear_out_slow_in">
+    <alpha android:fromAlpha="0" android:toAlpha="1" />
+    <translate android:fromXDelta="-6%" android:toXDelta="0" />
 </set>
