@@ -31,7 +31,14 @@ import java.util.concurrent.Executors
  * order they'll be added in), plus importing several files with the system file picker.
  */
 class VideoPickerActivity : ThemedActivity() {
-    companion object { const val EXTRA_PLAYLIST = "playlist" }
+    companion object {
+        const val EXTRA_PLAYLIST = "playlist"
+        /** v2.2: pick videos to hide in the vault; returns [RESULT_URIS]/[RESULT_TITLES] instead of editing a playlist. */
+        const val EXTRA_VAULT_PICK = "vault_pick"
+        const val RESULT_URIS = "picked_uris"
+        const val RESULT_TITLES = "picked_titles"
+    }
+    private var vaultPick = false
 
     private lateinit var b: ActivityPickerBinding
     private lateinit var playlist: String
@@ -61,10 +68,13 @@ class VideoPickerActivity : ThemedActivity() {
         b = ActivityPickerBinding.inflate(layoutInflater)
         setContentView(b.root)
         setSupportActionBar(b.toolbar)
-        playlist = intent.getStringExtra(EXTRA_PLAYLIST) ?: run { finish(); return }
+        vaultPick = intent.getBooleanExtra(EXTRA_VAULT_PICK, false)
+        playlist = if (vaultPick) "" else intent.getStringExtra(EXTRA_PLAYLIST) ?: run { finish(); return }
         b.toolbar.setNavigationOnClickListener { finish() }
-        supportActionBar?.title = "Add to \"$playlist\""
-        already = (Store.playlists(this)[playlist] ?: emptyList()).map { it.uri }.toSet()
+        supportActionBar?.title = if (vaultPick) "Hide in vault" else "Add to \"$playlist\""
+        already = if (vaultPick) emptySet() else (Store.playlists(this)[playlist] ?: emptyList()).map { it.uri }.toSet()
+        // Vault mode: no "From files" (the system file picker would leave the app with the vault unlocked behind it).
+        if (vaultPick) { b.btnAdd.setIconResource(R.drawable.vault_ic_hide); b.btnImport.isVisible = false }
         gridMode = Prefs.viewMode(this, "picker") == "grid"
         lm = GridLayoutManager(this, 1)
         b.list.layoutManager = lm
@@ -85,6 +95,12 @@ class VideoPickerActivity : ThemedActivity() {
     }
 
     override fun onDestroy() { io.shutdown(); super.onDestroy() }
+
+    override fun onStop() {
+        super.onStop()
+        // Opened from the unlocked vault: leaving the app from here locks the vault too.
+        if (vaultPick && !isChangingConfigurations && !isFinishing) Vault.lock()
+    }
 
     private fun hasAccess(): Boolean {
         val p = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
@@ -138,6 +154,7 @@ class VideoPickerActivity : ThemedActivity() {
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.p_view)?.apply { setIcon(if (gridMode) R.drawable.ic_list else R.drawable.ic_grid); title = if (gridMode) "List view" else "Grid view" }
         menu.findItem(R.id.p_replace)?.isChecked = replace
+        menu.findItem(R.id.p_replace)?.isVisible = !vaultPick
         menu.findItem(R.id.p_clear)?.isVisible = picked.isNotEmpty()
         return super.onPrepareOptionsMenu(menu)
     }
@@ -165,13 +182,19 @@ class VideoPickerActivity : ThemedActivity() {
     private fun updateBar() {
         val n = picked.size
         b.btnAdd.isEnabled = n > 0
-        b.btnAdd.text = when { n == 0 -> "Select videos"; replace -> "Replace with $n"; n == 1 -> "Add 1 video"; else -> "Add $n videos" }
+        b.btnAdd.text = when { n == 0 -> "Select videos"; vaultPick -> if (n == 1) "Hide 1 video" else "Hide $n videos"; replace -> "Replace with $n"; n == 1 -> "Add 1 video"; else -> "Add $n videos" }
         supportActionBar?.subtitle = if (n == 0) "Tap videos to select them" else "$n selected · numbers show the order"
         invalidateOptionsMenu()
     }
 
     private fun commit(entries: List<Entry>, fromFiles: Boolean) {
         if (entries.isEmpty()) return
+        if (vaultPick) {
+            // Only the caller (the unlocked vault) hides them, so nothing changes if the vault locked meanwhile.
+            setResult(RESULT_OK, Intent().putStringArrayListExtra(RESULT_URIS, ArrayList(entries.map { it.uri }))
+                .putStringArrayListExtra(RESULT_TITLES, ArrayList(entries.map { it.title })))
+            finish(); return
+        }
         val doIt = {
             val (added, skipped) = Store.addManyToPlaylist(this, playlist, entries, atStart = Prefs.playlistAddAt(this) == "start", replace = replace && !fromFiles)
             val msg = when {

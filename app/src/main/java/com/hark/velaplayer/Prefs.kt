@@ -162,4 +162,12 @@ object Prefs {
     fun longPressSpeed(c: Context): Float = sp(c).getString("long_press_speed", "2.0")?.toFloatOrNull()?.coerceIn(0.25f, 4f) ?: 2f
     /** v2.2: boost up to 200% is always on (no setting); VolumeBoost still falls back to 100% where the device has no LoudnessEnhancer. */
     fun volumeBoost(c: Context) = true
+
+    // ---- v2.2 library ----
+    /** "Open app where I left off": restore section, open folder/playlist and filters (never starts playback). Default ON. */
+    fun openWhereLeftOff(c: Context) = sp(c).getBoolean("open_where_left_off", true)
+    /** "Remember scroll position" per section / folder / playlist, kept across app restarts. Default ON. */
+    fun rememberScroll(c: Context) = sp(c).getBoolean("remember_scroll", true)
+    /** Swipe left/right on the home list to change tabs. Default ON. */
+    fun swipeTabs(c: Context) = sp(c).getBoolean("swipe_tabs", true)
 }

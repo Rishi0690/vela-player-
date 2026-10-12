@@ -2,7 +2,10 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory app:title="Browsing" app:iconSpaceReserved="false">
-        <ListPreference app:key="home_default" app:title="Open the app on" app:entries="@array/home_entries" app:entryValues="@array/home_values" app:defaultValue="last" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="open_where_left_off" app:title="Open app where I left off" app:summary="Reopen the last section, folder or playlist with its filter. Never starts playing by itself." app:defaultValue="true" app:disableDependentsState="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="remember_scroll" app:title="Remember scroll position" app:summary="Each section, folder and playlist reopens where you scrolled to, also after closing the app" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="swipe_tabs" app:title="Swipe between tabs" app:summary="Swipe left or right on the library to move between Folders, All videos, Favorites and Playlists" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="home_default" app:dependency="open_where_left_off" app:title="Otherwise open the app on" app:entries="@array/home_entries" app:entryValues="@array/home_values" app:defaultValue="folders" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
         <ListPreference app:key="folder_sort" app:title="Sort folders by" app:entries="@array/folder_sort_entries" app:entryValues="@array/folder_sort_values" app:defaultValue="name" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="hide_ts" app:title="Hide .ts videos" app:summary="Leave MPEG transport-stream (.ts) files out of folders, All videos, search, favorites and the video picker. Files are never changed. .mts and .m2ts aren't affected." app:defaultValue="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="hide_system_folders" app:title="Hide system folders" app:summary="Skip hidden and app-data folders (like .thumbnails or Android/data)" app:defaultValue="true" app:iconSpaceReserved="false" />

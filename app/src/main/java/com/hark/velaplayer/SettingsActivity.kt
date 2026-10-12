@@ -32,11 +32,12 @@ class SettingsActivity : ThemedActivity() {
         const val EXTRA_HIGHLIGHT = "highlight"
         private val TITLES = mapOf(
             "appearance" to "Appearance & personalization", "library" to "Library & display", "gestures" to "Gestures",
-            "playback" to "Playback", "playlists" to "Playlists & selection", "focus" to "Focus Mode"
+            "playback" to "Playback", "playlists" to "Playlists & selection", "focus" to "Focus Mode", "vault" to "Hidden Vault"
         )
         private val XML = mapOf(
             "appearance" to R.xml.prefs_appearance, "library" to R.xml.prefs_library, "gestures" to R.xml.prefs_gestures,
-            "playback" to R.xml.prefs_playback, "playlists" to R.xml.prefs_playlists, "focus" to R.xml.prefs_focus
+            "playback" to R.xml.prefs_playback, "playlists" to R.xml.prefs_playlists, "focus" to R.xml.prefs_focus,
+            "vault" to R.xml.prefs_vault
         )
     }
 
@@ -67,6 +68,12 @@ class SettingsActivity : ThemedActivity() {
             intent.getStringExtra(EXTRA_SECTION)?.takeIf { XML.containsKey(it) }?.let { open(it, addToBack = false, highlight = intent.getStringExtra(EXTRA_HIGHLIGHT)) }
         }
         updateTitle()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Settings is a normal screen: the Hidden Vault never stays unlocked behind it.
+        Vault.lock()
     }
 
     // ------------------------------------------------------------------ search (v2.1)
@@ -151,13 +158,13 @@ class SettingsActivity : ThemedActivity() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.preferences, rootKey)
-            listOf("appearance", "library", "gestures", "playback", "playlists", "focus").forEach { s ->
+            listOf("appearance", "library", "gestures", "playback", "playlists", "focus", "vault").forEach { s ->
                 findPreference<Preference>("sec_$s")?.setOnPreferenceClickListener { (activity as SettingsActivity).open(s); true }
             }
             findPreference<Preference>("reset_all")?.setOnPreferenceClickListener {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("Reset all settings?")
-                    .setMessage("Playback, gesture, subtitle, layout, Focus Mode and theme settings go back to defaults. Playlists, favorites, resume points, saved themes and focus history are kept.")
+                    .setMessage("Playback, gesture, subtitle, layout, Focus Mode and theme settings go back to defaults. Playlists, favorites, resume points, saved themes, focus history and the Hidden Vault (its videos and its PIN/pattern) are kept.")
                     .setPositiveButton("Reset") { _, _ ->
                         val sp = Prefs.sp(requireContext())
                         val keepThemes = sp.getString("custom_themes", null)
@@ -195,6 +202,10 @@ class SettingsActivity : ThemedActivity() {
 
         override fun onResume() {
             super.onResume()
+            findPreference<Preference>("vault_security")?.summary = "Unlock with: " + VaultAuth.describe(requireContext())
+            findPreference<Preference>("vault_open")?.summary = Vault.count(requireContext()).let { n ->
+                (if (n == 1) "1 hidden video" else "$n hidden videos") + " · authentication required"
+            }
             // Came back from Android's Do Not Disturb access screen.
             if (askingDnd) {
                 askingDnd = false
@@ -228,6 +239,12 @@ class SettingsActivity : ThemedActivity() {
                 fun summary() { val m = Prefs.focusGoalMin(ctx); p.summary = if (m > 0) FocusFmt.dur(m * 60_000L) + " a day" else "No limit" }
                 summary()
                 p.setOnPreferenceClickListener { FocusLimitDialog.show(requireActivity()) { summary() }; true }
+            }
+            findPreference<Preference>("vault_open")?.setOnPreferenceClickListener {
+                startActivity(Intent().setClassName(ctx.packageName, "com.hark.velaplayer.VaultActivity")); true
+            }
+            findPreference<Preference>("vault_security")?.setOnPreferenceClickListener {
+                startActivity(Intent(ctx, VaultSecurityActivity::class.java)); true
             }
             findPreference<Preference>("focus_dashboard")?.setOnPreferenceClickListener { startActivity(Intent(ctx, FocusActivity::class.java)); true }
             findPreference<Preference>("focus_clear")?.setOnPreferenceClickListener {
@@ -311,6 +328,10 @@ object SettingsSearch {
         "resume" to listOf("position", "remember", "left off"), "continue" to listOf("position", "left off"), "start" to listOf("open the app"),
         "hidden" to listOf("hide"), "language" to listOf("lang", "language"), "swipe" to listOf("gesture", "swipe"), "gesture" to listOf("swipe", "gesture"),
         "skip" to listOf("seek", "skip"), "seek" to listOf("skip", "seek"), "thumbnail" to listOf("thumbnail", "thumbs"), "decoder" to listOf("hardware", "software"),
+        "vault" to listOf("vault", "hidden", "hide"), "private" to listOf("vault", "hidden"), "hide" to listOf("hide", "vault"),
+        "pin" to listOf("security", "pin"), "password" to listOf("security", "pin", "pattern"), "passcode" to listOf("pin", "security"),
+        "fingerprint" to listOf("fingerprint", "biometric"), "biometric" to listOf("fingerprint", "biometric"), "pattern" to listOf("pattern", "security"),
+        "lock" to listOf("lock", "security"), "scroll" to listOf("scroll"), "tabs" to listOf("tab", "swipe"), "tab" to listOf("tab", "swipe"),
         "loop" to listOf("repeat"), "repeat" to listOf("loop"), "shuffle" to listOf("random"), "autoplay" to listOf("auto-play", "next"),
     )
 

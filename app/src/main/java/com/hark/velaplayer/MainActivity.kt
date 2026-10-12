@@ -83,10 +83,25 @@ class MainActivity : ThemedActivity() {
     private lateinit var grid: GridLayoutManager
 
     private var tab = Tab.FOLDERS
-    private var openPlaylist: String? = null
-    private var openFolder: String? = null
-    /** Watch filter for video lists: all, progress, unwatched, watched. */
-    private var filter = "all"
+    // v2.2: each tab keeps its own browsing state. The Folders tab remembers its open folder, the Playlists tab its
+    // open playlist, and every tab its own watch filter; switching tabs no longer resets them.
+    private var folderOfTab: String? = null
+    private var playlistOfTab: String? = null
+    private val filterOfTab = HashMap<Tab, String>()
+    /** Open folder of the tab that's showing (only the Folders tab has one). Setting null only clears it there. */
+    private var openFolder: String?
+        get() = if (tab == Tab.FOLDERS) folderOfTab else null
+        set(v) { if (v != null || tab == Tab.FOLDERS) folderOfTab = v }
+    /** Open playlist of the tab that's showing (only the Playlists tab has one). */
+    private var openPlaylist: String?
+        get() = if (tab == Tab.PLAYLISTS) playlistOfTab else null
+        set(v) { if (v != null || tab == Tab.PLAYLISTS) playlistOfTab = v }
+    /** Watch filter for video lists of the current tab: all, progress, unwatched, watched. */
+    private var filter: String
+        get() = filterOfTab[tab] ?: "all"
+        set(v) { filterOfTab[tab] = v }
+    /** The last refresh came from a tab change: no staggered list entrance (the slide animation plays instead). */
+    private var tabTransition = false
     /** Every video MediaStore returned (incl. hidden .ts files), so saved entries never look "unavailable". */
     private var library: List<VideoItem> = emptyList()
     /** What the library screens show: [library] minus ".ts" files while "Hide .ts videos" is on. */
@@ -101,13 +116,18 @@ class MainActivity : ThemedActivity() {
 
     // ---- v2.1: remembered UI state (screen, open folder/playlist, scroll per screen) ----
     private val ui by lazy { getSharedPreferences("vela_ui_state", MODE_PRIVATE) }
-    /** Scroll (first visible position, pixel offset) per screen key, persisted in [ui]. */
-    private val scrolls = LinkedHashMap<String, Pair<Int, Int>>()
+    /**
+     * Scroll per screen key: the stable key of the first visible row (anchor), its pixel offset, and the index as a
+     * fallback when the anchor item is gone. Persisted in [ui] while "Remember scroll position" is on.
+     */
+    private data class ScrollPos(val anchor: String?, val index: Int, val offset: Int)
+    private val scrolls = LinkedHashMap<String, ScrollPos>()
     /** Cold start: the screen we restored, waiting for the library to load before it's validated and scrolled. */
     private var restoring = false
     private var resumeOffered = false
     private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "hide_ts" || key == "hide_system_folders") main.post { if (!isDestroyed && loaded) refresh() }
+        if (key == "remember_scroll" && !Prefs.rememberScroll(this)) ui.edit().remove("scrolls").apply()
     }
     private val storeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         // Playlist progress follows watch progress saved elsewhere (e.g. the player in PiP). Debounced.
@@ -185,23 +205,46 @@ class MainActivity : ThemedActivity() {
             b.chips.removeView(b.chipAll); b.chips.addView(b.chipAll, 0)
             b.chipAll.isChecked = true; tab = Tab.ALL
         } else { b.chipFolders.isChecked = true; tab = Tab.FOLDERS }
-        loadScrolls()
-        // "Where I left off" (the default): reopen the exact screen, never start playback by itself.
-        if (Prefs.homeOpenMode(this) == "last") restoreUiState()
+        // Scroll positions survive restarts only while "Remember scroll position" is on (default); in-session
+        // tab switches always keep each tab's own position.
+        if (Prefs.rememberScroll(this)) loadScrolls()
+        // "Open app where I left off" (default ON): reopen the exact screen, never start playback by itself.
+        // A recreated activity (rotation, process death) always comes back to where it was.
+        if (Prefs.openWhereLeftOff(this) || savedInstanceState != null) restoreUiState()
 
         b.chips.setOnCheckedStateChangeListener { group, ids ->
-            Motion.haptic(group)
-            tab = when (ids.firstOrNull()) {
+            val newTab = when (ids.firstOrNull()) {
                 R.id.chipAll -> Tab.ALL
                 R.id.chipFavorites -> Tab.FAVORITES
                 R.id.chipPlaylists -> Tab.PLAYLISTS
                 else -> Tab.FOLDERS
             }
+            if (newTab == tab) return@setOnCheckedStateChangeListener
+            Motion.haptic(group)
+            val dir = if (tabOrder().indexOf(newTab) > tabOrder().indexOf(tab)) 1 else -1
+            tab = newTab
             if (tab == Tab.FOLDERS) Prefs.saveHomeSection(this, "folders")
             if (tab == Tab.ALL) Prefs.saveHomeSection(this, "all")
-            openPlaylist = null; openFolder = null; filter = "all"
+            // The tab comes back with its own folder/playlist, filter and scroll (nothing is reset).
+            tabTransition = true
             refresh()
+            tabTransition = false
             saveUiState()
+            revealChip()
+            if (!swipeSwitching) b.tabSwipe.slideIn(dir)
+        }
+        b.tabSwipe.host = object : TabSwipeLayout.Host {
+            override fun canSwipeTo(direction: Int): Boolean {
+                if (selecting || !Prefs.swipeTabs(this@MainActivity)) return false
+                val i = tabOrder().indexOf(tab) + direction
+                return i in tabOrder().indices
+            }
+            override fun onSwipeTo(direction: Int) {
+                val next = tabOrder().getOrNull(tabOrder().indexOf(tab) + direction) ?: return
+                swipeSwitching = true
+                chipFor(next).isChecked = true
+                swipeSwitching = false
+            }
         }
         b.header.setOnClickListener { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
         b.fab.setOnClickListener { newPlaylistDialog(null, openPickerAfter = true) }
@@ -219,8 +262,40 @@ class MainActivity : ThemedActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Reload so counts follow videos added/removed while we were away (also re-applies "Hide .ts videos").
+        // A normal library screen is showing: the Hidden Vault is never left unlocked behind it.
+        Vault.lock()
+        // Reload so counts follow videos added/removed while we were away (also re-applies "Hide .ts videos"
+        // and drops anything hidden in the vault meanwhile).
         if (loaded) { refresh(); loadLibrary() }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        rememberScroll(); saveUiState()
+        super.onSaveInstanceState(outState)
+    }
+
+    // ------------------------------------------------------------------ tabs (v2.2)
+
+    private var swipeSwitching = false
+
+    /** Tabs in the order the chips show them (All videos may be first, see "Open the app on"). */
+    private fun tabOrder(): List<Tab> = (0 until b.chips.childCount).mapNotNull { i ->
+        when (b.chips.getChildAt(i).id) {
+            R.id.chipFolders -> Tab.FOLDERS; R.id.chipAll -> Tab.ALL; R.id.chipFavorites -> Tab.FAVORITES; R.id.chipPlaylists -> Tab.PLAYLISTS; else -> null
+        }
+    }
+
+    private fun chipFor(t: Tab) = when (t) { Tab.FOLDERS -> b.chipFolders; Tab.ALL -> b.chipAll; Tab.FAVORITES -> b.chipFavorites; Tab.PLAYLISTS -> b.chipPlaylists }
+
+    /** Keeps the selected chip in view when the tab changes by swiping. */
+    private fun revealChip() {
+        val c = chipFor(tab)
+        b.chipScroll.post {
+            val left = c.left - b.chipScroll.paddingLeft
+            val right = c.right + b.chipScroll.paddingRight - b.chipScroll.width
+            val x = b.chipScroll.scrollX
+            if (left < x) b.chipScroll.smoothScrollTo(left.coerceAtLeast(0), 0) else if (right > x) b.chipScroll.smoothScrollTo(right, 0)
+        }
     }
 
     override fun onPause() {
@@ -242,8 +317,10 @@ class MainActivity : ThemedActivity() {
 
     /** Saves the open screen. Called on every navigation change and in onPause. */
     private fun saveUiState() {
-        ui.edit().putString("tab", tabKey(tab)).putString("folder", openFolder).putString("playlist", openPlaylist)
-            .putString("filter", filter).apply()
+        val e = ui.edit().putString("tab", tabKey(tab)).putString("folder", folderOfTab).putString("playlist", playlistOfTab)
+            .putString("filter", filter)
+        Tab.values().forEach { t -> e.putString("filter_" + tabKey(t), filterOfTab[t] ?: "all") }
+        e.apply()
     }
 
     /** Cold start: puts back the last screen. The folder/playlist is validated once the library has loaded. */
@@ -256,10 +333,14 @@ class MainActivity : ThemedActivity() {
             Tab.PLAYLISTS -> b.chipPlaylists.isChecked = true
             Tab.FOLDERS -> b.chipFolders.isChecked = true
         }
-        openFolder = if (t == Tab.FOLDERS) ui.getString("folder", null) else null
-        openPlaylist = if (t == Tab.PLAYLISTS) ui.getString("playlist", null)?.takeIf { Store.playlists(this).containsKey(it) } else null
-        filter = ui.getString("filter", "all")?.takeIf { it in setOf("all", "progress", "unwatched", "watched") } ?: "all"
-        if (t == Tab.FAVORITES || (t == Tab.PLAYLISTS)) filter = "all"
+        // Both tabs' open folder/playlist come back (v2.2 keeps them per tab). A missing playlist falls back to
+        // the playlist list now; a missing folder is checked once the library has loaded (refresh()).
+        folderOfTab = ui.getString("folder", null)
+        playlistOfTab = ui.getString("playlist", null)?.takeIf { Store.playlists(this).containsKey(it) }
+        val valid = setOf("all", "progress", "unwatched", "watched")
+        Tab.values().forEach { tt -> ui.getString("filter_" + tabKey(tt), null)?.takeIf { it in valid }?.let { filterOfTab[tt] = it } }
+        if (!ui.contains("filter_" + tabKey(t))) ui.getString("filter", "all")?.takeIf { it in valid }?.let { filterOfTab[t] = it }
+        filterOfTab[Tab.FAVORITES] = "all"; filterOfTab[Tab.PLAYLISTS] = "all"
         restoring = true
     }
 
@@ -269,27 +350,46 @@ class MainActivity : ThemedActivity() {
         scrolls.clear()
         try {
             val o = JSONObject(ui.getString("scrolls", "{}") ?: "{}")
-            o.keys().forEach { k -> val a = o.getString(k).split(','); if (a.size == 2) scrolls[k] = (a[0].toIntOrNull() ?: 0) to (a[1].toIntOrNull() ?: 0) }
+            o.keys().forEach { k ->
+                val v = o.get(k)
+                if (v is JSONObject) scrolls[k] = ScrollPos(v.optString("a").takeIf { it.isNotEmpty() }, v.optInt("i", 0), v.optInt("o", 0))
+                else { // v2.1 format "index,offset"
+                    val a = v.toString().split(','); if (a.size == 2) scrolls[k] = ScrollPos(null, a[0].toIntOrNull() ?: 0, a[1].toIntOrNull() ?: 0)
+                }
+            }
         } catch (_: Exception) { }
     }
 
-    /** Remembers where the list is scrolled for the screen that's showing now (kept for the 40 most recent screens). */
+    /**
+     * Remembers where the list is scrolled for the screen that's showing now (60 most recent screens), anchored to
+     * the first visible row's stable key (video uri, folder id, playlist name). Never while searching.
+     */
     private fun rememberScroll(key: String = lastScreenKey) {
-        if (key.isEmpty() || !loaded || adapter.itemCount == 0) return
+        if (key.isEmpty() || !loaded || adapter.itemCount == 0 || lastScreenQuery.isNotBlank()) return
         val pos = grid.findFirstVisibleItemPosition()
         if (pos == RecyclerView.NO_POSITION) return
         val off = (grid.findViewByPosition(pos)?.top ?: 0) - b.list.paddingTop
-        scrolls.remove(key); scrolls[key] = pos to off
-        while (scrolls.size > 40) scrolls.remove(scrolls.keys.first())
-        val o = JSONObject(); scrolls.forEach { (k, v) -> o.put(k, "${v.first},${v.second}") }
-        ui.edit().putString("scrolls", o.toString()).apply()
+        val anchor = adapter.rows.getOrNull(pos)?.let { adapter.key(it) }
+        scrolls.remove(key); scrolls[key] = ScrollPos(anchor, pos, off)
+        while (scrolls.size > 60) scrolls.remove(scrolls.keys.first())
+        if (Prefs.rememberScroll(this)) {
+            val o = JSONObject(); scrolls.forEach { (k, v) -> o.put(k, JSONObject().put("a", v.anchor ?: "").put("i", v.index).put("o", v.offset)) }
+            ui.edit().putString("scrolls", o.toString()).apply()
+        }
     }
 
+    /** Back to the remembered spot: the anchor row if it still exists, else the nearest valid index. */
     private fun applyScroll(key: String) {
         val s = scrolls[key]
-        if (s == null || s.first >= adapter.itemCount) { b.list.scrollToPosition(0); return }
-        grid.scrollToPositionWithOffset(s.first, s.second)
+        val n = adapter.itemCount
+        if (s == null || n == 0) { b.list.scrollToPosition(0); return }
+        val byAnchor = s.anchor?.let { a -> adapter.rows.indexOfFirst { adapter.key(it) == a } } ?: -1
+        val idx = if (byAnchor >= 0) byAnchor else s.index.coerceIn(0, n - 1)
+        // When the anchor vanished the old offset belongs to another row: land on the row's top instead.
+        grid.scrollToPositionWithOffset(idx, if (byAnchor >= 0 || s.anchor == null) s.offset else 0)
     }
+    /** Query of the screen whose scroll [rememberScroll] would save. */
+    private var lastScreenQuery = ""
 
     /** Offers the last player session (never starts it): "Resume <title> · mm:ss". */
     private fun offerResume() {
@@ -297,6 +397,8 @@ class MainActivity : ThemedActivity() {
         resumeOffered = true
         val s = PlayerSession.load(this) ?: return
         val cur = s.current ?: return
+        // Never offer (or even name) a vault video or a vault session in the normal library.
+        if (s.source == Vault.SOURCE_VAULT || Vault.isHidden(this, cur.uri)) return
         if (ui.getLong("resume_dismissed_at", -1L) == s.savedAt) return
         // Validate the file: a library video must still exist; a stream or picked file is kept as is.
         if (isUnavailable(cur.uri)) return
@@ -307,7 +409,10 @@ class MainActivity : ThemedActivity() {
         val text = if (pos > 0) "Resume $title · ${Fmt.time(pos)}" else "Resume $title"
         Snackbar.make(b.root, text, 10_000)
             .setAction("Resume") {
-                play(s.entries, s.index, s.shuffled, s.source, s.sourceId)
+                // Anything hidden since the session was saved stays out of the queue.
+                val entries = Vault.visibleEntries(this, s.entries)
+                val idx = entries.indexOfFirst { it.uri == cur.uri }.coerceAtLeast(0)
+                play(entries, idx, s.shuffled, s.source, s.sourceId)
             }
             .addCallback(object : Snackbar.Callback() {
                 override fun onDismissed(bar: Snackbar?, event: Int) {
@@ -427,7 +532,12 @@ class MainActivity : ThemedActivity() {
         val folderObj = openFolder?.let { id -> folders.firstOrNull { it.id == id } ?: VideoRepository.folders(visible, false).firstOrNull { it.id == id } }
         // A remembered folder that's gone (or holds only hidden videos): fall back to the folder list.
         if (openFolder != null && folderObj == null && loaded) openFolder = null
-        if (openPlaylist != null && !Store.playlists(this).containsKey(openPlaylist)) openPlaylist = null
+        // Same for the Folders tab's remembered folder while another tab is showing (checked against the loaded library).
+        if (tab != Tab.FOLDERS && folderOfTab != null && loaded && visible.none { it.bucketId == folderOfTab }) folderOfTab = null
+        val playlists = Store.playlists(this)
+        if (playlistOfTab != null && !playlists.containsKey(playlistOfTab)) playlistOfTab = null
+        val hidden = Vault.hiddenSet(this)
+        fun shownEntries(l: List<Entry>) = if (hidden.isEmpty()) l else l.filter { it.uri !in hidden }
         backCallback.isEnabled = openPlaylist != null || openFolder != null
         val showHeader = openPlaylist != null || openFolder != null
         if (showHeader && !b.header.isVisible) Motion.enter(b.header, -12 * resources.displayMetrics.density)
@@ -443,7 +553,7 @@ class MainActivity : ThemedActivity() {
 
         fun continueStrip(): Row.ContinueStrip? {
             if (query.isNotBlank()) return null
-            val list = Store.continueList(this).filter { !isUnavailable(it.uri) && !hiddenTs(it, hideTs) }.take(20).map { videoRow(it) }
+            val list = Store.continueList(this).filter { it.uri !in hidden && !isUnavailable(it.uri) && !hiddenTs(it, hideTs) }.take(20).map { videoRow(it) }
             return if (list.isEmpty()) null else Row.ContinueStrip(list)
         }
 
@@ -454,7 +564,7 @@ class MainActivity : ThemedActivity() {
             when (filter) {
                 "progress" -> {
                     val set = uris.toSet()
-                    Store.continueList(this).filter { set.contains(it.uri) || (includeStreams && byUri[it.uri] == null && !isUnavailable(it.uri) && !hiddenTs(it, hideTs)) }
+                    Store.continueList(this).filter { it.uri !in hidden && (set.contains(it.uri) || (includeStreams && byUri[it.uri] == null && !isUnavailable(it.uri) && !hiddenTs(it, hideTs))) }
                         .forEach { rows += videoRow(it) }
                 }
                 "watched" -> items.filter { it.uri.toString() in watched }.forEach { rows += videoRow(Entry(it.uri.toString(), it.name)) }
@@ -484,15 +594,17 @@ class MainActivity : ThemedActivity() {
                 }
             }
             tab == Tab.ALL -> { if (filter != "progress") continueStrip()?.let { rows += it }; videoList(visible, true) }
-            tab == Tab.FAVORITES -> Store.favorites(this).filter { !hiddenTs(it, hideTs) }.forEach { rows += videoRow(it) }
+            tab == Tab.FAVORITES -> shownEntries(Store.favorites(this)).filter { !hiddenTs(it, hideTs) }.forEach { rows += videoRow(it) }
             openPlaylist == null -> {
                 val watchedAll = watched
-                Store.playlists(this).forEach { (name, list) ->
+                // Vault videos stay in the playlist data (unhiding brings them back) but are never listed or counted.
+                playlists.forEach { (name, all) ->
+                    val list = shownEntries(all)
                     rows += Row.Playlist(name, list.size, totalDuration(list), coversFor(list), list.count { isUnavailable(it.uri) }, playlistProgress(list, watchedAll))
                 }
             }
             else -> {
-                val list = Store.playlists(this)[openPlaylist] ?: emptyList()
+                val list = shownEntries(playlists[openPlaylist] ?: emptyList())
                 val missing = list.count { isUnavailable(it.uri) }
                 if (query.isBlank()) rows += Row.Header(true, openPlaylist ?: "",
                     listOfNotNull(countText(list.size), Fmt.time(totalDuration(list)).takeIf { list.isNotEmpty() },
@@ -529,7 +641,9 @@ class MainActivity : ThemedActivity() {
             if (selected.retainAll(keys)) updateActionMode()
         }
         adapter.submit(filtered, newScreen)
-        if (newScreen) b.list.scheduleLayoutAnimation()
+        // Tab changes slide as a whole (TabSwipeLayout); other screen changes keep the staggered entrance.
+        if (newScreen && !tabTransition) b.list.scheduleLayoutAnimation()
+        lastScreenQuery = query
         // Each screen comes back where it was scrolled (also after a cold start, once the library is there).
         if (loaded && (newScreen || restoring)) {
             restoring = false
@@ -773,6 +887,7 @@ class MainActivity : ThemedActivity() {
             vis(R.id.sel_remove, !pl && any && openPlaylist != null)
             vis(R.id.sel_delete, !pl && vids.any { it.item != null })
             vis(R.id.sel_delete_playlists, pl && any)
+            vis(R.id.sel_hide, !pl && any)
             vis(R.id.sel_clear, any)
             return true
         }
@@ -788,12 +903,13 @@ class MainActivity : ThemedActivity() {
                 R.id.sel_play -> {
                     if (selectingPlaylists()) {
                         val pls = Store.playlists(this@MainActivity)
-                        val entries = selectedPlaylists().flatMap { pls[it] ?: emptyList() }.filter { !isUnavailable(it.uri) }.distinctBy { it.uri }
+                        val entries = Vault.visibleEntries(this@MainActivity, selectedPlaylists().flatMap { pls[it] ?: emptyList() }).filter { !isUnavailable(it.uri) }.distinctBy { it.uri }
                         val names = selectedPlaylists()
                         play(entries, 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = names.singleOrNull())
                     } else play(vids.filter { !it.unavailable }.map { it.entry }, 0)
                 }
                 R.id.sel_playlist -> addManyToPlaylistDialog(vids.map { it.entry })
+                R.id.sel_hide -> confirmHide(vids.map { it.entry })
                 R.id.sel_share -> share(vids.mapNotNull { Uri.parse(it.entry.uri).takeIf { u -> u.scheme == "content" || u.scheme == "file" } })
                 R.id.sel_fav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, true); toast("Added ${vids.size} to favorites"); refresh() }
                 R.id.sel_unfav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, false); toast("Removed ${vids.size} from favorites"); refresh() }
@@ -910,6 +1026,7 @@ class MainActivity : ThemedActivity() {
             Store.setWatched(this, row.entry.uri, !row.watched); refresh()
         }
         if (row.progress > 0f) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
+        a += Action("Hide in vault", R.drawable.vault_ic_hide) { confirmHide(listOf(row.entry)) }
         val shareable = !row.unavailable && Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
         if (shareable) a += Action("Share", R.drawable.ic_share) { share(listOf(Uri.parse(row.entry.uri))) }
         if (item != null) {
@@ -934,6 +1051,7 @@ class MainActivity : ThemedActivity() {
             Store.setWatchedMany(this, f.videos.map { it.uri.toString() }, !allWatched); refresh()
         }
         a += Action("Share all", R.drawable.ic_share) { share(f.videos.map { it.uri }) }
+        a += Action("Hide all in vault", R.drawable.vault_ic_hide) { confirmHide(sortedEntries()) }
         a += Action("Rename folder", R.drawable.ic_edit) { renameFolderDialog(f) }
         a += Action("Delete folder", R.drawable.ic_delete, danger = true) {
             confirmDelete(f.videos, "Delete folder \"${f.name}\"?", "All ${f.videos.size} videos in this folder will be permanently deleted from your phone.")
@@ -956,7 +1074,7 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun onPlaylistOptions(row: Row.Playlist) {
-        val entries = { (Store.playlists(this)[row.name] ?: emptyList()).filter { !isUnavailable(it.uri) } }
+        val entries = { Vault.visibleEntries(this, Store.playlists(this)[row.name] ?: emptyList()).filter { !isUnavailable(it.uri) } }
         val a = ArrayList<Action>()
         a += Action("Play all", R.drawable.ic_play) { play(entries(), 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
         a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries().shuffled(), 0, shuffled = true, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
@@ -1151,6 +1269,31 @@ class MainActivity : ThemedActivity() {
     }
 
 
+    // ------------------------------------------------------------------ Hidden Vault (v2.2)
+
+    /** Hide videos: a short confirmation, then [Vault.hide]. Files are never moved, deleted or encrypted. */
+    private fun confirmHide(entries: List<Entry>) {
+        val list = entries.distinctBy { it.uri }
+        if (list.isEmpty()) return
+        val n = list.size
+        val setUp = VaultAuth.isConfigured(this)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (n == 1) "Hide this video?" else "Hide $n videos?")
+            .setMessage("${if (n == 1) "It" else "They"} will only be removed from Vela's library and kept in the Hidden Vault " +
+                "(Settings › Hidden Vault). Files are not deleted, moved or encrypted and stay visible in other apps and file managers." +
+                if (setUp) "" else "\n\nSet up a PIN or pattern in Settings › Hidden Vault to open the vault.")
+            .setPositiveButton("Hide") { _, _ ->
+                val added = Vault.hide(this, list)
+                actionMode?.finish()
+                val gone = list.map { it.uri }.toHashSet()
+                library = library.filter { it.uri.toString() !in gone }
+                byUri = library.associateBy { it.uri.toString() }
+                refresh()
+                Snackbar.make(b.root, if (added == 0) "Already hidden" else if (added == 1) "Hidden in the vault" else "$added videos hidden in the vault", Snackbar.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
     // ------------------------------------------------------------------ playlists
 
     /** Adds one or many videos to a playlist the user picks (or a new one). Duplicates are skipped and reported. */
@@ -1230,7 +1373,7 @@ class MainActivity : ThemedActivity() {
     private inner class Adapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         var rows: List<Row> = emptyList()
         var grid = false
-        private fun key(r: Row): String = when (r) {
+        private fun keyOf(r: Row): String = when (r) {
             is Row.Video -> "v:" + r.entry.uri
             is Row.Folder -> "f:" + r.folder.id
             is Row.Playlist -> "p:" + r.name
@@ -1238,6 +1381,7 @@ class MainActivity : ThemedActivity() {
             is Row.ContinueStrip -> "strip"
             is Row.Header -> "header"
         }
+        fun key(r: Row): String = keyOf(r)
         /** New screen: rebuild and play the staggered entrance. Same screen: animate only what changed. */
         @android.annotation.SuppressLint("NotifyDataSetChanged")
         fun submit(r: List<Row>, newScreen: Boolean) {
@@ -1247,7 +1391,7 @@ class MainActivity : ThemedActivity() {
             androidx.recyclerview.widget.DiffUtil.calculateDiff(object : androidx.recyclerview.widget.DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = r.size
-                override fun areItemsTheSame(o: Int, n: Int) = key(old[o]) == key(r[n])
+                override fun areItemsTheSame(o: Int, n: Int) = keyOf(old[o]) == keyOf(r[n])
                 override fun areContentsTheSame(o: Int, n: Int) = old[o] == r[n]
             }).dispatchUpdatesTo(this)
         }

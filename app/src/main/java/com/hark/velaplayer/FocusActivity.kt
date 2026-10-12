@@ -88,8 +88,10 @@ class FocusActivity : ThemedActivity() {
         }
 
         b.videos.removeAllViews()
-        if (d.top.isEmpty()) b.videos.addView(hint("Videos you watch in Focus Mode will show here with the real time you spent on each."))
-        d.top.forEach { v ->
+        // v2.2: Hidden Vault videos never appear on normal screens (their focus time still counts in the totals).
+        val top = d.top.filter { !Vault.isHidden(this, it.uri) }
+        if (top.isEmpty()) b.videos.addView(hint("Videos you watch in Focus Mode will show here with the real time you spent on each."))
+        top.forEach { v ->
             val parts = ArrayList<String>()
             parts += "Focus ${FocusFmt.dur(v.focusMs)}"
             if (v.mediaMs > 0) parts += "Video length ${Fmt.time(v.mediaMs)}"

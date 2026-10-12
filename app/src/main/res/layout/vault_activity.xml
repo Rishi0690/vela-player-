@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
+
+    <!-- Lock screen: shown until authentication succeeds. -->
+    <LinearLayout
+        android:id="@+id/vaultLockPane"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/vaultLockToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:navigationIcon="@drawable/ic_close"
+            app:title="" />
+
+        <ScrollView
+            android:id="@+id/vaultLockHost"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true" />
+    </LinearLayout>
+
+    <!-- Vault library: only populated while unlocked. -->
+    <LinearLayout
+        android:id="@+id/vaultContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/vaultToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:navigationIcon="@drawable/ic_close"
+            app:title="Hidden Vault" />
+
+        <TextView
+            android:id="@+id/vaultNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="12dp"
+            android:layout_marginBottom="4dp"
+            android:alpha="0.7"
+            android:paddingHorizontal="4dp"
+            android:text="Hiding only removes videos from Vela. Files are not encrypted and stay visible in other apps and file managers."
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/vaultList"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="88dp" />
+
+            <TextView
+                android:id="@+id/vaultEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0.75"
+                android:gravity="center"
+                android:padding="32dp"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/vaultAdd"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:text="Add videos"
+        android:visibility="gone"
+        app:icon="@drawable/ic_add" />
+</FrameLayout>

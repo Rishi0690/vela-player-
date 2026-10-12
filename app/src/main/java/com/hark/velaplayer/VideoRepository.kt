@@ -20,10 +20,13 @@ data class VideoFolder(val id: String, val name: String, val path: String?, val 
 object VideoRepository {
     /**
      * All videos MediaStore knows about. With [respectHideTs] (the default) ".ts" files are left out while the
-     * "Hide .ts videos" setting is on. Files are never touched, only filtered from the list.
+     * "Hide .ts videos" setting is on, and Hidden Vault videos are left out unless [respectVault] is false.
+     * Files are never touched, only filtered from the list.
      */
-    fun load(c: Context, respectHideTs: Boolean = true): List<VideoItem> {
+    fun load(c: Context, respectHideTs: Boolean = true, respectVault: Boolean = true): List<VideoItem> {
         val hideTs = respectHideTs && Prefs.hideTs(c)
+        // v2.2: videos in the Hidden Vault never appear in the normal library (only the vault asks for them).
+        val hidden = if (respectVault) Vault.hiddenSet(c) else emptySet()
         val out = ArrayList<VideoItem>()
         val proj = arrayOf(
             MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DURATION,
@@ -43,8 +46,10 @@ object VideoRepository {
                         ?: "Internal storage"
                     val display = cur.getString(1)
                     if (hideTs && isTs(display, path)) continue
+                    val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                    if (hidden.isNotEmpty() && uri.toString() in hidden) continue
                     out += VideoItem(
-                        id, ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id),
+                        id, uri,
                         cur.getString(1) ?: "Video $id", cur.getLong(2), cur.getLong(3), cur.getLong(4),
                         cur.getInt(5), cur.getInt(6), path, bucketId, bucketName
                     )
