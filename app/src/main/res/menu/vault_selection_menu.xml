@@ -4,6 +4,7 @@
     <item android:id="@+id/vsel_all" android:icon="@drawable/ic_select_all" android:title="Select all" app:showAsAction="always" />
     <item android:id="@+id/vsel_play" android:icon="@drawable/ic_play" android:title="Play selected" app:showAsAction="ifRoom" />
     <item android:id="@+id/vsel_unhide" android:icon="@drawable/vault_ic_unhide" android:title="Unhide (remove from vault)" app:showAsAction="ifRoom" />
+    <item android:id="@+id/vsel_private" android:title="Move to private storage" app:showAsAction="never" />
     <item android:id="@+id/vsel_shuffle" android:icon="@drawable/ic_shuffle" android:title="Shuffle selected" app:showAsAction="never" />
     <item android:id="@+id/vsel_watched" android:title="Mark as watched" app:showAsAction="never" />
     <item android:id="@+id/vsel_unwatched" android:title="Mark as unwatched" app:showAsAction="never" />

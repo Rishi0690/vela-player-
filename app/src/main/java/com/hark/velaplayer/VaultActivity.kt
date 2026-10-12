@@ -109,6 +109,8 @@ class VaultActivity : ThemedActivity() {
         render()
     }
 
+    private val storageReq = VaultStorage.Requester(this).also { it.beforeLaunch = { childOpen = true } }
+
     private val pickLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         childOpen = false
         if (!Vault.isUnlocked()) { render(); return@registerForActivityResult }
@@ -116,9 +118,11 @@ class VaultActivity : ThemedActivity() {
         val titles = r.data?.getStringArrayListExtra(VideoPickerActivity.RESULT_TITLES)
         if (r.resultCode == Activity.RESULT_OK && uris != null) {
             val entries = uris.mapIndexed { i, u -> Entry(u, titles?.getOrNull(i) ?: (Uri.parse(u).lastPathSegment ?: "Video")) }
-            val n = Vault.hide(this, entries)
-            toast(if (n == 0) "Already in the vault" else "Hid $n video${if (n == 1) "" else "s"}")
-            load()
+            VaultStorage.chooseAndHide(this, storageReq, entries, allowApp = true, onAppHide = { l ->
+                val n = Vault.hide(this, l)
+                toast(if (n == 0) "Already in the vault" else "Hid $n video${if (n == 1) "" else "s"} in Vela only")
+                load()
+            }, onPrivateDone = { load() })
         }
     }
 
@@ -392,15 +396,17 @@ class VaultActivity : ThemedActivity() {
         loading = true
         io.execute {
             // Vault-only lookup: includes hidden and .ts files so every vault entry finds its thumbnail/duration.
+            VaultStorage.reconcile(this)
             val lib = VideoRepository.load(this, respectHideTs = false, respectVault = false)
             val byUri = lib.associateBy { it.uri.toString() }
             val fullLookup = lib.isNotEmpty()
             val list = Vault.orderedItems(this).map { it ->
                 val v = byUri[it.uri]
                 val pos = Vault.position(this, it.uri)
-                val dur = Vault.duration(this, it.uri).takeIf { d -> d > 0 } ?: v?.durationMs ?: 0L
+                val dur = Vault.duration(this, it.uri).takeIf { d -> d > 0 } ?: v?.durationMs ?: it.dur
+                val missing = if (it.isPrivate) !VaultStorage.exists(it) else fullLookup && it.uri.startsWith("content://media/") && v == null
                 VRow(it, v, if (pos > 0 && dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f,
-                    fullLookup && it.uri.startsWith("content://media/") && v == null, Vault.lastPlayed(this, it.uri))
+                    missing, Vault.lastPlayed(this, it.uri))
             }
             main.post {
                 loading = false
@@ -411,7 +417,7 @@ class VaultActivity : ThemedActivity() {
         }
     }
 
-    private fun durationOf(r: VRow) = r.video?.durationMs?.takeIf { it > 0 } ?: Vault.duration(this, r.item.uri)
+    private fun durationOf(r: VRow) = r.video?.durationMs?.takeIf { it > 0 } ?: Vault.duration(this, r.item.uri).takeIf { it > 0 } ?: r.item.dur
 
     private fun show() {
         if (!Vault.isUnlocked()) return
@@ -564,15 +570,34 @@ class VaultActivity : ThemedActivity() {
 
     private fun unhide(uris: List<String>) {
         if (uris.isEmpty()) return
+        val all = Vault.items(this).filter { it.uri in uris.toSet() }
+        val priv = all.filter { it.isPrivate }; val app = all.filter { !it.isPrivate }
+        val msg = buildString {
+            if (app.isNotEmpty()) append("${app.size} hidden in Vela only: they go back to the normal library with their resume points. Files aren't changed.")
+            if (priv.isNotEmpty()) {
+                if (isNotEmpty()) append("\n\n")
+                append("${priv.size} in private storage: Vela copies ${if (priv.size == 1) "it" else "them"} back to phone storage " +
+                    "(the original folder when Android allows it, otherwise Movies/Vela Restored), checks the copy, then removes the private copy. " +
+                    "${if (priv.size == 1) "It" else "They"} will be visible in Gallery and other apps again.")
+            }
+        }
         MaterialAlertDialogBuilder(this)
             .setTitle(if (uris.size == 1) "Unhide this video?" else "Unhide ${uris.size} videos?")
-            .setMessage("They go back to the normal library with their resume points. Files aren't changed.")
-            .setPositiveButton("Unhide") { _, _ ->
-                Vault.unhide(this, uris)
+            .setMessage(msg)
+            .setPositiveButton(if (priv.isEmpty()) "Unhide" else "Restore") { _, _ ->
+                if (app.isNotEmpty()) Vault.unhide(this, app.map { it.uri })
                 actionMode?.finish()
-                toast(if (uris.size == 1) "Back in the library" else "${uris.size} videos back in the library")
-                load()
+                if (priv.isEmpty()) {
+                    toast(if (uris.size == 1) "Back in the library" else "${uris.size} videos back in the library"); load()
+                } else VaultStorage.restore(this, storageReq, priv) { load() }
             }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun moveToPrivate(uris: List<String>) {
+        val list = Vault.items(this).filter { it.uri in uris.toSet() && !it.isPrivate }
+        if (list.isEmpty()) { toast("Already in private storage"); return }
+        VaultStorage.chooseAndHide(this, storageReq, list.map { Entry(it.uri, it.title) }, allowApp = false,
+            onAppHide = { }, onPrivateDone = { actionMode?.finish(); load() })
     }
 
     private fun options(row: VRow) {
@@ -585,7 +610,8 @@ class VaultActivity : ThemedActivity() {
         val w = Vault.isWatched(this, row.item.uri)
         labels += if (w) "Mark as unwatched" else "Mark as watched"; acts += { Vault.setWatched(this, listOf(row.item.uri), !w); load() }
         if (rows.size > 1) { labels += "Edit order"; acts += { startReorder() } }
-        labels += "Unhide (remove from vault)"; acts += { unhide(listOf(row.item.uri)) }
+        if (!row.item.isPrivate && !row.unavailable) { labels += "Move to private storage (hide from Gallery)"; acts += { moveToPrivate(listOf(row.item.uri)) } }
+        labels += if (row.item.isPrivate) "Unhide (restore to phone storage)" else "Unhide (remove from vault)"; acts += { unhide(listOf(row.item.uri)) }
         labels += "Details"; acts += { details(row) }
         MaterialAlertDialogBuilder(this).setTitle(row.item.title)
             .setItems(labels.toTypedArray()) { _, i -> acts[i]() }.show()
@@ -605,7 +631,13 @@ class VaultActivity : ThemedActivity() {
         if (row.item.hiddenAt > 0) sb.append("Hidden: ").append(DateFormat.getMediumDateFormat(this).format(row.item.hiddenAt)).append('\n')
         val pos = Vault.position(this, row.item.uri)
         if (pos > 0) sb.append("Resume at: ").append(Fmt.time(pos)).append('\n')
-        sb.append("\nThe file isn't encrypted and stays visible in other apps.")
+        if (row.item.isPrivate) {
+            VaultStorage.fileOf(row.item)?.takeIf { it.exists() }?.let { sb.append("Size: ").append(Formatter.formatFileSize(this, it.length())).append('\n') }
+            row.item.origDir?.let { sb.append("Originally in: ").append(it).append('\n') }
+            sb.append("\nStored in Vela's private storage: Gallery and other apps can't see it. It is not encrypted. " +
+                "Uninstalling Vela or clearing its storage deletes it permanently, so unhide it first.")
+        } else sb.append("\nHidden in Vela only: the file isn't moved or encrypted and stays visible in Gallery and other apps. " +
+            "Uninstalling Vela doesn't delete it.")
         MaterialAlertDialogBuilder(this).setTitle("Details").setMessage(sb.toString()).setPositiveButton("Close", null).show()
     }
 
@@ -642,6 +674,7 @@ class VaultActivity : ThemedActivity() {
             menu.findItem(R.id.vsel_all).title = if (any && selected.size >= shown.size) "Deselect all" else "Select all"
             menu.findItem(R.id.vsel_play).isVisible = any
             menu.findItem(R.id.vsel_unhide).isVisible = any
+            menu.findItem(R.id.vsel_private).isVisible = any && Vault.items(this@VaultActivity).any { it.uri in selected && !it.isPrivate }
             menu.findItem(R.id.vsel_shuffle).isVisible = selected.size > 1
             val sel = selected.toList()
             menu.findItem(R.id.vsel_watched).isVisible = sel.any { !Vault.isWatched(this@VaultActivity, it) }
@@ -661,6 +694,7 @@ class VaultActivity : ThemedActivity() {
                     play(sel, 0)
                 }
                 R.id.vsel_unhide -> unhide(selected.toList())
+                R.id.vsel_private -> moveToPrivate(selected.toList())
                 R.id.vsel_shuffle -> {
                     val sel = selected.mapNotNull { u -> shown.firstOrNull { it.item.uri == u } }.filter { !it.unavailable }
                     if (sel.isNotEmpty()) play(sel, 0, true)
@@ -732,18 +766,19 @@ class VaultActivity : ThemedActivity() {
             v.title.text = r.item.title
             val item = r.video
             val parts = ArrayList<String>()
-            if (r.unavailable) parts += "Unavailable · moved or deleted"
+            if (r.unavailable) parts += if (r.item.isPrivate) "Private copy missing" else "Unavailable · moved or deleted"
             else if (item != null) {
                 if (item.height > 0) parts += "${item.height}p"
                 if (item.size > 0) parts += Formatter.formatShortFileSize(itemView.context, item.size)
             }
+            if (r.item.isPrivate && !r.unavailable) parts += "Private storage"
             if (!gridMode) {
                 if (Vault.isWatched(itemView.context, r.item.uri)) parts += "Watched"
                 else if (r.progress > 0f) parts += "${Math.round(r.progress * 100)}% watched"
             }
             v.subtitle.text = parts.joinToString(" · ")
             v.root.alpha = if (r.unavailable) 0.55f else 1f
-            val dur = item?.durationMs ?: Vault.duration(itemView.context, r.item.uri)
+            val dur = item?.durationMs ?: Vault.duration(itemView.context, r.item.uri).takeIf { it > 0 } ?: r.item.dur
             v.duration.isVisible = dur > 0
             v.duration.text = Fmt.time(dur)
             v.progress.isVisible = r.progress > 0f

@@ -1323,26 +1323,29 @@ class MainActivity : ThemedActivity() {
 
     // ------------------------------------------------------------------ Hidden Vault (v2.2)
 
-    /** Hide videos: a short confirmation, then [Vault.hide]. Files are never moved, deleted or encrypted. */
+    /** v2.5: hide videos — choose "Hide in Vela only" or "Move to Vela's private storage" (see [VaultStorage]). */
+    private val vaultReq = VaultStorage.Requester(this)
+
     private fun confirmHide(entries: List<Entry>) {
         val list = entries.distinctBy { it.uri }
         if (list.isEmpty()) return
-        val n = list.size
-        MaterialAlertDialogBuilder(this)
-            .setTitle(if (n == 1) "Hide this video?" else "Hide $n videos?")
-            .setMessage("${if (n == 1) "It" else "They"} will only be removed from Vela's library and kept in the Hidden Vault " +
-                "(press and hold the Vela Player name on Home for 5 seconds to open it). Files are not deleted, moved or encrypted " +
-                "and stay visible in other apps and file managers.")
-            .setPositiveButton("Hide") { _, _ ->
-                val added = Vault.hide(this, list)
-                actionMode?.finish()
-                val gone = list.map { it.uri }.toHashSet()
+        VaultStorage.chooseAndHide(this, vaultReq, list, allowApp = true, onAppHide = { l ->
+            val added = Vault.hide(this, l)
+            actionMode?.finish()
+            val gone = l.map { it.uri }.toHashSet()
+            library = library.filter { it.uri.toString() !in gone }
+            byUri = library.associateBy { it.uri.toString() }
+            refresh()
+            Snackbar.make(b.root, if (added == 0) "Already hidden" else if (added == 1) "Hidden in Vela (still visible in other apps)" else "$added videos hidden in Vela (still visible in other apps)", Snackbar.LENGTH_SHORT).show()
+        }, onPrivateDone = { moved ->
+            actionMode?.finish()
+            if (moved > 0) {
+                val gone = Vault.hiddenSet(this)
                 library = library.filter { it.uri.toString() !in gone }
                 byUri = library.associateBy { it.uri.toString() }
-                refresh()
-                Snackbar.make(b.root, if (added == 0) "Already hidden" else if (added == 1) "Hidden in the vault" else "$added videos hidden in the vault", Snackbar.LENGTH_SHORT).show()
             }
-            .setNegativeButton("Cancel", null).show()
+            refresh(); loadLibrary()
+        })
     }
 
     // ------------------------------------------------------------------ playlists

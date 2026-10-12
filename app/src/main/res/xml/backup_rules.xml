@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.5: privately stored vault videos never go into Google/ADB backups (size and privacy). -->
+<full-backup-content>
+    <exclude domain="file" path="vault/" />
+</full-backup-content>

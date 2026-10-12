@@ -159,6 +159,18 @@ object Store {
         e.apply()
         val m = playlists(c); m.values.forEach { l -> l.replaceAll { if (it.uri == uri) Entry(uri, title) else it } }; savePlaylists(c, m)
     }
+    /** v2.5: a privately stored video was restored under a new uri: point favorites and playlists at it (no duplicates). */
+    fun replaceUri(c: Context, old: String, new: String, title: String) {
+        if (old == new) return
+        val e = sp(c).edit()
+        val fav = favorites(c); val hadNew = fav.any { it.uri == new }
+        e.putString("favorites", write(fav.mapNotNull { if (it.uri == old) (if (hadNew) null else Entry(new, it.title.ifBlank { title })) else it }))
+        e.apply()
+        val m = playlists(c)
+        m.values.forEach { l -> val has = l.any { it.uri == new }; val out = l.mapNotNull { if (it.uri == old) (if (has) null else Entry(new, it.title.ifBlank { title })) else it }; l.clear(); l.addAll(out) }
+        savePlaylists(c, m)
+    }
+
     /** A video file was deleted: forget its progress, watched mark, favorite and playlist entries. */
     fun forget(c: Context, uris: Collection<String>) {
         if (uris.isEmpty()) return

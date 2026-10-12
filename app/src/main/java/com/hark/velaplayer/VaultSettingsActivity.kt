@@ -38,6 +38,10 @@ class VaultSettingsActivity : ThemedActivity() {
     /** Set while a switch is changed from code, so its listener doesn't run. */
     private var quiet = false
 
+    /** A system permission screen is open (don't lock for that). */
+    private var sysOpen = false
+    private val storageReq = VaultStorage.Requester(this).also { it.beforeLaunch = { sysOpen = true } }
+
     private val back = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() { if (inSubPanel) showMain() else done() }
     }
@@ -57,12 +61,13 @@ class VaultSettingsActivity : ThemedActivity() {
 
     override fun onStart() {
         super.onStart()
+        sysOpen = false
         if (!Vault.isUnlocked()) finish()
     }
 
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations && !isFinishing) {
+        if (!isChangingConfigurations && !isFinishing && !sysOpen) {
             verified = false
             if (VaultAuth.isConfigured(this)) { Vault.lock(); finish() }
         }
@@ -200,19 +205,33 @@ class VaultSettingsActivity : ThemedActivity() {
         val n = Vault.count(this)
         row(c, "Unhide all videos", if (n == 0) "The vault is empty" else "Return all $n video${if (n == 1) "" else "s"} to the normal library", danger = n > 0) {
             if (n == 0) return@row
+            val priv = VaultStorage.privateItems(this)
             MaterialAlertDialogBuilder(this).setTitle("Unhide all $n video${if (n == 1) "" else "s"}?")
-                .setMessage("They go back to the normal library with their resume points. No files are deleted, moved or changed.")
+                .setMessage("Videos hidden in Vela only go back to the normal library with their resume points; their files aren't changed." +
+                    if (priv.isEmpty()) "" else "\n\n${priv.size} in private storage are copied back to phone storage (original folder when " +
+                        "Android allows it, otherwise Movies/Vela Restored), checked, and then removed from private storage.")
                 .setPositiveButton("Unhide all") { _, _ ->
-                    Vault.unhide(this, Vault.items(this).map { it.uri }); changed = true
-                    toast("All videos are back in the library"); showMain()
+                    Vault.unhide(this, Vault.items(this).filter { !it.isPrivate }.map { it.uri }); changed = true
+                    if (priv.isEmpty()) { toast("All videos are back in the library"); showMain() }
+                    else VaultStorage.restore(this, storageReq, priv) { showMain() }
                 }.setNegativeButton("Cancel", null).show()
         }
         row(c, "Reset custom order", "Go back to newest hidden first. Videos stay in the vault.") {
             Vault.setOrder(this, emptyList()); changed = true; toast("Custom order reset")
         }
 
+        header(c, "Storage & uninstalling")
+        val priv = VaultStorage.privateItems(this)
+        val appN = n - priv.size
+        note(c, "Hidden in Vela only: $appN video${if (appN == 1) "" else "s"}. Files stay where they are and are still visible in " +
+            "Gallery, file managers and other apps. Uninstalling Vela deletes nothing; they simply show up normally.")
+        note(c, "In Vela's private storage: ${priv.size} video${if (priv.size == 1) "" else "s"}" +
+            (if (priv.isEmpty()) "" else " (${android.text.format.Formatter.formatShortFileSize(this, VaultStorage.privateBytes(this))})") +
+            ". Other apps can't see these. Uninstalling Vela or clearing its storage deletes them permanently. " +
+            "Restore them with Unhide before uninstalling, changing phones or resetting.")
         header(c, "About hiding")
-        note(c, getString(R.string.vault_not_encrypted) + " The vault is app-level privacy, not file encryption.")
+        note(c, "Nothing in the vault is encrypted. The vault lock protects Vela's screens, not the files themselves; " +
+            "anyone with root access or a computer backup tool may still reach them.")
         setPanel(c, false)
     }
 
