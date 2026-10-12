@@ -40,11 +40,16 @@ object PlayerSession {
     private fun sp(c: Context) = c.getSharedPreferences("vela_session", Context.MODE_PRIVATE)
 
     fun save(c: Context, s: Session) {
+        // v2.2: Hidden Vault videos are never part of the saved session (the vault player doesn't call this at all).
+        val cur = s.current
+        val kept = s.entries.filter { it == cur || !Vault.isHidden(c, it.uri) }
+        if (cur != null && Vault.isHidden(c, cur.uri)) { clear(c); return }
         val arr = JSONArray()
-        s.entries.forEach { arr.put(JSONObject().put("u", it.uri).put("t", it.title)) }
+        val idx = if (cur != null) kept.indexOf(cur).coerceAtLeast(0) else 0
+        kept.forEach { arr.put(JSONObject().put("u", it.uri).put("t", it.title)) }
         sp(c).edit()
             .putString("entries", arr.toString())
-            .putInt("index", s.index)
+            .putInt("index", idx)
             .putLong("pos", s.positionMs)
             .putString("source", s.source)
             .putString("sourceId", s.sourceId)
@@ -64,12 +69,20 @@ object PlayerSession {
         val raw = p.getString("entries", null) ?: return null
         return runCatching {
             val arr = JSONArray(raw)
-            val list = (0 until arr.length()).map { arr.getJSONObject(it).let { o -> Entry(o.getString("u"), o.optString("t")) } }
+            val all = (0 until arr.length()).map { arr.getJSONObject(it).let { o -> Entry(o.getString("u"), o.optString("t")) } }
+            if (all.isEmpty()) return null
+            // v2.2: drop anything hidden in the vault since it was saved; keep pointing at the same video if possible.
+            val savedIdx = p.getInt("index", 0).coerceIn(0, all.lastIndex)
+            val savedCur = all[savedIdx]
+            val curHidden = Vault.isHidden(c, savedCur.uri)
+            val list = all.filter { !Vault.isHidden(c, it.uri) }
             if (list.isEmpty()) return null
+            val idx = if (!curHidden) list.indexOf(savedCur).coerceAtLeast(0)
+                else all.subList(savedIdx, all.size).firstOrNull { it in list }?.let { list.indexOf(it) } ?: list.lastIndex
             Session(
                 list,
-                p.getInt("index", 0).coerceIn(0, list.lastIndex),
-                p.getLong("pos", 0L),
+                idx.coerceIn(0, list.lastIndex),
+                if (curHidden) 0L else p.getLong("pos", 0L),
                 p.getString("source", SOURCE_ALL) ?: SOURCE_ALL,
                 p.getString("sourceId", null),
                 p.getBoolean("shuffled", false),

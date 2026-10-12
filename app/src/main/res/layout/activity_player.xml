@@ -271,6 +271,62 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- v2.2: compact status chip for Shuffle / Loop / Auto-play next (position set in code: centred, a bit below the middle). -->
+    <LinearLayout
+        android:id="@+id/p22StatusChip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:alpha="0"
+        android:background="@drawable/p22_status_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingTop="5dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/p22StatusIcon"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:importantForAccessibility="no"
+            app:tint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/p22StatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:maxLines="1"
+            android:shadowColor="#99000000"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:textColor="@android:color/white"
+            android:textSize="12.5sp" />
+    </LinearLayout>
+
+    <!-- v2.2: skip feedback inside the picture-in-picture window (PiP rewind/forward buttons). -->
+    <TextView
+        android:id="@+id/p22PipSeek"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:alpha="0"
+        android:background="@drawable/p22_status_bg"
+        android:paddingStart="10dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="4dp"
+        android:shadowColor="#99000000"
+        android:shadowDy="1"
+        android:shadowRadius="3"
+        android:textColor="@android:color/white"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/controls"
         android:layout_width="match_parent"
@@ -300,19 +356,38 @@
 
             <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnBack" style="@style/PlayerIcon" android:contentDescription="Back" android:src="@drawable/ic_arrow_back" />
 
-            <TextView
-                android:id="@+id/titleText"
-                    android:shadowColor="#B3000000"
-                    android:shadowDy="1"
-                    android:shadowRadius="6"
+            <!-- v2.2: the title doubles as a discreet press-and-hold area (5 s). The thin line fills while holding. -->
+            <FrameLayout
+                android:id="@+id/p22TitleBox"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@android:color/white"
-                android:textSize="16sp" />
+                android:layout_weight="1">
+
+                <TextView
+                    android:id="@+id/titleText"
+                    android:shadowColor="#B3000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingVertical="8dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp" />
+
+                <View
+                    android:id="@+id/p22HoldLine"
+                    android:layout_width="match_parent"
+                    android:layout_height="2dp"
+                    android:layout_gravity="bottom|start"
+                    android:layout_marginBottom="3dp"
+                    android:alpha="0"
+                    android:background="@drawable/p22_hold_line"
+                    android:importantForAccessibility="no"
+                    android:scaleX="0" />
+            </FrameLayout>
 
             <ImageView
                 android:id="@+id/shuffleBadge"

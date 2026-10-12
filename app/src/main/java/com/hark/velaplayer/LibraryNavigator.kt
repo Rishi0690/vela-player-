@@ -79,6 +79,8 @@ object LibraryNavigator {
         if (all.isEmpty()) return null
         val current = find(all, mediaId) ?: return null
         val hideTs = hideTs(c)
+        // v2.2: Hidden Vault videos never show up in an ordinary queue (only the playing one is kept, if at all).
+        val hidden = Vault.hiddenSet(c)
         var folders = VideoRepository.folders(all, Prefs.hideSystemFolders(c))
         // A video in a hidden system folder still navigates through its own folder.
         if (folders.none { it.id == current.bucketId }) folders = VideoRepository.folders(all, false)
@@ -87,7 +89,7 @@ object LibraryNavigator {
         for (f in sortFolders(c, folders)) {
             for (v in sortVideos(c, f.videos)) {
                 // The video playing now always stays, even if it is a .ts file.
-                if (v.id == current.id || !(hideTs && isTs(v))) flat += v
+                if (v.id == current.id || (!(hideTs && isTs(v)) && v.uri.toString() !in hidden)) flat += v
             }
         }
         val idx = flat.indexOfFirst { it.id == current.id }

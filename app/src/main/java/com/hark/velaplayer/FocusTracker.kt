@@ -22,6 +22,10 @@ class FocusTracker(private val ctx: Context) {
     private var uri: String? = null
     private var title: String? = null
     private var mediaMs = 0L
+    /** v2.2: vault playback. Per-video records then use [PRIVATE_TITLE] instead of the real file name. */
+    var privateMode = false
+
+    companion object { const val PRIVATE_TITLE = "Private video" }
 
     init {
         // v2.1: Focus Mode stays on across app closures. The preference is restored here; a new session is
@@ -67,7 +71,7 @@ class FocusTracker(private val ctx: Context) {
 
     fun setVideo(newUri: String?, newTitle: String?, durationMs: Long) {
         if (newUri != uri) { flush(); mediaMs = 0 }
-        uri = newUri; title = newTitle
+        uri = newUri; title = if (privateMode) PRIVATE_TITLE else newTitle
         if (durationMs > 0) mediaMs = durationMs
     }
     fun updateDuration(ms: Long) { if (ms > 0) mediaMs = ms }

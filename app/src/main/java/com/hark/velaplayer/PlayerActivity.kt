@@ -113,6 +113,9 @@ class PlayerActivity : AppCompatActivity() {
         private const val CTRL_NEXT = 4
         private const val CTRL_REWIND = 5
         private const val CTRL_FORWARD = 6
+        private const val VAULT_HOLD_MS = 5_000L
+        private const val PRIVATE_TITLE = FocusTracker.PRIVATE_TITLE
+        private const val VAULT_ACTIVITY = "com.hark.velaplayer.VaultActivity"
 
         /** Snaps any speed onto the slider's 0.05 grid within its range. */
         fun snapSpeed(v: Float): Float {
@@ -221,8 +224,8 @@ class PlayerActivity : AppCompatActivity() {
                 CTRL_PAUSE -> togglePlayPauseTo(false)
                 CTRL_PREV -> { savePosition(); player.seekToPreviousMediaItem() }
                 CTRL_NEXT -> { savePosition(); player.seekToNextMediaItem() }
-                CTRL_REWIND -> seekBy(-seekIntervalMs)
-                CTRL_FORWARD -> seekBy(seekIntervalMs)
+                CTRL_REWIND -> pipSeek(-1)
+                CTRL_FORWARD -> pipSeek(1)
             }
             updatePipParams()
         }
@@ -261,6 +264,34 @@ class PlayerActivity : AppCompatActivity() {
     private var lastFocusY = 0f
     private val boost = VolumeBoost()
     private var boostWarned = false
+
+    // ---- v2.2 player ----
+    /** Playing Hidden Vault videos (Vault.EXTRA_VAULT): private resume/history, no session/Continue Watching, FLAG_SECURE. */
+    private var vaultMode = false
+    /** Real names for the on-screen title when the media session only gets "Private video". */
+    private val realTitles = HashMap<String, String>()
+    private val hideStatusRunnable = Runnable { hideStatusChip() }
+    private var pipSeekSide = 0
+    private var pipSeekAccum = 0L
+    private var pipSeekTime = 0L
+    private val hidePipSeekRunnable = Runnable { fadeOut(b.p22PipSeek); pipSeekAccum = 0L }
+    // Five-second hold on the title = Hidden Vault entry.
+    private var holdActive = false
+    private var holdStartAt = 0L
+    private var holdDownX = 0f
+    private var holdDownY = 0f
+    private var lastVaultOpenAt = 0L
+    /** True while the player itself opened another screen (picker, settings, vault): that is not "going to the background". */
+    private var openedInAppScreen = false
+    private val holdTicker = object : Runnable {
+        override fun run() {
+            if (!holdActive) return
+            val el = SystemClock.uptimeMillis() - holdStartAt
+            if (el >= VAULT_HOLD_MS) { completeHold(); return }
+            renderHold(el)
+            handler.postDelayed(this, 16L)
+        }
+    }
     private val requestWrite = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) captureFrame() else toast("Storage permission is needed to save screenshots on this Android version")
     }
@@ -326,6 +357,8 @@ class PlayerActivity : AppCompatActivity() {
         player.setVideoTextureView(b.videoLayout.textureView)
         player.addListener(playerListener)
         player.addAnalyticsListener(analyticsListener)
+        // v2.2: boost is always on; find out now whether this device can amplify, so the volume bar never offers a fake 200%.
+        boost.probe(player.audioSessionId)
         player.shuffleModeEnabled = Prefs.playerShuffle(this)
         player.repeatMode = Prefs.playerRepeat(this)
         lastOrientation = resources.configuration.orientation
@@ -343,11 +376,16 @@ class PlayerActivity : AppCompatActivity() {
         setupGestures()
         setupSpeedPanel()
         setupBrowser()
+        setupVaultHold()
         if (!pipSupported()) b.btnPip.isVisible = false
         ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
 
         // Recreated by the system (process death / restore from Recents): restore the video paused at its
         // saved position instead of starting playback on its own.
+        // A vault player restored after the process died (or after the vault locked) must not play without unlocking again.
+        if (intent.getBooleanExtra(Vault.EXTRA_VAULT, false) && savedInstanceState != null && !Vault.isUnlocked()) {
+            relockToVault(); return
+        }
         if (!loadQueue(intent, autoPlay = savedInstanceState == null)) {
             Toast.makeText(this, "Nothing to play", Toast.LENGTH_SHORT).show()
             finish(); return
@@ -372,7 +410,6 @@ class PlayerActivity : AppCompatActivity() {
         renderFocusUi()
         if (playerReady) {
             applyModes(); renderModes(); renderRotateButton()
-            if (!Prefs.volumeBoost(this) && boost.boostPct > 0) { setBoost(0); boost.release() }
         }
     }
 
@@ -384,6 +421,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        openedInAppScreen = false
         activityStarted = true
         updateFocusCounting()
         if (Prefs.backgroundAudio(this)) connectSession()
@@ -393,10 +431,35 @@ class PlayerActivity : AppCompatActivity() {
         super.onStop()
         activityStarted = false
         updateFocusCounting()
+        cancelHold()
+        if (!playerReady) return
         savePosition()
         updateSessionPosition()
         val keepPlaying = Prefs.backgroundAudio(this) && player.isPlaying && !isFinishing
         if (!keepPlaying) player.pause()
+        // v2.2: leaving the vault player for the background (not PiP, not closing it) locks the vault.
+        if (vaultMode && !openedInAppScreen && !isInPipSafe() && !isFinishing && !isChangingConfigurations) Vault.lock()
+    }
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        // Every startActivity / result launcher ends up here.
+        openedInAppScreen = true
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        // Back from the background after the vault locked: authenticate again before anything private is shown.
+        if (vaultMode && !Vault.isUnlocked()) relockToVault()
+    }
+
+    /** Vault is locked: stop, hide the video and send the user through the vault's own authentication. */
+    private fun relockToVault() {
+        try { b.root.visibility = View.INVISIBLE } catch (_: Exception) { }
+        if (playerReady) { try { savePosition(); player.pause(); player.stop() } catch (_: Exception) { } }
+        try { startActivity(Intent().setClassName(packageName, VAULT_ACTIVITY)) } catch (_: Exception) { }
+        finish()
     }
 
     override fun onDestroy() {
@@ -462,7 +525,10 @@ class PlayerActivity : AppCompatActivity() {
         } else {
             b.edgeOverlay.isVisible = true
             b.pipProgress.isVisible = false
+            handler.removeCallbacks(hidePipSeekRunnable); b.p22PipSeek.isVisible = false
             renderFocusUi()
+            // PiP window closed (not expanded back): the vault player is gone from the screen, so lock the vault.
+            if (vaultMode && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) Vault.lock()
         }
         b.videoLayout.resetZoom(false)
     }
@@ -472,9 +538,10 @@ class PlayerActivity : AppCompatActivity() {
     private fun loadQueue(intent: Intent, autoPlay: Boolean = true): Boolean {
         b.shuffleBadge.isVisible = intent.getBooleanExtra(EXTRA_SHUFFLED, false)
         launchShuffled = intent.getBooleanExtra(EXTRA_SHUFFLED, false)
+        setVaultMode(intent.getBooleanExtra(Vault.EXTRA_VAULT, false))
         // Missing extra (other apps, old callers) = keep the given queue, like SOURCE_EXTERNAL.
-        source = intent.getStringExtra(PlayerSession.EXTRA_SOURCE) ?: PlayerSession.SOURCE_EXTERNAL
-        sourceId = intent.getStringExtra(PlayerSession.EXTRA_SOURCE_ID)
+        source = if (vaultMode) Vault.SOURCE_VAULT else intent.getStringExtra(PlayerSession.EXTRA_SOURCE) ?: PlayerSession.SOURCE_EXTERNAL
+        sourceId = if (vaultMode) null else intent.getStringExtra(PlayerSession.EXTRA_SOURCE_ID)
         val uris = intent.getStringArrayListExtra(EXTRA_URIS)
         val titles = intent.getStringArrayListExtra(EXTRA_TITLES)
         val entries = ArrayList<Entry>()
@@ -484,7 +551,16 @@ class PlayerActivity : AppCompatActivity() {
             intent.data?.let { entries += Entry(it.toString(), displayName(it)) }
         }
         if (entries.isEmpty()) return false
-        startQueue(entries, intent.getIntExtra(EXTRA_INDEX, 0), autoPlay)
+        var index = intent.getIntExtra(EXTRA_INDEX, 0).coerceIn(0, entries.lastIndex)
+        if (!vaultMode) {
+            // v2.2: hidden videos never ride along in an ordinary queue (the one explicitly opened still plays).
+            val chosen = entries[index]
+            val kept = entries.filterIndexed { i, e -> i == index || !Vault.isHidden(this, e.uri) }
+            if (kept.size != entries.size) { entries.clear(); entries.addAll(kept); index = entries.indexOf(chosen).coerceAtLeast(0) }
+        }
+        startQueue(entries, index, autoPlay)
+        // Vault queue = exactly the videos it was given; never the library order.
+        if (vaultMode) return true
         // Folder / All videos / Continue Watching (and a lone video) follow the library order for Next/Previous.
         // Playlists, Favorites and shuffled collections keep exactly the queue they were given.
         val libraryOrder = source == PlayerSession.SOURCE_FOLDER || source == PlayerSession.SOURCE_ALL || source == PlayerSession.SOURCE_CONTINUE
@@ -495,6 +571,7 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Rebuilds the queue around the current video in library order, without interrupting playback. */
     private fun expandToLibrary() {
+        if (vaultMode) return
         val id = player.currentMediaItem?.mediaId ?: return
         val gen = queueGen
         try {
@@ -506,7 +583,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun applyLibraryWindow(id: String, w: LibraryNavigator.Window) {
-        if (player.currentMediaItem?.mediaId != id) return
+        if (vaultMode || player.currentMediaItem?.mediaId != id) return
         val cur = player.currentMediaItemIndex
         val before = w.items.subList(0, w.index).map { buildItem(Entry(it.uri.toString(), it.name)) }
         val after = w.items.subList(w.index + 1, w.items.size).map { buildItem(Entry(it.uri.toString(), it.name)) }
@@ -524,7 +601,7 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Saves the queue (a window around the current video), index and position for the library's Resume. */
     private fun saveSession() {
-        if (!playerReady) return
+        if (!playerReady || vaultMode) return
         val n = player.mediaItemCount
         if (n == 0) return
         val cur = player.currentMediaItemIndex.coerceIn(0, n - 1)
@@ -532,7 +609,7 @@ class PlayerActivity : AppCompatActivity() {
         val to = (cur + 101).coerceAtMost(n)
         val entries = (from until to).map { i ->
             val m = player.getMediaItemAt(i)
-            Entry(m.mediaId, m.mediaMetadata.title?.toString() ?: "Video")
+            Entry(m.mediaId, titleOf(m))
         }
         sessionFrom = from; sessionCount = entries.size
         PlayerSession.save(this, PlayerSession.Session(entries, cur - from, player.currentPosition.coerceAtLeast(0L),
@@ -541,7 +618,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun updateSessionPosition() {
-        if (!playerReady || player.mediaItemCount == 0) return
+        if (!playerReady || vaultMode || player.mediaItemCount == 0) return
         val rel = player.currentMediaItemIndex - sessionFrom
         if (sessionCount == 0 || rel < 0 || rel >= sessionCount) { saveSession(); return }
         PlayerSession.updatePosition(this, rel, player.currentPosition.coerceAtLeast(0L))
@@ -553,7 +630,9 @@ class PlayerActivity : AppCompatActivity() {
         endTempSpeed()
         queueGen++
         val start = index.coerceIn(0, entries.lastIndex)
-        val startPos = if (Prefs.resume(this)) Store.position(this, entries[start].uri) else 0L
+        val startPos = if (Prefs.resume(this)) resumePosition(entries[start].uri) else 0L
+        realTitles.clear()
+        if (vaultMode) entries.forEach { realTitles[it.uri] = it.title }
         externalSubs = null; externalActive = false; shownExternal = emptyList()
         tracksAppliedFor = null
         b.errorPanel.isVisible = false
@@ -567,13 +646,29 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun buildItem(e: Entry): MediaItem {
         val lower = e.uri.lowercase(Locale.ROOT)
+        if (vaultMode) realTitles[e.uri] = e.title
         val builder = MediaItem.Builder().setUri(e.uri).setMediaId(e.uri)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(e.title).build())
+            .setMediaMetadata(if (vaultMode) privateMetadata() else MediaMetadata.Builder().setTitle(e.title).build())
         when {
             lower.contains(".m3u8") -> builder.setMimeType(MimeTypes.APPLICATION_M3U8)
             lower.contains(".mpd") -> builder.setMimeType(MimeTypes.APPLICATION_MPD)
         }
         return builder.build()
+    }
+
+    /**
+     * Vault items: the media session / notification / lock screen only ever see "Private video". Every text field and
+     * the artwork are set explicitly because ExoPlayer fills unset fields from the file's own tags (title, artist, cover).
+     */
+    private fun privateMetadata(): MediaMetadata = MediaMetadata.Builder()
+        .setTitle(PRIVATE_TITLE).setDisplayTitle(PRIVATE_TITLE)
+        .setArtist("").setAlbumTitle("").setAlbumArtist("").setSubtitle("").setDescription("")
+        .setArtworkData(privateArtwork, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+        .build()
+
+    private val privateArtwork: ByteArray by lazy {
+        val bmp = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF202124.toInt()) }
+        java.io.ByteArrayOutputStream().use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out); bmp.recycle(); out.toByteArray() }
     }
 
     private fun displayName(uri: Uri): String {
@@ -592,9 +687,22 @@ class PlayerActivity : AppCompatActivity() {
         val item = player.currentMediaItem ?: return
         val dur = player.duration
         if (!player.isCurrentMediaItemSeekable || player.isCurrentMediaItemLive) return
-        Store.savePosition(this, item.mediaId, item.mediaMetadata.title?.toString() ?: "Video", player.currentPosition,
-            if (dur == C.TIME_UNSET) 0L else dur)
+        val d = if (dur == C.TIME_UNSET) 0L else dur
+        // Vault videos (and anything hidden meanwhile) keep their history in the vault, never in Continue Watching.
+        if (vaultMode || Vault.isHidden(this, item.mediaId)) Vault.savePosition(this, item.mediaId, player.currentPosition, d)
+        else Store.savePosition(this, item.mediaId, titleOf(item), player.currentPosition, d)
     }
+
+    private fun resumePosition(uri: String): Long =
+        if (vaultMode || Vault.isHidden(this, uri)) Vault.position(this, uri) else Store.position(this, uri)
+
+    private fun markWatched(uri: String) {
+        if (vaultMode || Vault.isHidden(this, uri)) Vault.markWatched(this, uri) else Store.markWatched(this, uri)
+    }
+
+    /** The real name of [m] (the media session may only carry "Private video" in vault mode). */
+    private fun titleOf(m: MediaItem?): String =
+        m?.let { realTitles[it.mediaId] } ?: m?.mediaMetadata?.title?.toString() ?: "Video"
 
     // ------------------------------------------------------------------ player callbacks
 
@@ -614,7 +722,7 @@ class PlayerActivity : AppCompatActivity() {
             b.loading.isVisible = playbackState == Player.STATE_BUFFERING
             if (playbackState == Player.STATE_READY) b.errorPanel.isVisible = false
             if (playbackState == Player.STATE_ENDED) {
-                player.currentMediaItem?.let { Store.markWatched(this@PlayerActivity, it.mediaId) }
+                player.currentMediaItem?.let { markWatched(it.mediaId) }
                 setControlsVisible(true)
             }
             updatePlayButton(); updateProgress()
@@ -636,8 +744,9 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            b.titleText.text = mediaItem?.mediaMetadata?.title ?: ""
-            if (::focus.isInitialized) focus.setVideo(mediaItem?.mediaId, mediaItem?.mediaMetadata?.title?.toString(), 0L)
+            b.titleText.text = if (mediaItem == null) "" else titleOf(mediaItem)
+            cancelHold()
+            if (::focus.isInitialized) focus.setVideo(mediaItem?.mediaId, if (vaultMode) PRIVATE_TITLE else mediaItem?.mediaMetadata?.title?.toString(), 0L)
             val scheme = mediaItem?.localConfiguration?.uri?.scheme
             isLocalMedia = scheme == "content" || scheme == "file"
             externalSubs = null; externalActive = false; externalName = null; shownExternal = emptyList()
@@ -645,7 +754,7 @@ class PlayerActivity : AppCompatActivity() {
             videoDecoder = null; audioDecoder = null
             io.execute { retriever?.release(); retriever = null; retrieverUri = null }
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && mediaItem != null && Prefs.resume(this@PlayerActivity)) {
-                val p = Store.position(this@PlayerActivity, mediaItem.mediaId)
+                val p = resumePosition(mediaItem.mediaId)
                 if (p > 0) player.seekTo(p)
             }
             updateNavButtons()
@@ -668,7 +777,7 @@ class PlayerActivity : AppCompatActivity() {
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
                 if (::focus.isInitialized) focus.markCompleted() // still attributed to the video that just finished
-                oldPosition.mediaItem?.let { Store.markWatched(this@PlayerActivity, it.mediaId) }
+                oldPosition.mediaItem?.let { markWatched(it.mediaId) }
             }
         }
 
@@ -731,7 +840,7 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
             PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
         if (skippable && player.hasNextMediaItem()) {
-            val name = player.currentMediaItem?.mediaMetadata?.title ?: "a video"
+            val name = titleOf(player.currentMediaItem)
             toast("Skipped \"$name\": ${msg.substringBefore('.')}")
             player.seekToNextMediaItem(); player.prepare(); player.play()
             return
@@ -963,6 +1072,7 @@ class PlayerActivity : AppCompatActivity() {
             scheduleHide()
         } else {
             handler.removeCallbacks(hideControlsRunnable)
+            cancelHold()
             b.seekPreview.isVisible = false
             b.topBar.animate().translationY(-slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
             b.bottomBar.animate().translationY(slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
@@ -977,7 +1087,7 @@ class PlayerActivity : AppCompatActivity() {
         handler.removeCallbacks(hideControlsRunnable)
         val sheetOpen = ::sheet.isInitialized && sheet.isOpen
         val focusOn = ::focus.isInitialized && focus.active
-        if (controlsVisible && player.isPlaying && !userSeeking && !sheetOpen)
+        if (controlsVisible && player.isPlaying && !userSeeking && !sheetOpen && !holdActive)
             handler.postDelayed(hideControlsRunnable, if (focusOn && Prefs.focusMinimal(this)) 2200 else 3500)
     }
 
@@ -986,8 +1096,7 @@ class PlayerActivity : AppCompatActivity() {
         if (speedPanelOpen) hideSpeedPanel()
         if (browserOpen) closeBrowser(false)
         locked = true
-        setUnlockVisible(true)
-        Toast.makeText(this, "Screen locked. Tap the screen, then a lock button to unlock.", Toast.LENGTH_SHORT).show()
+        setUnlockVisible(true) // v2.2: no toast; the unlock buttons themselves show what happened
     }
 
     /** While locked: unlock buttons on both sides. A tap on the screen shows/hides them; they also hide after a few seconds. */
@@ -1098,8 +1207,8 @@ class PlayerActivity : AppCompatActivity() {
             val vs = player.videoSize
             if (vs.width > 0 && vs.height > 0) { userRotated = false; requestOrientationProgrammatic(orientationFor(vs)) }
         }
-        showIndicator(R.drawable.ic_aspect, m.label, null)
-        hideIndicatorSoon()
+        // v2.2: no on-screen message; the aspect button label already shows the new mode.
+        b.btnAspectLabel.contentDescription = "Aspect ratio: ${m.label}"
         scheduleHide()
     }
 
@@ -1249,10 +1358,7 @@ class PlayerActivity : AppCompatActivity() {
         if (side != 0 && Prefs.gesture(this, "gesture_double_tap_seek") && player.isCurrentMediaItemSeekable) {
             showSeekFeedback(side, seekBy(side * seekIntervalMs))
         } else if (side == 0 && Prefs.gesture(this, "gesture_double_tap_center")) {
-            togglePlayPause()
-            val playing = player.playWhenReady
-            showIndicator(if (playing) R.drawable.ic_play else R.drawable.ic_pause, if (playing) "Play" else "Pause", null)
-            hideIndicatorSoon()
+            togglePlayPause() // v2.2: no on-screen message
         } else {
             setControlsVisible(!controlsVisible)
         }
@@ -1363,7 +1469,10 @@ class PlayerActivity : AppCompatActivity() {
             textView.setTextColor(accent)
             iconView.imageTintList = android.content.res.ColorStateList.valueOf(accent)
             track.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 0x55))
+            // The boost part of the bar is a lighter, warmer shade of the accent so 101–200% reads differently from 0–100%.
+            fill.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.blendARGB(accent, 0xFFFFC46B.toInt(), 0.45f))
         } else {
+            fill.backgroundTintList = null
             textView.text = "$pct%"
             textView.setTextColor(0xFFFFFFFF.toInt())
             iconView.imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
@@ -1867,7 +1976,7 @@ class PlayerActivity : AppCompatActivity() {
         o += PlayerSheet.Option("Load subtitle file", null, icon = R.drawable.ic_subtitles) { pickSubtitle.launch(arrayOf("*/*")) }
         o += PlayerSheet.Option("Video info", null, icon = R.drawable.ic_info) { showInfoDialog() }
         if (pipSupported()) o += PlayerSheet.Option("Picture-in-picture", null, icon = R.drawable.ic_pip) { enterPip() }
-        o += PlayerSheet.Option("Browse videos", null, icon = R.drawable.ic_video_library) { openBrowser() }
+        if (!vaultMode) o += PlayerSheet.Option("Browse videos", null, icon = R.drawable.ic_video_library) { openBrowser() }
         o += PlayerSheet.Option("Background audio", "Keep playing when you leave the player", icon = R.drawable.ic_audiotrack,
             trailing = if (Prefs.backgroundAudio(this)) "On" else "Off") {
             val on = !Prefs.backgroundAudio(this)
@@ -1896,7 +2005,7 @@ class PlayerActivity : AppCompatActivity() {
         if (focus.active) return
         focus.start()
         val item = player.currentMediaItem
-        focus.setVideo(item?.mediaId, item?.mediaMetadata?.title?.toString(), player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        focus.setVideo(item?.mediaId, if (vaultMode) PRIVATE_TITLE else item?.mediaMetadata?.title?.toString(), player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
         nextBreakAtMs = Prefs.focusBreakMs(this)
         lastFocusSave = android.os.SystemClock.elapsedRealtime()
         focusTodayBase = FocusStore.get(this).today()
@@ -2001,7 +2110,7 @@ class PlayerActivity : AppCompatActivity() {
         // Minimal controls: hide only the distracting extra (quick video browser). PiP, rotation and lock stay
         // available in Focus Mode — they are watching tools, not distractions.
         val minimal = on && Prefs.focusMinimal(this)
-        b.btnBrowse.isVisible = !minimal
+        b.btnBrowse.isVisible = !minimal && !vaultMode // the library browser never opens over vault playback
         b.btnLockRight.isVisible = true
         b.btnRotate.isVisible = true
         b.btnPip.isVisible = pipSupported()
@@ -2034,12 +2143,13 @@ class PlayerActivity : AppCompatActivity() {
         val max = (try { maxNumPictureInPictureActions } catch (_: Exception) { 3 }).coerceAtLeast(1)
         val hasQueue = player.mediaItemCount > 1
         val useTrack = when (Prefs.pipControls(this)) { "track" -> true; "seek" -> false; else -> hasQueue }
+        // Not seekable (live streams): rewind/forward stay visible but disabled.
         val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE
         val secs = seekIntervalMs / 1000
         val play = if (playing) pipAction(R.drawable.ic_pip_pause, "Pause", CTRL_PAUSE) else pipAction(R.drawable.ic_pip_play, "Play", CTRL_PLAY)
         val prev = pipAction(R.drawable.ic_pip_skip_prev, "Previous video", CTRL_PREV, player.hasPreviousMediaItem())
         val next = pipAction(R.drawable.ic_pip_skip_next, "Next video", CTRL_NEXT, player.hasNextMediaItem())
-        val seekable = player.isCurrentMediaItemSeekable
+        val seekable = player.isCurrentMediaItemSeekable && player.duration != C.TIME_UNSET && !player.isCurrentMediaItemLive
         val rew = pipAction(R.drawable.ic_pip_rewind, "Rewind $secs seconds", CTRL_REWIND, seekable)
         val fwd = pipAction(R.drawable.ic_pip_fast_forward, "Forward $secs seconds", CTRL_FORWARD, seekable)
         // Display order (left to right) and priority (what survives when space is short).
@@ -2191,7 +2301,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun openBrowser() {
-        if (browserOpen) return
+        if (browserOpen || vaultMode) return
         if (speedPanelOpen) hideSpeedPanel()
         setControlsVisible(false)
         browserOpen = true
@@ -2218,7 +2328,8 @@ class PlayerActivity : AppCompatActivity() {
         if (libraryLoading) return
         libraryLoading = true
         io.execute {
-            val items = VideoRepository.load(this)
+            val hidden = Vault.hiddenSet(this)
+            val items = VideoRepository.load(this).filter { it.uri.toString() !in hidden }
             runOnUiThread {
                 libraryLoading = false
                 library = items
@@ -2358,7 +2469,7 @@ class PlayerActivity : AppCompatActivity() {
             player.shuffleModeEnabled = on // ExoPlayer plays a shuffled order; the queue's own order stays intact
             Prefs.setPlayerShuffle(this, on)
             Motion.haptic(v)
-            modeFeedback(R.drawable.ic_shuffle, if (on) "Shuffle on" else "Shuffle off · original order")
+            modeFeedback(R.drawable.ic_shuffle, if (on) "Shuffle on" else "Shuffle off")
             saveSession()
         }
         b.btnLoop.setOnClickListener { v ->
@@ -2372,8 +2483,8 @@ class PlayerActivity : AppCompatActivity() {
             applyModes()
             Motion.haptic(v)
             modeFeedback(if (next == Player.REPEAT_MODE_ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat, when (next) {
-                Player.REPEAT_MODE_ONE -> "Loop this video"
-                Player.REPEAT_MODE_ALL -> "Loop the whole queue"
+                Player.REPEAT_MODE_ONE -> "Loop one"
+                Player.REPEAT_MODE_ALL -> "Loop all"
                 else -> "Loop off"
             })
         }
@@ -2382,7 +2493,7 @@ class PlayerActivity : AppCompatActivity() {
             Prefs.setAutoplayNext(this, on)
             applyModes()
             Motion.haptic(v)
-            modeFeedback(R.drawable.ic_autoplay_next, if (on) "Auto-play next on" else "Auto-play next off · stops after this video")
+            modeFeedback(R.drawable.ic_autoplay_next, if (on) "Auto-play on" else "Auto-play off")
         }
         renderModes()
         renderRotateButton()
@@ -2392,7 +2503,7 @@ class PlayerActivity : AppCompatActivity() {
         renderModes()
         updateNavButtons()
         updatePipParams()
-        showIndicator(icon, text, null); hideIndicatorSoon()
+        showStatusChip(icon, text)
         scheduleHide()
     }
 
@@ -2455,13 +2566,14 @@ class PlayerActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ v2.1: volume boost
 
-    private fun boostAvailable() = Prefs.volumeBoost(this) && !boost.unsupported
+    /** v2.2: boost is always on; it is only unavailable when the device/audio path can't amplify. */
+    private fun boostAvailable() = !boost.unsupported
 
     /** Swipe level in "system steps": 0..max is system volume, max..2*max is the player's boost. */
     private fun currentVolumeLevel(): Float {
         val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        if (boost.boostPct > 0 && (cur < max || !Prefs.volumeBoost(this))) setBoost(0) // volume lowered elsewhere: drop the boost
+        if (boost.boostPct > 0 && cur < max) setBoost(0) // volume lowered elsewhere: drop the boost
         return cur + if (boost.boostPct > 0) boost.boostPct / 100f * max else 0f
     }
 
@@ -2496,7 +2608,6 @@ class PlayerActivity : AppCompatActivity() {
     /** 0..100 extra percent. Returns false (and explains once) when the device can't amplify this audio. */
     private fun setBoost(pct: Int): Boolean {
         if (!playerReady) return false
-        if (pct > 0 && !Prefs.volumeBoost(this)) return false
         val ok = boost.set(if (pct > 0) ensureAudioSession() else player.audioSessionId, pct)
         if (!ok && pct > 0 && !boostWarned) {
             boostWarned = true
@@ -2529,6 +2640,7 @@ class PlayerActivity : AppCompatActivity() {
     /** Saves the current video frame (no controls or subtitles) to Pictures/VelaPlayer. */
     private fun captureFrame() {
         if (!playerReady) return
+        if (vaultMode) { toast("Frame capture is off for private videos"); return }
         if (Build.VERSION.SDK_INT < 29 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             requestWrite.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE); return
@@ -2557,6 +2669,188 @@ class PlayerActivity : AppCompatActivity() {
                 else toast("Couldn't save the screenshot: ${result.exceptionOrNull()?.message ?: "storage error"}")
             }
         }.start()
+    }
+
+    // ------------------------------------------------------------------ v2.2: vault playback mode
+
+    /** Switches vault behaviour on/off for the queue being loaded (private titles, no app-switcher preview, no library browser). */
+    private fun setVaultMode(on: Boolean) {
+        vaultMode = on
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (::focus.isInitialized) focus.privateMode = on
+        if (on && browserOpen) closeBrowser(false)
+        if (!on) realTitles.clear()
+        if (::b.isInitialized) renderFocusUi()
+    }
+
+    // ------------------------------------------------------------------ v2.2: status chip (Shuffle / Loop / Auto-play next)
+
+    /**
+     * Small translucent chip, centred horizontally and a little below the middle. When the controls are showing it
+     * sits in the gap between the centre buttons and the bottom bar; it always stays above the subtitle area.
+     */
+    private fun showStatusChip(icon: Int, text: String) {
+        if (isInPipSafe()) return
+        val chip = b.p22StatusChip
+        handler.removeCallbacks(hideStatusRunnable)
+        b.p22StatusIcon.setImageResource(icon)
+        b.p22StatusText.text = text
+        chip.contentDescription = text
+        b.indicator.isVisible = false
+        val wasShown = chip.isVisible && chip.alpha > 0.05f
+        chip.isVisible = true
+        chip.post {
+            val target = statusChipOffset(chip.height)
+            chip.animate().cancel()
+            if (!wasShown) { chip.alpha = 0f; chip.translationY = target + dp(10); chip.scaleX = 0.96f; chip.scaleY = 0.96f }
+            chip.animate().alpha(1f).translationY(target).scaleX(1f).scaleY(1f)
+                .setDuration(220).setInterpolator(Motion.emphasized).start()
+        }
+        chip.announceForAccessibility(text)
+        handler.postDelayed(hideStatusRunnable, 1200)
+    }
+
+    private fun hideStatusChip() {
+        val chip = b.p22StatusChip
+        if (!chip.isVisible) return
+        chip.animate().cancel()
+        chip.animate().alpha(0f).translationY(chip.translationY + dp(6)).setDuration(240)
+            .setInterpolator(Motion.emphasizedAccel).withEndAction { chip.isVisible = false }.start()
+    }
+
+    /** translationY (from the vertical centre) for the chip. */
+    private fun statusChipOffset(chipH: Int): Float {
+        val rootH = b.root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        val centre = rootH / 2f
+        var y = rootH * 0.12f + dp(8)                        // a bit below the middle
+        if (controlsVisible && b.controls.isVisible && b.centerControls.height > 0 && b.bottomBar.height > 0) {
+            val loc = IntArray(2); val rootLoc = IntArray(2)
+            b.root.getLocationInWindow(rootLoc)
+            b.centerControls.getLocationInWindow(loc)
+            val centreBottom = loc[1] - rootLoc[1] + b.centerControls.height * b.centerControls.scaleY
+            b.bottomBar.getLocationInWindow(loc)
+            val barTop = loc[1] - rootLoc[1] - b.bottomBar.translationY + b.bottomBar.paddingTop
+            val gapMid = (centreBottom + barTop) / 2f - centre
+            y = if (barTop - centreBottom >= chipH + dp(4)) gapMid else (centreBottom - centre + chipH / 2f + dp(6))
+        }
+        // Never into the lower ~28% where subtitles are drawn.
+        val maxY = rootH * 0.72f - centre - chipH / 2f
+        return y.coerceAtMost(maxY).coerceAtLeast(dp(8).toFloat())
+    }
+
+    // ------------------------------------------------------------------ v2.2: PiP rewind / forward feedback
+
+    /**
+     * Android doesn't pass touches to an app's PiP window (the system uses taps for its own overlay), so double-tap
+     * can't be detected there. The PiP rewind/forward buttons are the reliable alternative; this shows what they did.
+     */
+    private fun pipSeek(side: Int) {
+        val seekable = player.isCurrentMediaItemSeekable && !player.isCurrentMediaItemLive && player.duration != C.TIME_UNSET
+        if (!seekable) return
+        val moved = seekBy(side * seekIntervalMs)
+        if (!isInPipSafe()) { showSeekFeedback(side, moved); return }
+        updatePipProgress()
+        val now = SystemClock.uptimeMillis()
+        if (side != pipSeekSide || now - pipSeekTime > 1200) pipSeekAccum = 0L
+        pipSeekSide = side; pipSeekTime = now
+        pipSeekAccum += abs(moved)
+        val secs = (pipSeekAccum + 500) / 1000
+        b.p22PipSeek.text = when {
+            secs == 0L -> if (side < 0) "⟲ start" else "end ⟳"
+            side < 0 -> "⟲ ${secs}s"
+            else -> "${secs}s ⟳"
+        }
+        b.p22PipSeek.contentDescription = if (side < 0) "Rewound $secs seconds" else "Forwarded $secs seconds"
+        handler.removeCallbacks(hidePipSeekRunnable)
+        fadeIn(b.p22PipSeek)
+        handler.postDelayed(hidePipSeekRunnable, 1100)
+    }
+
+    // ------------------------------------------------------------------ v2.2: five-second hold on the title (Hidden Vault)
+
+    /**
+     * The video title in the top bar (only there while the controls are visible) is the hold area. It is separate
+     * from the video surface, so it never competes with the long-press speed gesture. A short tap still hides the
+     * controls like a tap on the video would.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupVaultHold() {
+        b.p22HoldLine.pivotX = 0f
+        b.titleText.setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (!controlsVisible || locked || isInPipSafe() || b.titleText.text.isNullOrEmpty()) return@setOnTouchListener false
+                    holdDownX = ev.rawX; holdDownY = ev.rawY
+                    startHold()
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (holdActive && (abs(ev.rawX - holdDownX) > touchSlop || abs(ev.rawY - holdDownY) > touchSlop)) cancelHold()
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val wasTap = holdActive && SystemClock.uptimeMillis() - holdStartAt < ViewConfiguration.getLongPressTimeout()
+                    cancelHold()
+                    if (wasTap) setControlsVisible(false)
+                    true
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> { cancelHold(); true }
+                else -> true
+            }
+        }
+    }
+
+    private fun startHold() {
+        if (SystemClock.uptimeMillis() - lastVaultOpenAt < 2_000L) return // debounce right after a trigger
+        holdActive = true
+        holdStartAt = SystemClock.uptimeMillis()
+        handler.removeCallbacks(hideControlsRunnable) // the controls (and so the title) stay while holding
+        b.p22HoldLine.layoutParams = b.p22HoldLine.layoutParams.apply {
+            width = (b.titleText.width - b.titleText.paddingLeft - b.titleText.paddingRight).coerceAtLeast(dp(24))
+        }
+        b.p22HoldLine.translationX = b.titleText.paddingLeft.toFloat()
+        b.p22HoldLine.animate().cancel()
+        b.p22HoldLine.scaleX = 0f; b.p22HoldLine.alpha = 0f
+        handler.removeCallbacks(holdTicker)
+        handler.post(holdTicker)
+    }
+
+    /** Thin line under the title fills over the 5 seconds; it only fades in after a moment so taps show nothing. */
+    private fun renderHold(elapsed: Long) {
+        val f = elapsed.toFloat() / VAULT_HOLD_MS
+        b.p22HoldLine.scaleX = f.coerceIn(0f, 1f)
+        b.p22HoldLine.alpha = ((elapsed - 450f) / 600f).coerceIn(0f, 0.85f)
+    }
+
+    private fun cancelHold() {
+        if (!::b.isInitialized) return
+        handler.removeCallbacks(holdTicker)
+        if (!holdActive) return
+        holdActive = false
+        b.p22HoldLine.animate().cancel()
+        b.p22HoldLine.animate().alpha(0f).setDuration(160).withEndAction { b.p22HoldLine.scaleX = 0f }.start()
+        scheduleHide()
+    }
+
+    private fun completeHold() {
+        val elapsed = SystemClock.uptimeMillis() - holdStartAt
+        if (!holdActive || elapsed < VAULT_HOLD_MS) return // never before the full five seconds
+        holdActive = false
+        handler.removeCallbacks(holdTicker)
+        b.p22HoldLine.scaleX = 1f
+        b.p22HoldLine.animate().cancel()
+        b.p22HoldLine.animate().alpha(0f).setDuration(200).withEndAction { b.p22HoldLine.scaleX = 0f }.start()
+        val now = SystemClock.uptimeMillis()
+        if (now - lastVaultOpenAt < 2_000L) return
+        lastVaultOpenAt = now
+        Motion.haptic(b.titleText, long = true)
+        if (playerReady) { player.pause(); savePosition(); updateSessionPosition() }
+        try {
+            // VaultActivity (library side) authenticates on its own before showing anything.
+            startActivity(Intent().setClassName(packageName, VAULT_ACTIVITY))
+        } catch (_: Exception) { }
+        scheduleHide()
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
