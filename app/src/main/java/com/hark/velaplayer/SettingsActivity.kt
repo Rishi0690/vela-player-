@@ -139,7 +139,7 @@ class SettingsActivity : ThemedActivity() {
 
     fun open(section: String, addToBack: Boolean = true, highlight: String? = null) {
         val t = supportFragmentManager.beginTransaction()
-            .setCustomAnimations(R.anim.act_open_enter, R.anim.act_open_exit, R.anim.act_close_enter, R.anim.act_close_exit)
+            .setCustomAnimations(R.anim.nav_push_enter, R.anim.nav_push_exit, R.anim.nav_pop_enter, R.anim.nav_pop_exit)
             .replace(R.id.container, SectionFragment().apply { arguments = Bundle().apply { putString(EXTRA_SECTION, section); if (highlight != null) putString(EXTRA_HIGHLIGHT, highlight) } }, section)
         if (addToBack) t.addToBackStack(section)
         t.commit()
@@ -154,7 +154,11 @@ class SettingsActivity : ThemedActivity() {
     class RootFragment : PreferenceFragmentCompat() {
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
+            prepareNavScreen(this, view)
             (activity as? SettingsActivity)?.onScreenShown(true)
+        }
+        override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? {
+            navAnimZ(view, nextAnim); return super.onCreateAnimation(transit, enter, nextAnim)
         }
         fun reveal(key: String) = revealPreference(this, key)
 
@@ -192,11 +196,16 @@ class SettingsActivity : ThemedActivity() {
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
+            prepareNavScreen(this, view)
             (activity as? SettingsActivity)?.onScreenShown(false)
             if (savedInstanceState == null) arguments?.getString(EXTRA_HIGHLIGHT)?.let { key ->
                 // Wait for the open animation so the row is laid out, then scroll to it and flash it.
-                view.postDelayed({ if (isAdded) revealPreference(this, key) }, 320)
+                view.postDelayed({ if (isAdded) revealPreference(this, key) }, 400)
             }
+        }
+
+        override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? {
+            navAnimZ(view, nextAnim); return super.onCreateAnimation(transit, enter, nextAnim)
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -414,3 +423,14 @@ object SettingsSearch {
         }.sortedByDescending { it.second }.map { it.first }.take(60)
     }
 }
+
+/**
+ * v2.6 fix: settings screens used to be transparent, so during the switch animation both screens' text showed on top
+ * of each other (and on Back the old screen was drawn under the new one). Each screen now has a solid background,
+ * and the screen sliding away on Back is lifted above the one coming back (iOS-style pop).
+ */
+private fun prepareNavScreen(f: androidx.fragment.app.Fragment, view: View) {
+    val tv = android.util.TypedValue()
+    if (f.requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) view.setBackgroundColor(tv.data)
+}
+private fun navAnimZ(view: View?, nextAnim: Int) { view?.translationZ = if (nextAnim == R.anim.nav_pop_exit) 24f else 0f }

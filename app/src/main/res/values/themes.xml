@@ -15,10 +15,16 @@
     </style>
 
     <style name="VelaWindowAnim" parent="@android:style/Animation.Activity">
-        <item name="android:activityOpenEnterAnimation">@anim/act_open_enter</item>
-        <item name="android:activityOpenExitAnimation">@anim/act_open_exit</item>
-        <item name="android:activityCloseEnterAnimation">@anim/act_close_enter</item>
-        <item name="android:activityCloseExitAnimation">@anim/act_close_exit</item>
+        <item name="android:activityOpenEnterAnimation">@anim/nav_push_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/nav_push_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/nav_pop_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/nav_pop_exit</item>
+    </style>
+
+    <!-- v2.6: iOS-style alert pop for dialogs. -->
+    <style name="VelaDialogAnim" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/dialog_exit</item>
     </style>
 
     <style name="VelaChip" parent="Widget.Material3.Chip.Filter">
@@ -48,6 +54,16 @@
 
     <style name="VelaDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="shapeAppearanceOverlay">@style/DialogShape</item>
+        <item name="android:windowAnimationStyle">@style/VelaDialogAnim</item>
+    </style>
+
+    <!-- Player: no blur behind sheets/dialogs (blurring live video costs GPU and could stutter playback). -->
+    <style name="VelaDialogPlain" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="shapeAppearanceOverlay">@style/DialogShape</item>
+        <item name="android:windowAnimationStyle">@style/VelaDialogAnim</item>
+    </style>
+    <style name="VelaBottomSheetPlain" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/VelaBottomSheetStyle</item>
     </style>
 
     <style name="DialogShape">
@@ -63,8 +79,8 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowAnimationStyle">@style/VelaWindowAnim</item>
-        <item name="bottomSheetDialogTheme">@style/VelaBottomSheet</item>
-        <item name="materialAlertDialogTheme">@style/VelaDialog</item>
+        <item name="bottomSheetDialogTheme">@style/VelaBottomSheetPlain</item>
+        <item name="materialAlertDialogTheme">@style/VelaDialogPlain</item>
     </style>
 
     <style name="PlayerIcon">

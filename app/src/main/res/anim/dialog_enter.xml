@@ -1,0 +1,4 @@
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="260" android:interpolator="@anim/ios_curve">
+    <alpha android:fromAlpha="0" android:toAlpha="1" />
+    <scale android:fromXScale="1.12" android:toXScale="1" android:fromYScale="1.12" android:toYScale="1" android:pivotX="50%" android:pivotY="50%" />
+</set>
