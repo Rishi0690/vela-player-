@@ -29,6 +29,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hark.velaplayer.databinding.ActivityMainBinding
 import com.hark.velaplayer.databinding.DialogUrlBinding
+import com.hark.velaplayer.databinding.ItemContinueBinding
+import com.hark.velaplayer.databinding.ItemContinueStripBinding
 import com.hark.velaplayer.databinding.ItemFolderBinding
 import com.hark.velaplayer.databinding.ItemSummaryBinding
 import com.hark.velaplayer.databinding.ItemPlaylistBinding
@@ -45,6 +47,8 @@ class MainActivity : AppCompatActivity() {
         data class Folder(val folder: VideoFolder, val watched: Int, val inProgress: Int, val showPath: Boolean) : Row()
         /** Library counts + watch filter, shown at the top of All videos and inside a folder. */
         data class Summary(val total: Int, val watched: Int, val inProgress: Int) : Row()
+        /** Horizontal "Continue watching" strip at the top of Folders and All videos. */
+        data class ContinueStrip(val videos: List<Video>) : Row()
     }
 
     private lateinit var b: ActivityMainBinding
@@ -62,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private var query = ""
     private var sort = "date_desc"
     private var loaded = false
+    private var bannerDismissed = false
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
@@ -109,8 +114,13 @@ class MainActivity : AppCompatActivity() {
         b.header.setOnClickListener { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
         b.fab.setOnClickListener { newPlaylistDialog(null) }
         b.btnGrant.setOnClickListener { requestPermission() }
+        b.accessBannerButton.setOnClickListener { openAppSettings() }
+        b.accessBannerClose.setOnClickListener { bannerDismissed = true; b.accessBanner.isVisible = false }
+        b.swipeRefresh.setColorSchemeColors(ContextCompat.getColor(this, R.color.accent))
+        b.swipeRefresh.setOnRefreshListener { ThumbLoader.clearFailures(); loadLibrary() }
 
-        if (hasPermission()) loadLibrary() else requestPermission()
+        // Ask only when we have no access at all; limited access shows the banner instead of re-asking every launch.
+        if (hasPermission() || hasPartialAccess()) loadLibrary() else requestPermission()
     }
 
     override fun onResume() {
@@ -126,19 +136,38 @@ class MainActivity : AppCompatActivity() {
 
     private fun hasPermission() = ContextCompat.checkSelfPermission(this, videoPermission()) == PackageManager.PERMISSION_GRANTED
 
+    /** Android 14+: the user picked "Allow limited access" (only some videos are visible). */
+    private fun hasPartialAccess() = Build.VERSION.SDK_INT >= 34 && !hasPermission() &&
+        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+
+    private fun updateAccessBanner() {
+        b.accessBanner.isVisible = hasPartialAccess() && !bannerDismissed
+    }
+
+    private fun openAppSettings() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        } catch (_: Exception) {
+            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+        }
+    }
+
     private fun requestPermission() {
         val perms = mutableListOf(videoPermission())
+        if (Build.VERSION.SDK_INT >= 34) perms += Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
         if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
         permissionLauncher.launch(perms.toTypedArray())
     }
 
     private fun loadLibrary() {
         io.execute {
-            val items = if (hasPermission()) VideoRepository.load(this) else emptyList()
+            val items = if (hasPermission() || hasPartialAccess()) VideoRepository.load(this) else emptyList()
             main.post {
                 library = items
                 byUri = items.associateBy { it.uri.toString() }
                 loaded = true
+                b.swipeRefresh.isRefreshing = false
+                updateAccessBanner()
                 refresh()
             }
         }
@@ -162,6 +191,12 @@ class MainActivity : AppCompatActivity() {
         val watched = Store.watchedSet(this)
         val inProgress = Store.inProgressSet(this)
         val stats = Prefs.showWatchStats(this)
+
+        fun continueStrip(): Row.ContinueStrip? {
+            if (query.isNotBlank()) return null
+            val list = Store.continueList(this).take(20).map { videoRowOf(it, favs, watched) }
+            return if (list.isEmpty()) null else Row.ContinueStrip(list)
+        }
 
         fun videoRow(e: Entry): Row.Video {
             val item = byUri[e.uri]
@@ -191,6 +226,7 @@ class MainActivity : AppCompatActivity() {
         when {
             tab == Tab.FOLDERS && folderObj != null -> videoList(folderObj.videos, false)
             tab == Tab.FOLDERS -> {
+                continueStrip()?.let { rows += it }
                 val dupNames = folders.groupBy { it.name.lowercase() }.filter { it.value.size > 1 }.keys
                 val sorted = when (Prefs.folderSort(this)) {
                     "count" -> folders.sortedByDescending { it.videos.size }
@@ -202,7 +238,7 @@ class MainActivity : AppCompatActivity() {
                     rows += Row.Folder(f, u.count { it in watched }, u.count { it in inProgress }, f.name.lowercase() in dupNames)
                 }
             }
-            tab == Tab.ALL -> videoList(library, true)
+            tab == Tab.ALL -> { if (filter != "progress") continueStrip()?.let { rows += it }; videoList(library, true) }
             tab == Tab.FAVORITES -> Store.favorites(this).forEach { rows += videoRow(it) }
             openPlaylist == null -> Store.playlists(this).forEach { (name, list) -> rows += Row.Playlist(name, list.size) }
             else -> Store.playlists(this)[openPlaylist]?.forEach { rows += videoRow(it) }
@@ -217,6 +253,7 @@ class MainActivity : AppCompatActivity() {
                     is Row.Playlist -> it.name.lowercase().contains(q)
                     is Row.Folder -> it.folder.name.lowercase().contains(q) || it.folder.videos.any { v -> v.name.lowercase().contains(q) }
                     is Row.Summary -> true
+                    is Row.ContinueStrip -> true
                 }
             }
         }
@@ -225,7 +262,7 @@ class MainActivity : AppCompatActivity() {
         if ((inVideoList && filter != "progress") || tab == Tab.FAVORITES) filtered = sortRows(filtered)
 
         adapter.submit(filtered)
-        val empty = filtered.none { it !is Row.Summary }
+        val empty = filtered.none { it !is Row.Summary && it !is Row.ContinueStrip }
         b.emptyView.isVisible = empty && filtered.isEmpty()
         b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission()
         b.emptyText.text = when {
@@ -243,6 +280,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun videoRowOf(e: Entry, favs: Set<String>, watched: Set<String>): Row.Video {
+        val item = byUri[e.uri]
+        val pos = Store.position(this, e.uri)
+        val dur = Store.duration(this, e.uri).takeIf { it > 0 } ?: item?.durationMs ?: 0L
+        val progress = if (pos > 0 && dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+        return Row.Video(e, item, progress, favs.contains(e.uri), watched.contains(e.uri))
+    }
+
     private fun sortRows(rows: List<Row>): List<Row> {
         val videos = rows.filterIsInstance<Row.Video>()
         val sorted = when (sort) {
@@ -255,7 +300,7 @@ class MainActivity : AppCompatActivity() {
             "size_asc" -> videos.sortedBy { it.item?.size ?: 0L }
             else -> videos.sortedByDescending { it.item?.dateAdded ?: 0L }
         }
-        return rows.filterIsInstance<Row.Summary>() + sorted + rows.filterIsInstance<Row.Playlist>()
+        return rows.filterIsInstance<Row.ContinueStrip>() + rows.filterIsInstance<Row.Summary>() + sorted + rows.filterIsInstance<Row.Playlist>()
     }
 
     // ------------------------------------------------------------------ menu
@@ -454,7 +499,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun getItemCount() = rows.size
         override fun getItemViewType(position: Int) = when (rows[position]) {
-            is Row.Video -> 0; is Row.Playlist -> 1; is Row.Folder -> 2; is Row.Summary -> 3
+            is Row.Video -> 0; is Row.Playlist -> 1; is Row.Folder -> 2; is Row.Summary -> 3; is Row.ContinueStrip -> 4
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -463,6 +508,7 @@ class MainActivity : AppCompatActivity() {
                 0 -> VideoVH(ItemVideoBinding.inflate(inf, parent, false))
                 2 -> FolderVH(ItemFolderBinding.inflate(inf, parent, false))
                 3 -> SummaryVH(ItemSummaryBinding.inflate(inf, parent, false))
+                4 -> StripVH(ItemContinueStripBinding.inflate(inf, parent, false))
                 else -> PlaylistVH(ItemPlaylistBinding.inflate(inf, parent, false))
             }
         }
@@ -473,6 +519,7 @@ class MainActivity : AppCompatActivity() {
                 is Row.Playlist -> (holder as PlaylistVH).bind(row)
                 is Row.Folder -> (holder as FolderVH).bind(row)
                 is Row.Summary -> (holder as SummaryVH).bind(row)
+                is Row.ContinueStrip -> (holder as StripVH).bind(row)
             }
         }
     }
@@ -498,7 +545,7 @@ class MainActivity : AppCompatActivity() {
             v.progress.progress = (row.progress * 1000).toInt()
             v.favIcon.isVisible = row.favorite
             v.watchedIcon.isVisible = row.watched && Prefs.showWatchStats(itemView.context)
-            ThumbLoader.load(v.thumb, item)
+            ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
             itemView.setOnClickListener { val p = bindingAdapterPosition; if (p != RecyclerView.NO_POSITION) onVideoClick(p) }
             itemView.setOnLongClickListener { onVideoLongClick(row); true }
         }
@@ -525,6 +572,48 @@ class MainActivity : AppCompatActivity() {
             ThumbLoader.load(v.thumb, f.videos.maxByOrNull { it.dateAdded })
             itemView.setOnClickListener { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
             itemView.setOnLongClickListener { onFolderLongClick(row); true }
+        }
+    }
+
+    private inner class StripVH(val v: ItemContinueStripBinding) : RecyclerView.ViewHolder(v.root) {
+        private val strip = StripAdapter()
+        init {
+            v.stripList.layoutManager = LinearLayoutManager(itemView.context, LinearLayoutManager.HORIZONTAL, false)
+            v.stripList.adapter = strip
+        }
+        fun bind(row: Row.ContinueStrip) {
+            v.stripTitle.text = "Continue watching (${row.videos.size})"
+            v.stripSeeAll.setOnClickListener {
+                openPlaylist = null; openFolder = null
+                if (tab != Tab.ALL) b.chipAll.isChecked = true // its listener resets the filter, so set it after
+                filter = "progress"
+                refresh()
+                b.list.scrollToPosition(0)
+            }
+            strip.submit(row.videos)
+        }
+    }
+
+    private inner class StripAdapter : RecyclerView.Adapter<ContinueVH>() {
+        var items: List<Row.Video> = emptyList()
+        @android.annotation.SuppressLint("NotifyDataSetChanged")
+        fun submit(l: List<Row.Video>) { items = l; notifyDataSetChanged() }
+        override fun getItemCount() = items.size
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+            ContinueVH(ItemContinueBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        override fun onBindViewHolder(holder: ContinueVH, position: Int) = holder.bind(items[position], items)
+    }
+
+    private inner class ContinueVH(val v: ItemContinueBinding) : RecyclerView.ViewHolder(v.root) {
+        fun bind(row: Row.Video, all: List<Row.Video>) {
+            val item = row.item
+            v.title.text = row.entry.title
+            val dur = item?.durationMs?.takeIf { it > 0 } ?: Store.duration(itemView.context, row.entry.uri)
+            v.duration.text = if (dur > 0) Fmt.time(dur) else "Resume"
+            v.progress.progress = (row.progress * 1000).toInt()
+            ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, dur)
+            itemView.setOnClickListener { play(all.map { it.entry }, all.indexOf(row).coerceAtLeast(0)) }
+            itemView.setOnLongClickListener { onVideoLongClick(row); true }
         }
     }
 

@@ -1635,7 +1635,9 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun hasVideoPermission(): Boolean {
         val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-        return ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED
+        if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) return true
+        return Build.VERSION.SDK_INT >= 34 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun setupBrowser() {
