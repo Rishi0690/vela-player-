@@ -7,7 +7,8 @@
     <Preference app:key="sec_playback" app:title="Playback" app:summary="Speed, aspect ratio, subtitles, audio, picture-in-picture" app:icon="@drawable/ic_play" />
     <Preference app:key="sec_playlists" app:title="Playlists &amp; selection" app:summary="Long-press, adding videos, playlist covers" app:icon="@drawable/ic_playlist" />
     <Preference app:key="sec_focus" app:title="Focus Mode" app:summary="Timer, goals, break reminders, Do Not Disturb, history" app:icon="@drawable/ic_focus" />
+    <Preference app:key="sec_vault" app:title="Hidden Vault" app:summary="Hide private videos, vault security, auto-lock" app:icon="@drawable/vault_ic_hide" />
     <PreferenceCategory app:title="" app:iconSpaceReserved="true">
-        <Preference app:key="reset_all" app:title="Reset all settings" app:summary="Restores defaults. Playlists, favorites, saved themes and focus history stay." app:icon="@drawable/ic_replay" />
+        <Preference app:key="reset_all" app:title="Reset all settings" app:summary="Restores defaults. Playlists, favorites, saved themes, focus history and the Hidden Vault stay." app:icon="@drawable/ic_replay" />
     </PreferenceCategory>
 </PreferenceScreen>

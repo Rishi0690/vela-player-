@@ -29,7 +29,7 @@
     <string-array name="theme_values"><item>dark</item><item>light</item><item>system</item></string-array>
     <string-array name="side_entries"><item>Left side</item><item>Right side</item></string-array>
     <string-array name="side_values"><item>left</item><item>right</item></string-array>
-    <string-array name="home_entries"><item>Folders first</item><item>All videos first</item><item>Where I left off</item></string-array>
+    <string-array name="home_entries"><item>Folders first</item><item>All videos first</item><item>Last section used</item></string-array>
     <string-array name="home_values"><item>folders</item><item>all</item><item>last</item></string-array>
     <string-array name="folder_sort_entries"><item>Name (A–Z)</item><item>Most videos first</item><item>Recently added first</item></string-array>
     <string-array name="folder_sort_values"><item>name</item><item>count</item><item>recent</item></string-array>
@@ -47,4 +47,6 @@
     <string-array name="goal_values"><item>0</item><item>15</item><item>30</item><item>45</item><item>60</item><item>90</item><item>120</item><item>180</item><item>240</item></string-array>
     <string-array name="break_entries"><item>20 minutes</item><item>25 minutes</item><item>30 minutes</item><item>45 minutes</item><item>1 hour</item><item>1.5 hours</item></string-array>
     <string-array name="break_values"><item>20</item><item>25</item><item>30</item><item>45</item><item>60</item><item>90</item></string-array>
+    <string-array name="vault_lock_entries"><item>Immediately (also after playing a vault video)</item><item>After 1 minute</item><item>After 5 minutes</item><item>After 15 minutes</item></string-array>
+    <string-array name="vault_lock_values"><item>0</item><item>1</item><item>5</item><item>15</item></string-array>
 </resources>

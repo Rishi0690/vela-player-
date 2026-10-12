@@ -4,6 +4,7 @@
     <item android:id="@+id/sel_all" android:icon="@drawable/ic_select_all" android:title="Select all" app:showAsAction="always" />
     <item android:id="@+id/sel_playlist" android:icon="@drawable/ic_playlist_add" android:title="Add to playlist" app:showAsAction="ifRoom" />
     <item android:id="@+id/sel_play" android:icon="@drawable/ic_play" android:title="Play selected" app:showAsAction="ifRoom" />
+    <item android:id="@+id/sel_hide" android:icon="@drawable/vault_ic_hide" android:title="Hide in vault" app:showAsAction="never" />
     <item android:id="@+id/sel_share" android:icon="@drawable/ic_share" android:title="Share" app:showAsAction="never" />
     <item android:id="@+id/sel_fav" android:title="Add to favorites" app:showAsAction="never" />
     <item android:id="@+id/sel_unfav" android:title="Remove from favorites" app:showAsAction="never" />

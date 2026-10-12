@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/vault_search" android:icon="@drawable/ic_search" android:title="Search"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"
+        app:showAsAction="ifRoom|collapseActionView" />
+    <item android:id="@+id/vault_view" android:icon="@drawable/ic_grid" android:title="Grid view" app:showAsAction="ifRoom" />
+    <item android:id="@+id/vault_sort" android:icon="@drawable/ic_sort" android:title="Sort" app:showAsAction="ifRoom" />
+    <item android:id="@+id/vault_select" android:icon="@drawable/ic_select" android:title="Select" app:showAsAction="never" />
+    <item android:id="@+id/vault_add" android:icon="@drawable/ic_add" android:title="Add videos" app:showAsAction="never" />
+    <item android:id="@+id/vault_security" android:icon="@drawable/ic_lock" android:title="Vault security" app:showAsAction="never" />
+    <item android:id="@+id/vault_lock" android:icon="@drawable/ic_lock" android:title="Lock vault" app:showAsAction="never" />
+</menu>

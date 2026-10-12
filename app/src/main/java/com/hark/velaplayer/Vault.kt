@@ -81,6 +81,15 @@ object Vault {
     fun markWatched(c: Context, uri: String) = sp(c).edit().remove("pos:$uri").putBoolean("watched:$uri", true).apply()
     fun isWatched(c: Context, uri: String) = sp(c).getBoolean("watched:$uri", false)
 
+    // ---- v2.2 library additions ----
+    /** "Play from start" in the vault: forget the vault resume point only. */
+    fun clearPosition(c: Context, uri: String) = sp(c).edit().remove("pos:$uri").remove("dur:$uri").apply()
+    fun count(c: Context): Int = hiddenSet(c).size
+    /** Filters hidden videos out of a normal-library list of entries. */
+    fun visibleEntries(c: Context, list: List<Entry>): List<Entry> {
+        val h = hiddenSet(c); return if (h.isEmpty()) list else list.filter { it.uri !in h }
+    }
+
     // ---- in-memory unlock state (process death = locked) ----
     @Volatile private var unlockedAt = 0L
     fun isUnlocked(): Boolean = unlockedAt != 0L
