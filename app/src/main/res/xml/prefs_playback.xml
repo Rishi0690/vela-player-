@@ -13,6 +13,7 @@
         <SwitchPreferenceCompat app:key="keep_screen_on" app:title="Keep screen awake while playing" app:defaultValue="true" app:iconSpaceReserved="false" />
         </PreferenceCategory>
     <PreferenceCategory app:title="Audio &amp; subtitles" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat app:key="volume_boost" app:title="Volume boost (up to 200%)" app:summary="Swipe or press volume up past 100% to amplify the player's sound. Never changes the system volume in the boost range. Very loud boost can distort on small speakers; needs device support" app:defaultValue="false" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="remember_audio_lang" app:title="Remember audio language" app:summary="Pick the audio language you chose last time when a video has it" app:defaultValue="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="remember_sub_lang" app:title="Remember subtitle language" app:summary="Prefer the subtitle language you chose last time" app:defaultValue="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="remember_sub_selection" app:title="Remember subtitle selection" app:summary="Keep subtitles on or off like last time, and pick the same track when it's there" app:defaultValue="true" app:iconSpaceReserved="false" />

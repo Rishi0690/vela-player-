@@ -363,6 +363,21 @@
             android:paddingHorizontal="8dp"
             android:paddingBottom="4dp">
 
+            <!-- v2.1: playback modes (shuffle / loop / auto-play next), compact and right-aligned above the timeline. -->
+            <LinearLayout
+                android:id="@+id/modeRow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginEnd="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnShuffle" style="@style/PlayerIcon" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="Shuffle" android:src="@drawable/ic_shuffle" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnLoop" style="@style/PlayerIcon" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="Loop" android:src="@drawable/ic_repeat" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnAutoNext" style="@style/PlayerIcon" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="Auto-play next" android:src="@drawable/ic_autoplay_next" />
+            </LinearLayout>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -446,7 +461,7 @@
                     android:layout_height="1dp"
                     android:layout_weight="1" />
 
-                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnRotate" style="@style/PlayerIcon" android:contentDescription="Rotate screen" android:src="@drawable/ic_rotate" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnRotate" style="@style/PlayerIcon" android:contentDescription="Rotate screen" android:src="@drawable/ic_screen_rotation" />
                 <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnPip" style="@style/PlayerIcon" android:contentDescription="Picture in picture" android:src="@drawable/ic_pip" />
                 <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnLockRight" style="@style/PlayerIcon" android:contentDescription="Lock screen" android:src="@drawable/ic_lock" />
             </LinearLayout>
@@ -527,6 +542,27 @@
             app:trackColor="#44FFFFFF"
             app:trackThickness="2.5dp" />
     </LinearLayout>
+
+    <!-- v2.1: shown while the video is pressed and held (temporary speed). -->
+    <TextView
+        android:id="@+id/tempSpeedPill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="108dp"
+        android:background="@drawable/bg_pill"
+        android:drawableEnd="@drawable/ic_fast_forward"
+        android:drawablePadding="6dp"
+        android:drawableTint="@android:color/white"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="6dp"
+        android:textColor="@android:color/white"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/breakCard"
