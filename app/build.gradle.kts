@@ -25,12 +25,15 @@ android {
         }
     }
     buildTypes {
+        // Only sign with the release key when it is present (it is gitignored). Without it, builds
+        // still compile but fall back to the default debug key, which cannot update an installed release.
+        val velaKey = rootProject.file("signing/vela-release.jks").exists()
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("vela")
+            if (velaKey) signingConfig = signingConfigs.getByName("vela")
         }
         debug {
-            signingConfig = signingConfigs.getByName("vela")
+            if (velaKey) signingConfig = signingConfigs.getByName("vela")
         }
     }
     compileOptions {
