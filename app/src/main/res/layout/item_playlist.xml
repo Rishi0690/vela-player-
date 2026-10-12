@@ -2,26 +2,62 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="72dp"
-    android:background="@drawable/bg_item"
+    android:layout_height="wrap_content"
     android:layout_marginHorizontal="6dp"
     android:layout_marginVertical="2dp"
+    android:background="@drawable/bg_item"
     android:gravity="center_vertical"
+    android:minHeight="88dp"
     android:orientation="horizontal"
-    android:paddingHorizontal="16dp">
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="8dp">
 
-    <ImageView
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:importantForAccessibility="no"
-        android:padding="6dp"
-        android:src="@drawable/ic_playlist"
-        app:tint="@color/accent" />
+    <FrameLayout
+        android:layout_width="128dp"
+        android:layout_height="72dp">
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/cover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+        <TextView
+            android:id="@+id/countBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="6dp"
+            android:background="@drawable/bg_badge"
+            android:drawableStart="@drawable/ic_playlist_small"
+            android:drawablePadding="3dp"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="5dp"
+            android:paddingVertical="1dp"
+            android:textColor="@android:color/white"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/selectCheck"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="6dp"
+            android:background="@drawable/bg_select_off"
+            android:gravity="center"
+            android:importantForAccessibility="no"
+            android:textColor="?attr/colorOnPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
+        android:layout_marginStart="12dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -30,14 +66,26 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:ellipsize="end"
-            android:maxLines="1"
-            android:textAppearance="?attr/textAppearanceBodyLarge" />
+            android:maxLines="2"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
 
         <TextView
             android:id="@+id/count"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:alpha="0.7"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:textAppearance="?attr/textAppearanceBodySmall" />
     </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/more"
+        android:layout_width="40dp"
+        android:layout_height="48dp"
+        android:layout_marginEnd="-8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="More options"
+        android:src="@drawable/ic_more_vert" />
 </LinearLayout>

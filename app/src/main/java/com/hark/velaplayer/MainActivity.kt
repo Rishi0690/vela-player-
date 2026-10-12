@@ -1,73 +1,83 @@
 package com.hark.velaplayer
 
 import android.Manifest
+import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.text.InputType
 import android.text.format.DateFormat
 import android.text.format.Formatter
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.view.ActionMode
 import androidx.appcompat.widget.SearchView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.core.widget.TextViewCompat
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.hark.velaplayer.databinding.ActivityMainBinding
 import com.hark.velaplayer.databinding.DialogUrlBinding
+import com.hark.velaplayer.databinding.ItemCollectionHeaderBinding
 import com.hark.velaplayer.databinding.ItemContinueBinding
 import com.hark.velaplayer.databinding.ItemContinueStripBinding
 import com.hark.velaplayer.databinding.ItemFolderBinding
-import com.hark.velaplayer.databinding.ItemSummaryBinding
+import com.hark.velaplayer.databinding.ItemFolderGridBinding
 import com.hark.velaplayer.databinding.ItemPlaylistBinding
+import com.hark.velaplayer.databinding.ItemPlaylistGridBinding
+import com.hark.velaplayer.databinding.ItemSummaryBinding
 import com.hark.velaplayer.databinding.ItemVideoBinding
-import android.app.Activity
-import android.app.RecoverableSecurityException
-import android.content.ContentValues
-import android.media.MediaScannerConnection
-import android.provider.MediaStore
-import android.view.Gravity
-import android.view.View
-import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.activity.result.IntentSenderRequest
-import androidx.core.widget.TextViewCompat
-import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.hark.velaplayer.databinding.ItemVideoGridBinding
 import java.io.File
 import java.util.concurrent.Executors
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ThemedActivity() {
 
     private enum class Tab { FOLDERS, ALL, FAVORITES, PLAYLISTS }
 
     sealed class Row {
-        data class Video(val entry: Entry, val item: VideoItem?, val progress: Float, val favorite: Boolean, val watched: Boolean = false) : Row()
-        data class Playlist(val name: String, val count: Int) : Row()
+        data class Video(val entry: Entry, val item: VideoItem?, val progress: Float, val favorite: Boolean, val watched: Boolean = false, val unavailable: Boolean = false) : Row()
+        data class Playlist(val name: String, val count: Int, val durationMs: Long, val covers: List<Triple<Uri, Long, Long>>, val unavailable: Int) : Row()
         data class Folder(val folder: VideoFolder, val watched: Int, val inProgress: Int, val showPath: Boolean) : Row()
         /** Library counts + watch filter, shown at the top of All videos and inside a folder. */
         data class Summary(val total: Int, val watched: Int, val inProgress: Int) : Row()
         /** Horizontal "Continue watching" strip at the top of Folders and All videos. */
         data class ContinueStrip(val videos: List<Video>) : Row()
+        /** Title + Play all / Shuffle (+ Add videos for playlists) at the top of a folder or playlist. */
+        data class Header(val playlist: Boolean, val title: String, val subtitle: String, val covers: List<Triple<Uri, Long, Long>>) : Row()
     }
 
     private lateinit var b: ActivityMainBinding
     private val adapter = Adapter()
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private lateinit var grid: GridLayoutManager
 
     private var tab = Tab.FOLDERS
     private var openPlaylist: String? = null
@@ -81,6 +91,13 @@ class MainActivity : AppCompatActivity() {
     private var loaded = false
     private var bannerDismissed = false
     private var lastScreenKey = ""
+    private var menuRef: Menu? = null
+
+    // ---- multi-select ----
+    private var actionMode: ActionMode? = null
+    /** Selected rows by stable key: "v:<uri>" for videos, "p:<name>" for playlists. Keeps tap order. */
+    private val selected = LinkedHashSet<String>()
+    private val selecting get() = actionMode != null
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
@@ -116,7 +133,14 @@ class MainActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, backCallback)
 
         sort = Prefs.sp(this).getString("library_sort", "date_desc") ?: "date_desc"
-        b.list.layoutManager = LinearLayoutManager(this)
+        grid = GridLayoutManager(this, 1)
+        grid.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int): Int {
+                val r = adapter.rows.getOrNull(position) ?: return grid.spanCount
+                return if (adapter.grid && (r is Row.Video || r is Row.Folder || r is Row.Playlist)) 1 else grid.spanCount
+            }
+        }
+        b.list.layoutManager = grid
         b.list.adapter = adapter
         b.list.layoutAnimation = android.view.animation.AnimationUtils.loadLayoutAnimation(this, R.anim.list_layout)
         (b.list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
@@ -126,7 +150,7 @@ class MainActivity : AppCompatActivity() {
         b.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
                 val target = if (rv.canScrollVertically(-1)) lift else 0f
-                if (b.toolbar.elevation != target && b.toolbar.tag != target) {
+                if (b.toolbar.tag != target) {
                     b.toolbar.tag = target
                     b.toolbar.animate().translationZ(target).setDuration(180).start()
                 }
@@ -154,11 +178,11 @@ class MainActivity : AppCompatActivity() {
             refresh()
         }
         b.header.setOnClickListener { openPlaylist = null; openFolder = null; filter = "all"; refresh() }
-        b.fab.setOnClickListener { newPlaylistDialog(null) }
+        b.fab.setOnClickListener { newPlaylistDialog(null, openPickerAfter = true) }
         b.btnGrant.setOnClickListener { requestPermission() }
         b.accessBannerButton.setOnClickListener { openAppSettings() }
         b.accessBannerClose.setOnClickListener { bannerDismissed = true; b.accessBanner.isVisible = false }
-        b.swipeRefresh.setColorSchemeColors(ContextCompat.getColor(this, R.color.accent))
+        b.swipeRefresh.setColorSchemeColors(ThemeManager.primary(this))
         b.swipeRefresh.setOnRefreshListener { ThumbLoader.clearFailures(); loadLibrary() }
 
         // Ask only when we have no access at all; limited access shows the banner instead of re-asking every launch.
@@ -170,6 +194,8 @@ class MainActivity : AppCompatActivity() {
         // Reload so counts follow videos added/removed while we were away.
         if (loaded) { refresh(); loadLibrary() }
     }
+
+    override fun onDestroy() { io.shutdown(); super.onDestroy() }
 
     // ------------------------------------------------------------------ permissions & loading
 
@@ -202,9 +228,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadLibrary() {
+        if (io.isShutdown) return
         io.execute {
             val items = if (hasPermission() || hasPartialAccess()) VideoRepository.load(this) else emptyList()
             main.post {
+                if (isDestroyed) return@post
                 library = items
                 byUri = items.associateBy { it.uri.toString() }
                 loaded = true
@@ -215,9 +243,59 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** A library video that's gone (moved/deleted) — only judged when we can see the whole library. */
+    private fun isUnavailable(uri: String) = loaded && fullAccess && uri.startsWith("content://media/") && byUri[uri] == null
+    /** Cached once per refresh: permission checks are too slow to repeat for every row. */
+    private var fullAccess = false
+
     // ------------------------------------------------------------------ list building
 
+    /** Which screen is showing; each remembers its own grid/list choice. */
+    private fun section(): String = when {
+        tab == Tab.FOLDERS && openFolder == null -> "folders"
+        tab == Tab.FOLDERS -> "folder"
+        tab == Tab.ALL -> "all"
+        tab == Tab.FAVORITES -> "favorites"
+        openPlaylist == null -> "playlists"
+        else -> "playlist"
+    }
+
+    private fun spanFor(gridMode: Boolean): Int {
+        if (!gridMode) return 1
+        val fixed = Prefs.gridColumns(this)
+        if (fixed > 0) return fixed
+        val wDp = resources.configuration.screenWidthDp
+        return (wDp / 180).coerceIn(2, 6)
+    }
+
+    private fun applyViewMode(animate: Boolean) {
+        val g = Prefs.viewMode(this, section()) == "grid"
+        val span = spanFor(g)
+        val changed = adapter.grid != g || grid.spanCount != span
+        adapter.grid = g
+        grid.spanCount = span
+        menuRef?.findItem(R.id.action_view)?.let {
+            it.setIcon(if (g) R.drawable.ic_list else R.drawable.ic_grid)
+            it.title = if (g) "List view" else "Grid view"
+        }
+        if (changed && animate) {
+            @Suppress("NotifyDataSetChanged") adapter.notifyDataSetChanged()
+            b.list.scheduleLayoutAnimation()
+        }
+    }
+
+    private fun totalDuration(entries: List<Entry>): Long = entries.sumOf { e -> byUri[e.uri]?.durationMs ?: Store.duration(this, e.uri) }
+
+    private fun coversFor(entries: List<Entry>): List<Triple<Uri, Long, Long>> =
+        entries.asSequence().filter { !isUnavailable(it.uri) }.take(4).map { e ->
+            val it = byUri[e.uri]
+            Triple(it?.uri ?: Uri.parse(e.uri), it?.id ?: -1L, it?.durationMs ?: 0L)
+        }.toList()
+
+    private fun countText(n: Int) = if (n == 1) "1 video" else "$n videos"
+
     private fun refresh() {
+        fullAccess = hasPermission()
         val rows = ArrayList<Row>()
         val folders = VideoRepository.folders(library, Prefs.hideSystemFolders(this))
         val folderObj = openFolder?.let { id -> folders.firstOrNull { it.id == id } ?: VideoRepository.folders(library, false).firstOrNull { it.id == id } }
@@ -226,28 +304,19 @@ class MainActivity : AppCompatActivity() {
         val showHeader = openPlaylist != null || openFolder != null
         if (showHeader && !b.header.isVisible) Motion.enter(b.header, -12 * resources.displayMetrics.density)
         else b.header.isVisible = showHeader
-        b.header.text = when {
-            openFolder != null -> "‹  ${folderObj?.name ?: ""}"
-            else -> "‹  ${openPlaylist ?: ""}"
-        }
-        if (tab == Tab.PLAYLISTS && openPlaylist == null) b.fab.show() else b.fab.hide()
+        b.header.text = if (openFolder != null) "‹  All folders" else "‹  All playlists"
+        if (tab == Tab.PLAYLISTS && openPlaylist == null && !selecting) b.fab.show() else b.fab.hide()
         val favs = Store.favorites(this).map { it.uri }.toSet()
         val watched = Store.watchedSet(this)
         val inProgress = Store.inProgressSet(this)
         val stats = Prefs.showWatchStats(this)
 
+        fun videoRow(e: Entry) = videoRowOf(e, favs, watched)
+
         fun continueStrip(): Row.ContinueStrip? {
             if (query.isNotBlank()) return null
-            val list = Store.continueList(this).take(20).map { videoRowOf(it, favs, watched) }
+            val list = Store.continueList(this).filter { !isUnavailable(it.uri) }.take(20).map { videoRow(it) }
             return if (list.isEmpty()) null else Row.ContinueStrip(list)
-        }
-
-        fun videoRow(e: Entry): Row.Video {
-            val item = byUri[e.uri]
-            val pos = Store.position(this, e.uri)
-            val dur = Store.duration(this, e.uri).takeIf { it > 0 } ?: item?.durationMs ?: 0L
-            val progress = if (pos > 0 && dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
-            return Row.Video(e, item, progress, favs.contains(e.uri), watched.contains(e.uri))
         }
 
         /** Summary row + the videos of [items], narrowed by the watch filter. */
@@ -256,9 +325,8 @@ class MainActivity : AppCompatActivity() {
             if (stats) rows += Row.Summary(items.size, uris.count { it in watched }, uris.count { it in inProgress })
             when (filter) {
                 "progress" -> {
-                    // Same order as the old "Continue watching" list: most recently played first.
                     val set = uris.toSet()
-                    Store.continueList(this).filter { set.contains(it.uri) || (includeStreams && byUri[it.uri] == null) }
+                    Store.continueList(this).filter { set.contains(it.uri) || (includeStreams && byUri[it.uri] == null && !isUnavailable(it.uri)) }
                         .forEach { rows += videoRow(it) }
                 }
                 "watched" -> items.filter { it.uri.toString() in watched }.forEach { rows += videoRow(Entry(it.uri.toString(), it.name)) }
@@ -268,7 +336,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         when {
-            tab == Tab.FOLDERS && folderObj != null -> videoList(folderObj.videos, false)
+            tab == Tab.FOLDERS && folderObj != null -> {
+                if (query.isBlank()) rows += Row.Header(false, folderObj.name,
+                    listOfNotNull(countText(folderObj.videos.size), Fmt.time(folderObj.videos.sumOf { it.durationMs }).takeIf { folderObj.videos.isNotEmpty() }).joinToString(" · "),
+                    emptyList())
+                videoList(folderObj.videos, false)
+            }
             tab == Tab.FOLDERS -> {
                 continueStrip()?.let { rows += it }
                 val dupNames = folders.groupBy { it.name.lowercase() }.filter { it.value.size > 1 }.keys
@@ -284,8 +357,18 @@ class MainActivity : AppCompatActivity() {
             }
             tab == Tab.ALL -> { if (filter != "progress") continueStrip()?.let { rows += it }; videoList(library, true) }
             tab == Tab.FAVORITES -> Store.favorites(this).forEach { rows += videoRow(it) }
-            openPlaylist == null -> Store.playlists(this).forEach { (name, list) -> rows += Row.Playlist(name, list.size) }
-            else -> Store.playlists(this)[openPlaylist]?.forEach { rows += videoRow(it) }
+            openPlaylist == null -> Store.playlists(this).forEach { (name, list) ->
+                rows += Row.Playlist(name, list.size, totalDuration(list), coversFor(list), list.count { isUnavailable(it.uri) })
+            }
+            else -> {
+                val list = Store.playlists(this)[openPlaylist] ?: emptyList()
+                val missing = list.count { isUnavailable(it.uri) }
+                if (query.isBlank()) rows += Row.Header(true, openPlaylist ?: "",
+                    listOfNotNull(countText(list.size), Fmt.time(totalDuration(list)).takeIf { list.isNotEmpty() },
+                        if (missing > 0) "$missing unavailable" else null).joinToString(" · "),
+                    coversFor(list))
+                list.forEach { rows += videoRow(it) }
+            }
         }
 
         var filtered: List<Row> = rows
@@ -296,35 +379,37 @@ class MainActivity : AppCompatActivity() {
                     is Row.Video -> it.entry.title.lowercase().contains(q)
                     is Row.Playlist -> it.name.lowercase().contains(q)
                     is Row.Folder -> it.folder.name.lowercase().contains(q) || it.folder.videos.any { v -> v.name.lowercase().contains(q) }
-                    is Row.Summary -> true
-                    is Row.ContinueStrip -> true
+                    is Row.Summary, is Row.ContinueStrip, is Row.Header -> true
                 }
             }
         }
-        // In-progress keeps its most-recent order; other video lists follow the chosen sort.
+        // In-progress keeps its most-recent order and playlists keep their own order; other video lists follow the chosen sort.
         val inVideoList = (tab == Tab.ALL || (tab == Tab.FOLDERS && openFolder != null))
         if ((inVideoList && filter != "progress") || tab == Tab.FAVORITES) filtered = sortRows(filtered)
 
         val ctxKey = "$tab|$openFolder|$openPlaylist|$filter"
         val newScreen = ctxKey != lastScreenKey
+        if (newScreen && lastScreenKey.isNotEmpty()) actionMode?.finish()
         lastScreenKey = ctxKey
+        applyViewMode(animate = false)
+        // Selection survives actions; anything that disappeared (deleted, removed) drops out of it.
+        if (selected.isNotEmpty()) {
+            val keys = rows.mapNotNull { selKey(it) }.toHashSet()
+            if (selected.retainAll(keys)) updateActionMode()
+        }
         adapter.submit(filtered, newScreen)
         if (newScreen) b.list.scheduleLayoutAnimation()
-        val empty = filtered.none { it !is Row.Summary && it !is Row.ContinueStrip }
-        b.emptyView.isVisible = empty && filtered.isEmpty()
-        b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission()
+        val empty = filtered.none { it is Row.Video || it is Row.Folder || it is Row.Playlist }
+        b.emptyView.isVisible = empty && filtered.none { it is Row.Summary || it is Row.ContinueStrip }
+        b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess()
         b.emptyText.text = when {
             query.isNotBlank() -> "Nothing matches \"$query\"."
-            (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() -> "Allow access so Vela can show the videos on your phone."
+            (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess() -> "Allow access so Vela can show the videos on your phone."
             tab == Tab.FOLDERS && openFolder == null -> "No folders with videos found yet."
             tab == Tab.ALL || tab == Tab.FOLDERS -> "No videos found on this device yet."
             tab == Tab.FAVORITES -> "Long-press any video and choose Add to favorites."
-            openPlaylist != null -> "This playlist is empty. Long-press a video to add it."
+            openPlaylist != null -> "This playlist is empty. Tap + above to add videos."
             else -> "No playlists yet. Tap + to create one."
-        }
-        // A filter with no matches still shows its summary row, so explain it in the list itself.
-        if (empty && filtered.isNotEmpty()) {
-            b.emptyView.isVisible = false
         }
     }
 
@@ -333,7 +418,7 @@ class MainActivity : AppCompatActivity() {
         val pos = Store.position(this, e.uri)
         val dur = Store.duration(this, e.uri).takeIf { it > 0 } ?: item?.durationMs ?: 0L
         val progress = if (pos > 0 && dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
-        return Row.Video(e, item, progress, favs.contains(e.uri), watched.contains(e.uri))
+        return Row.Video(e, item, progress, favs.contains(e.uri), watched.contains(e.uri), isUnavailable(e.uri))
     }
 
     private fun sortRows(rows: List<Row>): List<Row> {
@@ -348,31 +433,45 @@ class MainActivity : AppCompatActivity() {
             "size_asc" -> videos.sortedBy { it.item?.size ?: 0L }
             else -> videos.sortedByDescending { it.item?.dateAdded ?: 0L }
         }
-        return rows.filterIsInstance<Row.ContinueStrip>() + rows.filterIsInstance<Row.Summary>() + sorted + rows.filterIsInstance<Row.Playlist>()
+        return rows.filterIsInstance<Row.Header>() + rows.filterIsInstance<Row.ContinueStrip>() + rows.filterIsInstance<Row.Summary>() + sorted + rows.filterIsInstance<Row.Playlist>()
     }
 
     // ------------------------------------------------------------------ menu
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
+        menuRef = menu
         val sv = menu.findItem(R.id.action_search).actionView as SearchView
         sv.queryHint = "Search videos"
         sv.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(q: String?): Boolean { sv.clearFocus(); return true }
             override fun onQueryTextChange(q: String?): Boolean { query = q ?: ""; refresh(); return true }
         })
+        applyViewMode(animate = false)
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
+            R.id.action_view -> {
+                val now = if (Prefs.viewMode(this, section()) == "grid") "list" else "grid"
+                Prefs.setViewMode(this, section(), now)
+                applyViewMode(animate = true)
+            }
             R.id.action_sort -> sortDialog()
+            R.id.action_select -> startSelection(null)
+            R.id.action_focus -> startActivity(Intent(this, FocusActivity::class.java))
             R.id.action_open_url -> urlDialog()
             R.id.action_open_file -> openFile.launch(arrayOf("video/*"))
             R.id.action_settings -> startActivity(Intent(this, SettingsActivity::class.java))
             else -> return super.onOptionsItemSelected(item)
         }
         return true
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyViewMode(animate = true)
     }
 
     private fun sortDialog() {
@@ -402,9 +501,10 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null).show()
     }
 
-    // ------------------------------------------------------------------ actions
+    // ------------------------------------------------------------------ playing
 
-    private fun play(entries: List<Entry>, index: Int) {
+    private fun play(entries: List<Entry>, index: Int, shuffled: Boolean = false) {
+        if (entries.isEmpty()) { toast("Nothing to play"); return }
         // Keep the queue a sensible size for the intent.
         val from = (index - 250).coerceAtLeast(0)
         val to = (from + 500).coerceAtMost(entries.size)
@@ -413,14 +513,158 @@ class MainActivity : AppCompatActivity() {
             .putStringArrayListExtra(PlayerActivity.EXTRA_URIS, ArrayList(window.map { it.uri }))
             .putStringArrayListExtra(PlayerActivity.EXTRA_TITLES, ArrayList(window.map { it.title }))
             .putExtra(PlayerActivity.EXTRA_INDEX, index - from)
+            .putExtra(PlayerActivity.EXTRA_SHUFFLED, shuffled)
         startActivity(i)
     }
 
-    private fun onVideoClick(position: Int) {
-        val videos = adapter.rows.filterIsInstance<Row.Video>()
-        val row = adapter.rows[position] as Row.Video
-        play(videos.map { it.entry }, videos.indexOf(row))
+    /** Play all / Shuffle for the open folder or playlist, in the order shown. Unavailable videos are left out. */
+    private fun playCollection(shuffle: Boolean) {
+        val all = adapter.rows.filterIsInstance<Row.Video>()
+        val playable = all.filter { !it.unavailable }.map { it.entry }
+        if (playable.isEmpty()) { toast(if (all.isEmpty()) "Nothing to play here" else "None of these videos can be found on the phone"); return }
+        if (playable.size < all.size) toast("Skipping ${all.size - playable.size} unavailable video(s)")
+        play(if (shuffle) playable.shuffled() else playable, 0, shuffled = shuffle)
     }
+
+    private fun onVideoClick(position: Int) {
+        val row = adapter.rows.getOrNull(position) as? Row.Video ?: return
+        if (selecting) { toggleSelection(position); return }
+        if (row.unavailable) { toast("This video was moved or deleted. Long-press to remove it."); return }
+        val videos = adapter.rows.filterIsInstance<Row.Video>().filter { !it.unavailable }
+        play(videos.map { it.entry }, videos.indexOf(row).coerceAtLeast(0))
+    }
+
+    private fun openPicker(playlist: String) {
+        startActivity(Intent(this, VideoPickerActivity::class.java).putExtra(VideoPickerActivity.EXTRA_PLAYLIST, playlist))
+    }
+
+    // ------------------------------------------------------------------ multi-select
+
+    private fun selKey(r: Row): String? = when (r) {
+        is Row.Video -> "v:" + r.entry.uri
+        is Row.Playlist -> "p:" + r.name
+        else -> null
+    }
+
+    /** Playlists list selects playlists; every other screen selects videos. */
+    private fun selectingPlaylists() = tab == Tab.PLAYLISTS && openPlaylist == null
+
+    private fun selectableRows(): List<Row> = adapter.rows.filter { if (selectingPlaylists()) it is Row.Playlist else it is Row.Video }
+
+    private fun startSelection(first: Row?) {
+        if (selectableRows().isEmpty()) { toast("Nothing to select here"); return }
+        if (actionMode == null) actionMode = startSupportActionMode(selectionCallback)
+        b.fab.hide()
+        first?.let { selKey(it)?.let { k -> selected.add(k) } }
+        adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL)
+        updateActionMode()
+    }
+
+    private fun toggleSelection(position: Int) {
+        val r = adapter.rows.getOrNull(position) ?: return
+        val k = selKey(r) ?: return
+        if (selectingPlaylists() != (r is Row.Playlist)) return
+        if (!selected.remove(k)) selected.add(k)
+        Motion.haptic(b.list)
+        adapter.notifyItemChanged(position, PAYLOAD_SEL)
+        updateActionMode()
+    }
+
+    private fun updateActionMode() {
+        val m = actionMode ?: return
+        val n = selected.size
+        m.title = if (n == 0) "Select items" else "$n selected"
+        val total = selectableRows().size
+        m.subtitle = if (total > 0) "of $total" else null
+        m.invalidate()
+    }
+
+    private fun selectedVideos(): List<Row.Video> {
+        val set = selected
+        return adapter.rows.filterIsInstance<Row.Video>().filter { ("v:" + it.entry.uri) in set }
+            .sortedBy { set.indexOf("v:" + it.entry.uri) }
+    }
+    private fun selectedPlaylists(): List<String> = selected.filter { it.startsWith("p:") }.map { it.removePrefix("p:") }
+
+    private val selectionCallback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean { mode.menuInflater.inflate(R.menu.selection_menu, menu); return true }
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            val pl = selectingPlaylists()
+            val vids = if (pl) emptyList() else selectedVideos()
+            val any = selected.isNotEmpty()
+            val allSelected = selected.size >= selectableRows().size && any
+            menu.findItem(R.id.sel_all).apply { title = if (allSelected) "Deselect all" else "Select all" }
+            fun vis(id: Int, v: Boolean) { menu.findItem(id).isVisible = v }
+            vis(R.id.sel_playlist, !pl && any)
+            vis(R.id.sel_play, any)
+            vis(R.id.sel_share, !pl && vids.any { it.entry.uri.startsWith("content") || it.entry.uri.startsWith("file") })
+            vis(R.id.sel_fav, !pl && vids.any { !it.favorite })
+            vis(R.id.sel_unfav, !pl && vids.any { it.favorite })
+            vis(R.id.sel_watched, !pl && vids.any { !it.watched })
+            vis(R.id.sel_unwatched, !pl && vids.any { it.watched })
+            vis(R.id.sel_remove, !pl && any && openPlaylist != null)
+            vis(R.id.sel_delete, !pl && vids.any { it.item != null })
+            vis(R.id.sel_delete_playlists, pl && any)
+            vis(R.id.sel_clear, any)
+            return true
+        }
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            val vids = selectedVideos()
+            when (item.itemId) {
+                R.id.sel_all -> {
+                    val keys = selectableRows().mapNotNull { selKey(it) }
+                    if (selected.containsAll(keys)) selected.clear() else selected.addAll(keys)
+                    adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL); updateActionMode()
+                }
+                R.id.sel_clear -> { mode.finish() }
+                R.id.sel_play -> {
+                    if (selectingPlaylists()) {
+                        val pls = Store.playlists(this@MainActivity)
+                        val entries = selectedPlaylists().flatMap { pls[it] ?: emptyList() }.filter { !isUnavailable(it.uri) }.distinctBy { it.uri }
+                        play(entries, 0)
+                    } else play(vids.filter { !it.unavailable }.map { it.entry }, 0)
+                }
+                R.id.sel_playlist -> addManyToPlaylistDialog(vids.map { it.entry })
+                R.id.sel_share -> share(vids.mapNotNull { Uri.parse(it.entry.uri).takeIf { u -> u.scheme == "content" || u.scheme == "file" } })
+                R.id.sel_fav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, true); toast("Added ${vids.size} to favorites"); refresh() }
+                R.id.sel_unfav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, false); toast("Removed ${vids.size} from favorites"); refresh() }
+                R.id.sel_watched -> { Store.setWatchedMany(this@MainActivity, vids.map { it.entry.uri }, true); refresh() }
+                R.id.sel_unwatched -> { Store.setWatchedMany(this@MainActivity, vids.map { it.entry.uri }, false); refresh() }
+                R.id.sel_remove -> {
+                    val pl = openPlaylist ?: return true
+                    MaterialAlertDialogBuilder(this@MainActivity).setTitle("Remove ${vids.size} from \"$pl\"?")
+                        .setMessage("They're only taken out of this playlist. The video files stay on your phone.")
+                        .setPositiveButton("Remove") { _, _ ->
+                            Store.removeManyFromPlaylist(this@MainActivity, pl, vids.map { it.entry.uri })
+                            toast("Removed ${vids.size} from the playlist"); refresh()
+                        }.setNegativeButton("Cancel", null).show()
+                }
+                R.id.sel_delete -> {
+                    val files = vids.mapNotNull { it.item }
+                    val size = Formatter.formatShortFileSize(this@MainActivity, files.sumOf { it.size })
+                    confirmDelete(files, "Delete ${files.size} video${if (files.size == 1) "" else "s"}?",
+                        "${files.size} file${if (files.size == 1) "" else "s"} ($size) will be permanently deleted from your phone. This can't be undone." +
+                            if (files.size < vids.size) "\n\nStreams and files outside your library aren't affected." else "")
+                }
+                R.id.sel_delete_playlists -> {
+                    val names = selectedPlaylists()
+                    MaterialAlertDialogBuilder(this@MainActivity).setTitle("Delete ${names.size} playlist${if (names.size == 1) "" else "s"}?")
+                        .setMessage("Only the playlists are removed. Your video files stay on the phone.")
+                        .setPositiveButton("Delete") { _, _ -> names.forEach { Store.deletePlaylist(this@MainActivity, it) }; toast("Deleted"); refresh() }
+                        .setNegativeButton("Cancel", null).show()
+                }
+            }
+            return true
+        }
+        override fun onDestroyActionMode(mode: ActionMode) {
+            actionMode = null
+            selected.clear()
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL)
+            if (tab == Tab.PLAYLISTS && openPlaylist == null) b.fab.show()
+        }
+    }
+
+    // ------------------------------------------------------------------ option sheets
 
     private class Action(val label: String, val icon: Int, val danger: Boolean = false, val run: () -> Unit)
 
@@ -466,36 +710,45 @@ class MainActivity : AppCompatActivity() {
         d.show()
     }
 
-    private fun onVideoLongClick(row: Row.Video) {
+
+    private fun onVideoLongPress(row: Row.Video, position: Int) {
+        if (selecting) { toggleSelection(position); return }
+        if (Prefs.longPressAction(this) == "select") startSelection(row) else onVideoOptions(row)
+    }
+
+    private fun onVideoOptions(row: Row.Video) {
         val item = row.item
         val a = ArrayList<Action>()
-        a += Action("Play", R.drawable.ic_play) { play(listOf(row.entry), 0) }
-        if (row.progress > 0f) a += Action("Play from start", R.drawable.ic_replay) {
-            Store.clearPosition(this, row.entry.uri); play(listOf(row.entry), 0)
+        if (!row.unavailable) {
+            a += Action("Play", R.drawable.ic_play) { play(listOf(row.entry), 0) }
+            if (row.progress > 0f) a += Action("Play from start", R.drawable.ic_replay) {
+                Store.clearPosition(this, row.entry.uri); play(listOf(row.entry), 0)
+            }
         }
+        a += Action("Select", R.drawable.ic_select) { startSelection(row) }
         a += Action(if (row.favorite) "Remove from favorites" else "Add to favorites", R.drawable.ic_star) {
             val added = Store.toggleFavorite(this, row.entry)
             toast(if (added) "Added to favorites" else "Removed from favorites"); refresh()
         }
-        a += Action("Add to playlist", R.drawable.ic_playlist) { addToPlaylistDialog(row.entry) }
+        a += Action("Add to playlist", R.drawable.ic_playlist_add) { addManyToPlaylistDialog(listOf(row.entry)) }
         openPlaylist?.let { pl ->
             a += Action("Remove from this playlist", R.drawable.ic_close) {
                 Store.removeFromPlaylist(this, pl, row.entry.uri)
                 toast("Removed from playlist (the file is untouched)"); refresh()
             }
         }
-        a += Action(if (row.watched) "Mark as unwatched" else "Mark as watched", R.drawable.ic_check_circle) {
+        if (!row.unavailable) a += Action(if (row.watched) "Mark as unwatched" else "Mark as watched", R.drawable.ic_check_circle) {
             Store.setWatched(this, row.entry.uri, !row.watched); refresh()
         }
         if (row.progress > 0f) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
-        val shareable = Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
+        val shareable = !row.unavailable && Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
         if (shareable) a += Action("Share", R.drawable.ic_share) { share(listOf(Uri.parse(row.entry.uri))) }
         if (item != null) {
             a += Action("Rename", R.drawable.ic_edit) { renameVideoDialog(item) }
             a += Action("Delete", R.drawable.ic_delete, danger = true) { confirmDelete(listOf(item), "Delete \"${item.name}\"?") }
         }
         a += Action("Properties", R.drawable.ic_info) { detailsDialog(row) }
-        val sub = item?.let { listOfNotNull(it.durationMs.takeIf { d -> d > 0 }?.let { d -> Fmt.time(d) }, it.size.takeIf { z -> z > 0 }?.let { z -> Formatter.formatShortFileSize(this, z) }).joinToString(" · ") }
+        val sub = if (row.unavailable) "Unavailable — moved or deleted" else item?.let { listOfNotNull(it.durationMs.takeIf { d -> d > 0 }?.let { d -> Fmt.time(d) }, it.size.takeIf { z -> z > 0 }?.let { z -> Formatter.formatShortFileSize(this, z) }).joinToString(" · ") }
         showSheet(row.entry.title, sub?.takeIf { it.isNotEmpty() }, a)
     }
 
@@ -505,11 +758,11 @@ class MainActivity : AppCompatActivity() {
         val allWatched = row.watched >= f.videos.size && f.videos.isNotEmpty()
         val a = ArrayList<Action>()
         a += Action("Play all", R.drawable.ic_play) { play(sortedEntries(), 0) }
-        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries().shuffled(), 0) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries().shuffled(), 0, shuffled = true) }
         a += Action("Open", R.drawable.ic_folder) { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
-        a += Action("Add all to playlist", R.drawable.ic_playlist) { addManyToPlaylistDialog(sortedEntries()) }
+        a += Action("Add all to playlist", R.drawable.ic_playlist_add) { addManyToPlaylistDialog(sortedEntries()) }
         a += Action(if (allWatched) "Mark all as unwatched" else "Mark all as watched", R.drawable.ic_check_circle) {
-            f.videos.forEach { Store.setWatched(this, it.uri.toString(), !allWatched) }; refresh()
+            Store.setWatchedMany(this, f.videos.map { it.uri.toString() }, !allWatched); refresh()
         }
         a += Action("Share all", R.drawable.ic_share) { share(f.videos.map { it.uri }) }
         a += Action("Rename folder", R.drawable.ic_edit) { renameFolderDialog(f) }
@@ -525,6 +778,29 @@ class MainActivity : AppCompatActivity() {
             MaterialAlertDialogBuilder(this).setTitle("Folder properties").setMessage(msg).setPositiveButton("Close", null).show()
         }
         showSheet(f.name, f.path, a)
+    }
+
+    private fun onPlaylistLongPress(row: Row.Playlist, position: Int) {
+        if (selecting) { toggleSelection(position); return }
+        if (Prefs.longPressAction(this) == "select") { startSelection(row); return }
+        onPlaylistOptions(row)
+    }
+
+    private fun onPlaylistOptions(row: Row.Playlist) {
+        val entries = { (Store.playlists(this)[row.name] ?: emptyList()).filter { !isUnavailable(it.uri) } }
+        val a = ArrayList<Action>()
+        a += Action("Play all", R.drawable.ic_play) { play(entries(), 0) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries().shuffled(), 0, shuffled = true) }
+        a += Action("Add videos", R.drawable.ic_playlist_add) { openPicker(row.name) }
+        a += Action("Select", R.drawable.ic_select) { startSelection(row) }
+        a += Action("Rename", R.drawable.ic_edit) { newPlaylistDialog(row.name) }
+        a += Action("Delete playlist", R.drawable.ic_delete, danger = true) {
+            MaterialAlertDialogBuilder(this).setTitle("Delete \"${row.name}\"?")
+                .setMessage("Only the playlist is removed. Your video files stay on the phone.")
+                .setPositiveButton("Delete") { _, _ -> Store.deletePlaylist(this, row.name); refresh() }
+                .setNegativeButton("Cancel", null).show()
+        }
+        showSheet(row.name, countText(row.count) + if (row.durationMs > 0) " · " + Fmt.time(row.durationMs) else "", a)
     }
 
     // ------------------------------------------------------------------ file actions (share / rename / delete)
@@ -705,31 +981,32 @@ class MainActivity : AppCompatActivity() {
         catch (_: Exception) { afterGrant = null; toast("Couldn't ask for permission") }
     }
 
+
+    // ------------------------------------------------------------------ playlists
+
+    /** Adds one or many videos to a playlist the user picks (or a new one). Duplicates are skipped and reported. */
     private fun addManyToPlaylistDialog(entries: List<Entry>) {
+        if (entries.isEmpty()) return
         val names = Store.playlists(this).keys.toList()
-        if (names.isEmpty()) { toast("Create a playlist first in the Playlists tab"); return }
-        MaterialAlertDialogBuilder(this).setTitle("Add ${entries.size} videos to")
-            .setItems(names.toTypedArray()) { _, i ->
-                val n = entries.count { Store.addToPlaylist(this, names[i], it) }
-                toast("Added $n to \"${names[i]}\""); refresh()
+        val labels = (names + "New playlist…").toTypedArray()
+        MaterialAlertDialogBuilder(this).setTitle(if (entries.size == 1) "Add to playlist" else "Add ${entries.size} videos to")
+            .setItems(labels) { _, i ->
+                if (i == names.size) newPlaylistDialog(null, thenAdd = entries)
+                else addToPlaylistReport(names[i], entries)
             }.show()
     }
 
-    private fun onPlaylistLongClick(row: Row.Playlist) {
-        MaterialAlertDialogBuilder(this).setTitle(row.name)
-            .setItems(arrayOf("Play all", "Rename", "Delete playlist")) { _, i ->
-                when (i) {
-                    0 -> Store.playlists(this)[row.name]?.takeIf { it.isNotEmpty() }?.let { play(it, 0) } ?: toast("Playlist is empty")
-                    1 -> newPlaylistDialog(row.name)
-                    2 -> MaterialAlertDialogBuilder(this).setTitle("Delete \"${row.name}\"?")
-                        .setMessage("Only the playlist is removed. Your video files stay on the phone.")
-                        .setPositiveButton("Delete") { _, _ -> Store.deletePlaylist(this, row.name); refresh() }
-                        .setNegativeButton("Cancel", null).show()
-                }
-            }.show()
+    private fun addToPlaylistReport(name: String, entries: List<Entry>) {
+        val (added, skipped) = Store.addManyToPlaylist(this, name, entries, atStart = Prefs.playlistAddAt(this) == "start")
+        toast(when {
+            added == 0 && skipped > 0 -> if (skipped == 1) "Already in \"$name\"" else "All $skipped are already in \"$name\""
+            skipped > 0 -> "Added $added to \"$name\" · $skipped already there"
+            else -> if (added == 1) "Added to \"$name\"" else "Added $added videos to \"$name\""
+        })
+        refresh()
     }
 
-    private fun newPlaylistDialog(renameFrom: String?, thenAdd: Entry? = null) {
+    private fun newPlaylistDialog(renameFrom: String?, thenAdd: List<Entry>? = null, openPickerAfter: Boolean = false) {
         val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; setText(renameFrom ?: ""); hint = "Playlist name" }
         val box = FrameLayout(this).apply {
             val pad = (20 * resources.displayMetrics.density).toInt()
@@ -737,29 +1014,17 @@ class MainActivity : AppCompatActivity() {
         }
         MaterialAlertDialogBuilder(this).setTitle(if (renameFrom == null) "New playlist" else "Rename playlist")
             .setView(box)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton(if (openPickerAfter) "Next: add videos" else "Save") { _, _ ->
                 val name = input.text.toString().trim()
                 if (name.isEmpty()) { toast("Name can't be empty"); return@setPositiveButton }
                 val ok = if (renameFrom == null) Store.createPlaylist(this, name) else Store.renamePlaylist(this, renameFrom, name)
-                if (!ok) toast("A playlist with that name already exists")
-                else if (thenAdd != null) { Store.addToPlaylist(this, name, thenAdd); toast("Added to \"$name\"") }
+                if (!ok) { toast("A playlist with that name already exists"); return@setPositiveButton }
+                if (renameFrom != null && openPlaylist == renameFrom) openPlaylist = name
+                if (thenAdd != null) addToPlaylistReport(name, thenAdd)
                 refresh()
+                if (openPickerAfter) openPicker(name)
             }
             .setNegativeButton("Cancel", null).show()
-    }
-
-    private fun addToPlaylistDialog(e: Entry) {
-        val names = Store.playlists(this).keys.toList()
-        val labels = (names + "New playlist…").toTypedArray()
-        MaterialAlertDialogBuilder(this).setTitle("Add to playlist")
-            .setItems(labels) { _, i ->
-                if (i == names.size) newPlaylistDialog(null, e)
-                else {
-                    val added = Store.addToPlaylist(this, names[i], e)
-                    toast(if (added) "Added to \"${names[i]}\"" else "Already in \"${names[i]}\"")
-                    refresh()
-                }
-            }.show()
     }
 
     private fun detailsDialog(row: Row.Video) {
@@ -789,16 +1054,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
+
+
     // ------------------------------------------------------------------ adapter
 
     private inner class Adapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         var rows: List<Row> = emptyList()
+        var grid = false
         private fun key(r: Row): String = when (r) {
             is Row.Video -> "v:" + r.entry.uri
             is Row.Folder -> "f:" + r.folder.id
             is Row.Playlist -> "p:" + r.name
             is Row.Summary -> "summary"
             is Row.ContinueStrip -> "strip"
+            is Row.Header -> "header"
         }
         /** New screen: rebuild and play the staggered entrance. Same screen: animate only what changed. */
         @android.annotation.SuppressLint("NotifyDataSetChanged")
@@ -816,18 +1085,35 @@ class MainActivity : AppCompatActivity() {
 
         override fun getItemCount() = rows.size
         override fun getItemViewType(position: Int) = when (rows[position]) {
-            is Row.Video -> 0; is Row.Playlist -> 1; is Row.Folder -> 2; is Row.Summary -> 3; is Row.ContinueStrip -> 4
+            is Row.Video -> if (grid) 10 else 0
+            is Row.Playlist -> if (grid) 11 else 1
+            is Row.Folder -> if (grid) 12 else 2
+            is Row.Summary -> 3
+            is Row.ContinueStrip -> 4
+            is Row.Header -> 5
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val inf = LayoutInflater.from(parent.context)
             return when (viewType) {
-                0 -> VideoVH(ItemVideoBinding.inflate(inf, parent, false))
-                2 -> FolderVH(ItemFolderBinding.inflate(inf, parent, false))
+                0 -> VideoVH(VideoViews.of(ItemVideoBinding.inflate(inf, parent, false)))
+                10 -> VideoVH(VideoViews.of(ItemVideoGridBinding.inflate(inf, parent, false)))
+                2 -> FolderVH(FolderViews.of(ItemFolderBinding.inflate(inf, parent, false)))
+                12 -> FolderVH(FolderViews.of(ItemFolderGridBinding.inflate(inf, parent, false)))
+                1 -> PlaylistVH(PlaylistViews.of(ItemPlaylistBinding.inflate(inf, parent, false)))
+                11 -> PlaylistVH(PlaylistViews.of(ItemPlaylistGridBinding.inflate(inf, parent, false)))
                 3 -> SummaryVH(ItemSummaryBinding.inflate(inf, parent, false))
                 4 -> StripVH(ItemContinueStripBinding.inflate(inf, parent, false))
-                else -> PlaylistVH(ItemPlaylistBinding.inflate(inf, parent, false))
+                else -> HeaderVH(ItemCollectionHeaderBinding.inflate(inf, parent, false))
             }
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+            if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_SEL }) {
+                when (holder) { is VideoVH -> holder.bindSelection(); is PlaylistVH -> holder.bindSelection() }
+                return
+            }
+            onBindViewHolder(holder, position)
         }
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -837,62 +1123,157 @@ class MainActivity : AppCompatActivity() {
                 is Row.Folder -> (holder as FolderVH).bind(row)
                 is Row.Summary -> (holder as SummaryVH).bind(row)
                 is Row.ContinueStrip -> (holder as StripVH).bind(row)
+                is Row.Header -> (holder as HeaderVH).bind(row)
             }
         }
     }
 
-    private inner class VideoVH(val v: ItemVideoBinding) : RecyclerView.ViewHolder(v.root) {
+    /** Shows the selection badge on a row (both grid and list layouts use the same views). */
+    private fun showSelection(root: View, badge: TextView, key: String?) {
+        val on = key != null && key in selected
+        root.isActivated = on
+        badge.isVisible = selecting
+        badge.setBackgroundResource(if (on) R.drawable.bg_select_on else R.drawable.bg_select_off)
+        badge.text = if (on) "✓" else ""
+        root.contentDescription = if (selecting) (if (on) "Selected" else "Not selected") else null
+    }
+
+    /** The views a video row needs, from either the list or the grid layout. */
+    class VideoViews(val root: View, val thumb: ImageView, val title: TextView, val subtitle: TextView, val duration: TextView,
+                     val progress: LinearProgressIndicator, val fav: ImageView, val watched: ImageView, val more: ImageButton, val check: TextView) {
+        companion object {
+            fun of(v: ItemVideoBinding) = VideoViews(v.root, v.thumb, v.title, v.subtitle, v.durationBadge, v.progress, v.favIcon, v.watchedIcon, v.more, v.selectCheck)
+            fun of(v: ItemVideoGridBinding) = VideoViews(v.root, v.thumb, v.title, v.subtitle, v.durationBadge, v.progress, v.favIcon, v.watchedIcon, v.more, v.selectCheck)
+        }
+    }
+    class FolderViews(val root: View, val thumb: ImageView, val name: TextView, val count: TextView, val badge: TextView, val bar: LinearProgressIndicator, val more: ImageButton, val path: TextView?) {
+        companion object {
+            fun of(v: ItemFolderBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, v.path)
+            fun of(v: ItemFolderGridBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, null)
+        }
+    }
+    class PlaylistViews(val root: View, val cover: ImageView, val name: TextView, val count: TextView, val badge: TextView, val more: ImageButton, val check: TextView) {
+        companion object {
+            fun of(v: ItemPlaylistBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck)
+            fun of(v: ItemPlaylistGridBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck)
+        }
+    }
+
+    private inner class VideoVH(val v: VideoViews) : RecyclerView.ViewHolder(v.root) {
+        private var row: Row.Video? = null
+        init {
+            v.root.setOnClickListener { val p = bindingAdapterPosition; if (p != RecyclerView.NO_POSITION) onVideoClick(p) }
+            v.root.setOnLongClickListener { val p = bindingAdapterPosition; val r = row; if (p != RecyclerView.NO_POSITION && r != null) { Motion.haptic(it, true); onVideoLongPress(r, p) }; true }
+            v.more.setOnClickListener { row?.let { onVideoOptions(it) } }
+            Motion.pressable(v.root, 0.97f)
+        }
         fun bind(row: Row.Video) {
+            this.row = row
             v.title.text = row.entry.title
             val item = row.item
             val parts = ArrayList<String>()
-            if (item != null) {
-                if (item.height > 0) parts += "${item.height}p"
-                if (item.size > 0) parts += Formatter.formatShortFileSize(itemView.context, item.size)
-                if (item.dateAdded > 0) parts += DateFormat.getMediumDateFormat(itemView.context).format(item.dateAdded * 1000)
+            if (row.unavailable) parts += "Unavailable · moved or deleted"
+            else if (item != null) {
+                if (adapter.grid) {
+                    if (item.height > 0) parts += "${item.height}p"
+                    if (item.size > 0) parts += Formatter.formatShortFileSize(itemView.context, item.size)
+                } else {
+                    if (item.height > 0) parts += "${item.height}p"
+                    if (item.size > 0) parts += Formatter.formatShortFileSize(itemView.context, item.size)
+                    if (item.dateAdded > 0) parts += DateFormat.getMediumDateFormat(itemView.context).format(item.dateAdded * 1000)
+                }
             } else {
                 val u = Uri.parse(row.entry.uri)
                 parts += if (u.scheme == "http" || u.scheme == "https") "Stream · ${u.host}" else "File"
             }
             v.subtitle.text = parts.joinToString(" · ")
+            v.root.alpha = if (row.unavailable) 0.55f else 1f
             val dur = item?.durationMs ?: Store.duration(itemView.context, row.entry.uri)
-            v.durationBadge.isVisible = dur > 0
-            v.durationBadge.text = Fmt.time(dur)
+            v.duration.isVisible = dur > 0
+            v.duration.text = Fmt.time(dur)
             v.progress.isVisible = row.progress > 0f
             v.progress.progress = (row.progress * 1000).toInt()
-            v.favIcon.isVisible = row.favorite
-            v.watchedIcon.isVisible = row.watched && Prefs.showWatchStats(itemView.context)
+            v.fav.isVisible = row.favorite
+            v.watched.isVisible = row.watched && Prefs.showWatchStats(itemView.context)
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
-            itemView.setOnClickListener { val p = bindingAdapterPosition; if (p != RecyclerView.NO_POSITION) onVideoClick(p) }
-            itemView.setOnLongClickListener { Motion.haptic(it, true); onVideoLongClick(row); true }
-            v.more.setOnClickListener { onVideoLongClick(row) }
-            Motion.pressable(itemView, 0.97f)
+            bindSelection()
         }
+        fun bindSelection() { showSelection(v.root, v.check, row?.let { selKey(it) }); v.more.isVisible = !selecting }
     }
 
-    private inner class FolderVH(val v: ItemFolderBinding) : RecyclerView.ViewHolder(v.root) {
+    private inner class FolderVH(val v: FolderViews) : RecyclerView.ViewHolder(v.root) {
+        private var row: Row.Folder? = null
+        init {
+            v.root.setOnClickListener {
+                val f = row?.folder ?: return@setOnClickListener
+                if (selecting) return@setOnClickListener
+                openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0)
+            }
+            v.root.setOnLongClickListener { row?.let { Motion.haptic(v.root, true); onFolderLongClick(it) }; true }
+            v.more.setOnClickListener { row?.let { onFolderLongClick(it) } }
+            Motion.pressable(v.root, 0.97f)
+        }
         fun bind(row: Row.Folder) {
+            this.row = row
             val f = row.folder
             val n = f.videos.size
             v.name.text = f.name
-            v.countBadge.text = n.toString()
+            v.badge.text = n.toString()
             val stats = Prefs.showWatchStats(itemView.context)
             val parts = ArrayList<String>()
-            parts += if (n == 1) "1 video" else "$n videos"
-            if (stats) {
+            parts += countText(n)
+            if (stats && !adapter.grid) {
                 if (row.watched > 0) parts += "${row.watched} watched"
                 if (row.inProgress > 0) parts += "${row.inProgress} in progress"
-            }
+            } else if (stats && row.watched > 0) parts += "${row.watched} watched"
             v.count.text = parts.joinToString(" · ")
-            v.path.isVisible = row.showPath && f.path != null
-            v.path.text = f.path ?: ""
-            v.watchedBar.isVisible = stats && row.watched > 0
-            v.watchedBar.progress = if (n > 0) row.watched * 1000 / n else 0
+            v.path?.isVisible = row.showPath && f.path != null
+            v.path?.text = f.path ?: ""
+            v.bar.isVisible = stats && row.watched > 0
+            v.bar.progress = if (n > 0) row.watched * 1000 / n else 0
             ThumbLoader.load(v.thumb, f.videos.maxByOrNull { it.dateAdded })
-            itemView.setOnClickListener { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
-            itemView.setOnLongClickListener { Motion.haptic(it, true); onFolderLongClick(row); true }
-            v.more.setOnClickListener { onFolderLongClick(row) }
-            Motion.pressable(itemView, 0.97f)
+        }
+    }
+
+    private inner class PlaylistVH(val v: PlaylistViews) : RecyclerView.ViewHolder(v.root) {
+        private var row: Row.Playlist? = null
+        init {
+            v.root.setOnClickListener {
+                val p = bindingAdapterPosition
+                if (selecting) { if (p != RecyclerView.NO_POSITION) toggleSelection(p); return@setOnClickListener }
+                row?.let { openPlaylist = it.name; refresh(); b.list.scrollToPosition(0) }
+            }
+            v.root.setOnLongClickListener { val p = bindingAdapterPosition; row?.let { Motion.haptic(v.root, true); onPlaylistLongPress(it, p) }; true }
+            v.more.setOnClickListener { row?.let { onPlaylistOptions(it) } }
+            Motion.pressable(v.root, 0.97f)
+        }
+        fun bind(row: Row.Playlist) {
+            this.row = row
+            v.name.text = row.name
+            val parts = arrayListOf(countText(row.count))
+            if (row.durationMs > 0) parts += Fmt.time(row.durationMs)
+            if (row.unavailable > 0 && !adapter.grid) parts += "${row.unavailable} unavailable"
+            v.count.text = parts.joinToString(" · ")
+            v.badge.text = row.count.toString()
+            ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context))
+            bindSelection()
+        }
+        fun bindSelection() { showSelection(v.root, v.check, row?.let { selKey(it) }); v.more.isVisible = !selecting }
+    }
+
+    private inner class HeaderVH(val v: ItemCollectionHeaderBinding) : RecyclerView.ViewHolder(v.root) {
+        init {
+            v.btnPlayAll.setOnClickListener { playCollection(false) }
+            v.btnShuffle.setOnClickListener { playCollection(true) }
+            v.btnAdd.setOnClickListener { openPlaylist?.let { openPicker(it) } }
+            Motion.pressable(v.btnPlayAll, 0.95f); Motion.pressable(v.btnShuffle, 0.95f); Motion.pressable(v.btnAdd, 0.9f)
+        }
+        fun bind(row: Row.Header) {
+            v.title.text = row.title
+            v.subtitle.text = row.subtitle
+            v.btnAdd.isVisible = row.playlist
+            v.cover.isVisible = row.playlist
+            if (row.playlist) ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context))
         }
     }
 
@@ -934,7 +1315,7 @@ class MainActivity : AppCompatActivity() {
             v.progress.progress = (row.progress * 1000).toInt()
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, dur)
             itemView.setOnClickListener { play(all.map { it.entry }, all.indexOf(row).coerceAtLeast(0)) }
-            itemView.setOnLongClickListener { Motion.haptic(it, true); onVideoLongClick(row); true }
+            itemView.setOnLongClickListener { Motion.haptic(it, true); onVideoOptions(row); true }
             Motion.pressable(itemView, 0.95f)
         }
     }
@@ -956,13 +1337,5 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private inner class PlaylistVH(val v: ItemPlaylistBinding) : RecyclerView.ViewHolder(v.root) {
-        fun bind(row: Row.Playlist) {
-            v.name.text = row.name
-            v.count.text = if (row.count == 1) "1 video" else "${row.count} videos"
-            itemView.setOnClickListener { openPlaylist = row.name; refresh() }
-            itemView.setOnLongClickListener { Motion.haptic(it, true); onPlaylistLongClick(row); true }
-            Motion.pressable(itemView, 0.97f)
-        }
-    }
+    companion object { private const val PAYLOAD_SEL = "sel" }
 }

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fitsSystemWindows="true" android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar" android:layout_width="match_parent" android:layout_height="?attr/actionBarSize"
+        app:navigationIcon="@drawable/ic_arrow_back" app:title="Focus stats" />
+
+    <androidx.core.widget.NestedScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:id="@+id/content" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingBottom="24dp">
+
+            <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Filled"
+                android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="24dp"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Focus time today" android:textColor="?attr/colorOnPrimaryContainer" android:textAppearance="?attr/textAppearanceLabelLarge" />
+                    <TextView android:id="@+id/todayValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="?attr/colorOnPrimaryContainer" android:textAppearance="?attr/textAppearanceDisplaySmall" />
+                    <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/goalBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:max="1000" app:trackCornerRadius="4dp" app:trackThickness="8dp" />
+                    <TextView android:id="@+id/goalText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:textColor="?attr/colorOnPrimaryContainer" android:textAppearance="?attr/textAppearanceBodyMedium" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/goalButton" style="@style/Widget.Material3.Button.TonalButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Set a daily goal" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:orientation="horizontal">
+                <include android:id="@+id/statWeek" layout="@layout/item_stat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp" />
+                <include android:id="@+id/statAll" layout="@layout/item_stat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:orientation="horizontal">
+                <include android:id="@+id/statVideos" layout="@layout/item_stat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp" />
+                <include android:id="@+id/statDone" layout="@layout/item_stat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginHorizontal="6dp" />
+                <include android:id="@+id/statSessions" layout="@layout/item_stat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" />
+            </LinearLayout>
+
+            <TextView style="@style/ThemeSection" android:text="Last 14 days" />
+            <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Filled" android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="20dp">
+                <com.hark.velaplayer.FocusChartView android:id="@+id/chart" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_margin="12dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView style="@style/ThemeSection" android:text="Recent sessions" />
+            <LinearLayout android:id="@+id/sessions" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+
+            <TextView style="@style/ThemeSection" android:text="Most focused videos" />
+            <LinearLayout android:id="@+id/videos" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:alpha="0.7"
+                android:text="Focus time is real time spent watching with Focus Mode on. Pauses, buffering and time away from the player don't count, and it isn't the same as a video's length. Your history stays on this phone."
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:orientation="horizontal">
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnSettings" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Focus settings" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnClear" style="@style/Widget.Material3.Button.TextButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:text="Clear history" android:textColor="?attr/colorError" />
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>

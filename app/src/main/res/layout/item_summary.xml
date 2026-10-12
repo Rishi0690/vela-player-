@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:max="1000"
-        app:indicatorColor="@color/accent"
+        app:indicatorColor="?attr/colorPrimary"
         app:trackColor="#33888888"
         app:trackCornerRadius="2dp"
         app:trackThickness="4dp" />

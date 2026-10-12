@@ -44,9 +44,22 @@
             android:layout_gravity="bottom"
             android:max="1000"
             android:visibility="gone"
-            app:indicatorColor="@color/accent"
+            app:indicatorColor="?attr/colorPrimary"
             app:trackColor="#55FFFFFF"
             app:trackThickness="3dp" />
+        <TextView
+            android:id="@+id/selectCheck"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="6dp"
+            android:background="@drawable/bg_select_off"
+            android:gravity="center"
+            android:importantForAccessibility="no"
+            android:textColor="?attr/colorOnPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </FrameLayout>
 
     <LinearLayout
@@ -83,7 +96,7 @@
         android:contentDescription="Watched"
         android:src="@drawable/ic_check_circle"
         android:visibility="gone"
-        app:tint="@color/accent" />
+        app:tint="?attr/colorPrimary" />
 
     <ImageView
         android:id="@+id/favIcon"
@@ -93,7 +106,7 @@
         android:contentDescription="Favorite"
         android:src="@drawable/ic_star"
         android:visibility="gone"
-        app:tint="@color/accent" />
+        app:tint="?attr/colorPrimary" />
 
     <ImageButton
         android:id="@+id/more"

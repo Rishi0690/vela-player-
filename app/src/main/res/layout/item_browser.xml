@@ -52,7 +52,7 @@
             android:layout_gravity="bottom"
             android:max="1000"
             android:visibility="gone"
-            app:indicatorColor="@color/accent"
+            app:indicatorColor="?attr/colorPrimary"
             app:trackColor="#55FFFFFF"
             app:trackThickness="2dp" />
     </FrameLayout>

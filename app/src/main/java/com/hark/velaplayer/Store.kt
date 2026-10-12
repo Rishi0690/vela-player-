@@ -82,8 +82,42 @@ object Store {
     fun addToPlaylist(c: Context, name: String, e: Entry): Boolean {
         val m = playlists(c); val l = m.getOrPut(name) { mutableListOf() }
         if (l.any { it.uri == e.uri }) return false
-        l.add(e); savePlaylists(c, m); return true
+        if (Prefs.playlistAddAt(c) == "start") l.add(0, e) else l.add(e)
+        savePlaylists(c, m); return true
     }
+    /**
+     * Adds many videos at once, keeping their order. Videos already in the playlist (or picked twice) are skipped.
+     * [replace] = true clears the playlist first (only when the user explicitly chose to replace it).
+     * Returns (added, skipped).
+     */
+    fun addManyToPlaylist(c: Context, name: String, entries: List<Entry>, atStart: Boolean = false, replace: Boolean = false): Pair<Int, Int> {
+        val m = playlists(c); val l = m.getOrPut(name) { mutableListOf() }
+        if (replace) l.clear()
+        val have = l.map { it.uri }.toHashSet()
+        val fresh = ArrayList<Entry>()
+        var skipped = 0
+        entries.forEach { e -> if (have.add(e.uri)) fresh += e else skipped++ }
+        if (atStart) l.addAll(0, fresh) else l.addAll(fresh)
+        savePlaylists(c, m)
+        return fresh.size to skipped
+    }
+    /** Removes entries from the playlist only. The video files are never deleted. */
+    fun removeManyFromPlaylist(c: Context, name: String, uris: Collection<String>) {
+        val set = uris.toSet(); val m = playlists(c); m[name]?.removeAll { it.uri in set }; savePlaylists(c, m)
+    }
+    fun setFavorites(c: Context, entries: List<Entry>, favorite: Boolean) {
+        val list = favorites(c).toMutableList()
+        val uris = entries.map { it.uri }.toSet()
+        list.removeAll { it.uri in uris }
+        if (favorite) list.addAll(0, entries.distinctBy { it.uri })
+        sp(c).edit().putString("favorites", write(list)).apply()
+    }
+    fun setWatchedMany(c: Context, uris: Collection<String>, watched: Boolean) {
+        val e = sp(c).edit()
+        uris.forEach { u -> if (watched) e.remove("pos:$u").putBoolean("watched:$u", true) else e.remove("watched:$u") }
+        e.apply()
+    }
+
     /** Removes the entry from the playlist only. The video file is never deleted. */
     fun removeFromPlaylist(c: Context, name: String, uri: String) {
         val m = playlists(c); m[name]?.removeAll { it.uri == uri }; savePlaylists(c, m)

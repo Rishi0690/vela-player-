@@ -29,7 +29,7 @@
         android:layout_gravity="bottom"
         android:max="1000"
         android:visibility="gone"
-        app:indicatorColor="@color/accent"
+        app:indicatorColor="?attr/colorPrimary"
         app:trackColor="#44FFFFFF"
         app:trackThickness="3dp" />
 
@@ -43,7 +43,7 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_gravity="center"
-        android:indeterminateTint="@color/accent"
+        android:indeterminateTint="?attr/colorPrimary"
         android:visibility="gone" />
 
     <!-- Edge overlays: brightness / volume levels and skip feedback, kept near the screen edges (insets applied in code). -->
@@ -211,7 +211,7 @@
         </LinearLayout>
 
         <!-- Unlock buttons on both sides (inside the inset-padded overlay so they clear notches). -->
-        <ImageButton
+        <com.hark.velaplayer.ShadowImageButton
             android:id="@+id/btnUnlock"
             style="@style/PlayerBigIcon"
             android:layout_gravity="start|center_vertical"
@@ -221,7 +221,7 @@
             android:src="@drawable/ic_lock_open"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.hark.velaplayer.ShadowImageButton
             android:id="@+id/btnUnlockRight"
             style="@style/PlayerBigIcon"
             android:layout_gravity="end|center_vertical"
@@ -267,7 +267,7 @@
             android:layout_height="6dp"
             android:layout_marginTop="8dp"
             android:max="100"
-            android:progressTint="@color/accent"
+            android:progressTint="?attr/colorPrimary"
             android:visibility="gone" />
     </LinearLayout>
 
@@ -298,10 +298,13 @@
             android:paddingHorizontal="4dp"
             android:paddingTop="4dp">
 
-            <ImageButton android:id="@+id/btnBack" style="@style/PlayerIcon" android:contentDescription="Back" android:src="@drawable/ic_arrow_back" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnBack" style="@style/PlayerIcon" android:contentDescription="Back" android:src="@drawable/ic_arrow_back" />
 
             <TextView
                 android:id="@+id/titleText"
+                    android:shadowColor="#B3000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
@@ -311,11 +314,21 @@
                 android:textColor="@android:color/white"
                 android:textSize="16sp" />
 
-            <ImageButton android:id="@+id/btnBrowse" style="@style/PlayerIcon" android:contentDescription="Browse videos" android:src="@drawable/ic_video_library" />
-            <ImageButton android:id="@+id/btnSubtitle" style="@style/PlayerIcon" android:contentDescription="Subtitles" android:src="@drawable/ic_subtitles" />
-            <ImageButton android:id="@+id/btnAudio" style="@style/PlayerIcon" android:contentDescription="Audio" android:src="@drawable/ic_audiotrack" />
-            <ImageButton android:id="@+id/btnAspect" style="@style/PlayerIcon" android:contentDescription="Aspect ratio" android:src="@drawable/ic_aspect" />
-            <ImageButton android:id="@+id/btnMore" style="@style/PlayerIcon" android:contentDescription="Player settings" android:src="@drawable/ic_tune" />
+            <ImageView
+                android:id="@+id/shuffleBadge"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="Shuffle play is on"
+                android:src="@drawable/ic_shuffle"
+                android:visibility="gone"
+                app:tint="?attr/colorPrimary" />
+
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnFocus" style="@style/PlayerIcon" android:contentDescription="Focus Mode" android:src="@drawable/ic_focus" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnBrowse" style="@style/PlayerIcon" android:contentDescription="Browse videos" android:src="@drawable/ic_video_library" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnSubtitle" style="@style/PlayerIcon" android:contentDescription="Subtitles" android:src="@drawable/ic_subtitles" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnAudio" style="@style/PlayerIcon" android:contentDescription="Audio" android:src="@drawable/ic_audiotrack" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnMore" style="@style/PlayerIcon" android:contentDescription="Player settings" android:src="@drawable/ic_tune" />
         </LinearLayout>
 
         <LinearLayout
@@ -326,9 +339,9 @@
             android:gravity="center"
             android:orientation="horizontal">
 
-            <ImageButton android:id="@+id/btnPrev" style="@style/PlayerBigIcon" android:layout_marginEnd="8dp" android:contentDescription="Previous video" android:src="@drawable/ic_skip_prev" />
-            <ImageButton android:id="@+id/btnRewind" style="@style/PlayerBigIcon" android:layout_marginEnd="16dp" android:contentDescription="Rewind" android:src="@drawable/ic_rewind" />
-            <ImageButton
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnPrev" style="@style/PlayerBigIcon" android:layout_marginEnd="8dp" android:contentDescription="Previous video" android:src="@drawable/ic_skip_prev" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnRewind" style="@style/PlayerBigIcon" android:layout_marginEnd="16dp" android:contentDescription="Rewind" android:src="@drawable/ic_rewind" />
+            <com.hark.velaplayer.ShadowImageButton
                 android:id="@+id/btnPlay"
                 style="@style/PlayerBigIcon"
                 android:layout_width="72dp"
@@ -337,8 +350,8 @@
                 android:padding="16dp"
                 android:contentDescription="Play"
                 android:src="@drawable/ic_pause" />
-            <ImageButton android:id="@+id/btnForward" style="@style/PlayerBigIcon" android:layout_marginStart="16dp" android:contentDescription="Fast forward" android:src="@drawable/ic_fast_forward" />
-            <ImageButton android:id="@+id/btnNext" style="@style/PlayerBigIcon" android:layout_marginStart="8dp" android:contentDescription="Next video" android:src="@drawable/ic_skip_next" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnForward" style="@style/PlayerBigIcon" android:layout_marginStart="16dp" android:contentDescription="Fast forward" android:src="@drawable/ic_fast_forward" />
+            <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnNext" style="@style/PlayerBigIcon" android:layout_marginStart="8dp" android:contentDescription="Next video" android:src="@drawable/ic_skip_next" />
         </LinearLayout>
 
         <LinearLayout
@@ -358,34 +371,38 @@
 
                 <TextView
                     android:id="@+id/positionText"
+                    android:shadowColor="#B3000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:minWidth="56dp"
                     android:text="0:00"
                     android:textColor="@android:color/white"
-                    android:textSize="13sp" />
+                    android:textSize="13sp"
+                    android:fontFeatureSettings="tnum" />
 
-                <SeekBar
+                <com.hark.velaplayer.TimelineSeekBar
                     android:id="@+id/seekBar"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
-                    android:contentDescription="Seek bar"
-                    android:progressBackgroundTint="#55FFFFFF"
-                    android:progressTint="@color/accent"
-                    android:secondaryProgressTint="#99FFFFFF"
-                    android:thumbTint="@color/accent" />
+                    android:contentDescription="Timeline. Drag or tap to seek" />
 
                 <TextView
                     android:id="@+id/durationText"
+                    android:shadowColor="#B3000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:minWidth="56dp"
                     android:text="--:--"
                     android:textColor="@android:color/white"
-                    android:textSize="13sp" />
+                    android:textSize="13sp"
+                    android:fontFeatureSettings="tnum" />
             </LinearLayout>
 
             <LinearLayout
@@ -394,10 +411,13 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageButton android:id="@+id/btnLock" style="@style/PlayerIcon" android:contentDescription="Lock screen" android:src="@drawable/ic_lock" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnLock" style="@style/PlayerIcon" android:contentDescription="Lock screen" android:src="@drawable/ic_lock" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSpeed"
+                    android:shadowColor="#B3000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
                     style="@style/Widget.Material3.Button.TextButton.Icon"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
@@ -409,6 +429,9 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAspectLabel"
+                    android:shadowColor="#B3000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
                     style="@style/Widget.Material3.Button.TextButton.Icon"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
@@ -423,9 +446,9 @@
                     android:layout_height="1dp"
                     android:layout_weight="1" />
 
-                <ImageButton android:id="@+id/btnRotate" style="@style/PlayerIcon" android:contentDescription="Rotate screen" android:src="@drawable/ic_rotate" />
-                <ImageButton android:id="@+id/btnPip" style="@style/PlayerIcon" android:contentDescription="Picture in picture" android:src="@drawable/ic_pip" />
-                <ImageButton android:id="@+id/btnLockRight" style="@style/PlayerIcon" android:contentDescription="Lock screen" android:src="@drawable/ic_lock" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnRotate" style="@style/PlayerIcon" android:contentDescription="Rotate screen" android:src="@drawable/ic_rotate" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnPip" style="@style/PlayerIcon" android:contentDescription="Picture in picture" android:src="@drawable/ic_pip" />
+                <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnLockRight" style="@style/PlayerIcon" android:contentDescription="Lock screen" android:src="@drawable/ic_lock" />
             </LinearLayout>
         </LinearLayout>
 
@@ -459,6 +482,95 @@
         </LinearLayout>
     </FrameLayout>
 
+
+    <LinearLayout
+        android:id="@+id/focusPill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_focus_pill"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingTop="5dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="5dp"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/focusDot"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/bg_focus_dot" />
+
+        <TextView
+            android:id="@+id/focusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:fontFeatureSettings="tnum"
+            android:shadowColor="#99000000"
+            android:shadowRadius="4"
+            android:text="Focus 0:00"
+            android:textColor="@android:color/white"
+            android:textSize="13sp" />
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:id="@+id/focusGoal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:max="1000"
+            android:visibility="gone"
+            app:indicatorSize="16dp"
+            app:trackColor="#44FFFFFF"
+            app:trackThickness="2.5dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/breakCard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginHorizontal="24dp"
+        android:layout_marginTop="56dp"
+        android:background="@drawable/bg_panel"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/breakText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="340dp"
+            android:textColor="@android:color/white"
+            android:textSize="15sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/breakKeep"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="Keep going"
+                android:textColor="@android:color/white" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/breakPause"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:text="Take a break" />
+        </LinearLayout>
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/errorPanel"
@@ -531,7 +643,7 @@
                 android:layout_height="22dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_speed"
-                app:tint="@color/accent" />
+                app:tint="?attr/colorPrimary" />
 
             <TextView
                 android:id="@+id/speedValue"
@@ -591,8 +703,8 @@
             android:valueTo="4.0"
             android:value="1.0"
             app:labelBehavior="floating"
-            app:thumbColor="@color/accent"
-            app:trackColorActive="@color/accent"
+            app:thumbColor="?attr/colorPrimary"
+            app:trackColorActive="?attr/colorPrimary"
             app:trackColorInactive="#44FFFFFF"
             app:tickVisible="false" />
 

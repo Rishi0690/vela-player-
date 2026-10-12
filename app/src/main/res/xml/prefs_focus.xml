@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory app:title="Focus Mode" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat app:key="focus_feature" app:title="Show Focus Mode in the player" app:summary="Adds the Focus button to the player's top bar" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="focus_auto_start" app:title="Start Focus Mode automatically" app:summary="Every video opens with a focus session running" app:defaultValue="false" app:dependency="focus_feature" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="focus_show_timer" app:title="Show the session timer" app:summary="A small timer at the top of the video while focusing" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="focus_minimal" app:title="Minimal controls" app:summary="Hide extra buttons (browse, rotate, picture-in-picture) and auto-hide controls sooner" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="focus_summary" app:title="Session summary" app:summary="Show a short summary when a focus session ends" app:defaultValue="true" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+    <PreferenceCategory app:title="Goals &amp; breaks" app:iconSpaceReserved="false">
+        <ListPreference app:key="focus_goal_min" app:title="Daily focus goal" app:entries="@array/goal_entries" app:entryValues="@array/goal_values" app:defaultValue="0" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="focus_breaks" app:title="Break reminders" app:summary="A small card in the player suggests a break during long sessions (no notifications)" app:defaultValue="false" app:iconSpaceReserved="false" />
+        <ListPreference app:key="focus_break_min" app:title="Remind me every" app:entries="@array/break_entries" app:entryValues="@array/break_values" app:defaultValue="45" app:useSimpleSummaryProvider="true" app:dependency="focus_breaks" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+    <PreferenceCategory app:title="Do Not Disturb" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat app:key="focus_dnd" app:title="Turn on Do Not Disturb while focusing" app:summary="Optional. Needs Android's Do Not Disturb access. It's turned back off when the session ends." app:defaultValue="false" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+    <PreferenceCategory app:title="History" app:iconSpaceReserved="false">
+        <Preference app:key="focus_dashboard" app:title="Open focus stats" app:summary="Today, this week, all time, recent sessions and per-video focus time" app:icon="@drawable/ic_insights" />
+        <Preference app:key="focus_clear" app:title="Clear focus history" app:summary="History is stored only on this phone" app:iconSpaceReserved="true" />
+    </PreferenceCategory>
+</PreferenceScreen>

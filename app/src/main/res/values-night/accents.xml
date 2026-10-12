@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from Material 3 tonal palettes (Scheme.light/dark) for each preset seed. -->
+<resources>
+    <style name="Accent.Violet" parent="">
+        <item name="colorPrimary">#FFCBBEFF</item>
+        <item name="colorOnPrimary">#FF340098</item>
+        <item name="colorPrimaryContainer">#FF4B21BC</item>
+        <item name="colorOnPrimaryContainer">#FFE7DEFF</item>
+        <item name="colorPrimaryInverse">#FF6341D5</item>
+        <item name="colorSecondary">#FFCAC3DC</item>
+        <item name="colorOnSecondary">#FF322E41</item>
+        <item name="colorSecondaryContainer">#FF484458</item>
+        <item name="colorOnSecondaryContainer">#FFE6DFF9</item>
+        <item name="colorTertiary">#FFEEB8CB</item>
+        <item name="colorOnTertiary">#FF492534</item>
+        <item name="colorTertiaryContainer">#FF623B4B</item>
+        <item name="colorOnTertiaryContainer">#FFFFD9E5</item>
+        <item name="colorSurfaceVariant">#FF48454E</item>
+        <item name="colorOnSurfaceVariant">#FFCAC4CF</item>
+        <item name="colorOutline">#FF938F99</item>
+        <item name="colorAccentSeed">#FF8B6CFF</item>
+    </style>
+    <style name="Accent.Ocean" parent="">
+        <item name="colorPrimary">#FFAEC6FF</item>
+        <item name="colorOnPrimary">#FF002E6A</item>
+        <item name="colorPrimaryContainer">#FF004395</item>
+        <item name="colorOnPrimaryContainer">#FFD8E2FF</item>
+        <item name="colorPrimaryInverse">#FF005AC3</item>
+        <item name="colorSecondary">#FFBFC6DC</item>
+        <item name="colorOnSecondary">#FF293041</item>
+        <item name="colorSecondaryContainer">#FF3F4759</item>
+        <item name="colorOnSecondaryContainer">#FFDBE2F9</item>
+        <item name="colorTertiary">#FFDEBCDF</item>
+        <item name="colorOnTertiary">#FF402843</item>
+        <item name="colorTertiaryContainer">#FF583E5B</item>
+        <item name="colorOnTertiaryContainer">#FFFCD7FB</item>
+        <item name="colorSurfaceVariant">#FF44474F</item>
+        <item name="colorOnSurfaceVariant">#FFC5C6D0</item>
+        <item name="colorOutline">#FF8E9099</item>
+        <item name="colorAccentSeed">#FF2F7DF6</item>
+    </style>
+    <style name="Accent.Teal" parent="">
+        <item name="colorPrimary">#FF55DBC7</item>
+        <item name="colorOnPrimary">#FF003731</item>
+        <item name="colorPrimaryContainer">#FF005047</item>
+        <item name="colorOnPrimaryContainer">#FF75F8E3</item>
+        <item name="colorPrimaryInverse">#FF006B5F</item>
+        <item name="colorSecondary">#FFB1CCC6</item>
+        <item name="colorOnSecondary">#FF1C3530</item>
+        <item name="colorSecondaryContainer">#FF334B47</item>
+        <item name="colorOnSecondaryContainer">#FFCDE8E1</item>
+        <item name="colorTertiary">#FFACCAE5</item>
+        <item name="colorOnTertiary">#FF143349</item>
+        <item name="colorTertiaryContainer">#FF2C4A60</item>
+        <item name="colorOnTertiaryContainer">#FFCBE6FF</item>
+        <item name="colorSurfaceVariant">#FF3F4946</item>
+        <item name="colorOnSurfaceVariant">#FFBEC9C5</item>
+        <item name="colorOutline">#FF899390</item>
+        <item name="colorAccentSeed">#FF00A896</item>
+    </style>
+    <style name="Accent.Emerald" parent="">
+        <item name="colorPrimary">#FF65DE86</item>
+        <item name="colorOnPrimary">#FF003917</item>
+        <item name="colorPrimaryContainer">#FF005224</item>
+        <item name="colorOnPrimaryContainer">#FF82FB9F</item>
+        <item name="colorPrimaryInverse">#FF006D32</item>
+        <item name="colorSecondary">#FFB7CCB7</item>
+        <item name="colorOnSecondary">#FF233425</item>
+        <item name="colorSecondaryContainer">#FF394B3B</item>
+        <item name="colorOnSecondaryContainer">#FFD3E8D2</item>
+        <item name="colorTertiary">#FFA1CED8</item>
+        <item name="colorOnTertiary">#FF00363E</item>
+        <item name="colorTertiaryContainer">#FF204D55</item>
+        <item name="colorOnTertiaryContainer">#FFBDEAF4</item>
+        <item name="colorSurfaceVariant">#FF414941</item>
+        <item name="colorOnSurfaceVariant">#FFC1C9BE</item>
+        <item name="colorOutline">#FF8B9389</item>
+        <item name="colorAccentSeed">#FF2EAD5B</item>
+    </style>
+    <style name="Accent.Sunset" parent="">
+        <item name="colorPrimary">#FFFFB693</item>
+        <item name="colorOnPrimary">#FF561F00</item>
+        <item name="colorPrimaryContainer">#FF7A3000</item>
+        <item name="colorOnPrimaryContainer">#FFFFDBCC</item>
+        <item name="colorPrimaryInverse">#FFA04100</item>
+        <item name="colorSecondary">#FFE6BEAC</item>
+        <item name="colorOnSecondary">#FF432A1E</item>
+        <item name="colorSecondaryContainer">#FF5C4033</item>
+        <item name="colorOnSecondaryContainer">#FFFFDBCC</item>
+        <item name="colorTertiary">#FFD0C890</item>
+        <item name="colorOnTertiary">#FF363107</item>
+        <item name="colorTertiaryContainer">#FF4D481C</item>
+        <item name="colorOnTertiaryContainer">#FFEDE4A9</item>
+        <item name="colorSurfaceVariant">#FF52443D</item>
+        <item name="colorOnSurfaceVariant">#FFD7C2B9</item>
+        <item name="colorOutline">#FFA08D85</item>
+        <item name="colorAccentSeed">#FFFF7A2F</item>
+    </style>
+    <style name="Accent.Crimson" parent="">
+        <item name="colorPrimary">#FFFFB3B4</item>
+        <item name="colorOnPrimary">#FF680017</item>
+        <item name="colorPrimaryContainer">#FF920024</item>
+        <item name="colorOnPrimaryContainer">#FFFFDADA</item>
+        <item name="colorPrimaryInverse">#FFBA1435</item>
+        <item name="colorSecondary">#FFE6BDBD</item>
+        <item name="colorOnSecondary">#FF44292A</item>
+        <item name="colorSecondaryContainer">#FF5D3F40</item>
+        <item name="colorOnSecondaryContainer">#FFFFDADA</item>
+        <item name="colorTertiary">#FFE6C18D</item>
+        <item name="colorOnTertiary">#FF422C05</item>
+        <item name="colorTertiaryContainer">#FF5B421A</item>
+        <item name="colorOnTertiaryContainer">#FFFFDDB0</item>
+        <item name="colorSurfaceVariant">#FF524343</item>
+        <item name="colorOnSurfaceVariant">#FFD7C1C1</item>
+        <item name="colorOutline">#FF9F8C8C</item>
+        <item name="colorAccentSeed">#FFE53950</item>
+    </style>
+    <style name="Accent.Rose" parent="">
+        <item name="colorPrimary">#FFFFB0CB</item>
+        <item name="colorOnPrimary">#FF640037</item>
+        <item name="colorPrimaryContainer">#FF8B064F</item>
+        <item name="colorOnPrimaryContainer">#FFFFD9E4</item>
+        <item name="colorPrimaryInverse">#FFAB2968</item>
+        <item name="colorSecondary">#FFE2BDC8</item>
+        <item name="colorOnSecondary">#FF422932</item>
+        <item name="colorSecondaryContainer">#FF5A3F48</item>
+        <item name="colorOnSecondaryContainer">#FFFFD9E4</item>
+        <item name="colorTertiary">#FFF0BC95</item>
+        <item name="colorOnTertiary">#FF48290D</item>
+        <item name="colorTertiaryContainer">#FF623F21</item>
+        <item name="colorOnTertiaryContainer">#FFFFDCC3</item>
+        <item name="colorSurfaceVariant">#FF514347</item>
+        <item name="colorOnSurfaceVariant">#FFD5C2C6</item>
+        <item name="colorOutline">#FF9E8C91</item>
+        <item name="colorAccentSeed">#FFF0609E</item>
+    </style>
+    <style name="Accent.Amber" parent="">
+        <item name="colorPrimary">#FFF9BD14</item>
+        <item name="colorOnPrimary">#FF3F2E00</item>
+        <item name="colorPrimaryContainer">#FF5B4300</item>
+        <item name="colorOnPrimaryContainer">#FFFFDF9D</item>
+        <item name="colorPrimaryInverse">#FF785900</item>
+        <item name="colorSecondary">#FFD8C4A0</item>
+        <item name="colorOnSecondary">#FF3A2F15</item>
+        <item name="colorSecondaryContainer">#FF52452A</item>
+        <item name="colorOnSecondaryContainer">#FFF5E0BB</item>
+        <item name="colorTertiary">#FFB0CFAA</item>
+        <item name="colorOnTertiary">#FF1D361C</item>
+        <item name="colorTertiaryContainer">#FF334D31</item>
+        <item name="colorOnTertiaryContainer">#FFCCEBC4</item>
+        <item name="colorSurfaceVariant">#FF4D4639</item>
+        <item name="colorOnSurfaceVariant">#FFD0C5B4</item>
+        <item name="colorOutline">#FF998F80</item>
+        <item name="colorAccentSeed">#FFF2B705</item>
+    </style>
+    <style name="Accent.Slate" parent="">
+        <item name="colorPrimary">#FFABC7FF</item>
+        <item name="colorOnPrimary">#FF002F66</item>
+        <item name="colorPrimaryContainer">#FF04458E</item>
+        <item name="colorOnPrimaryContainer">#FFD7E2FF</item>
+        <item name="colorPrimaryInverse">#FF2D5DA7</item>
+        <item name="colorSecondary">#FFBEC6DC</item>
+        <item name="colorOnSecondary">#FF283041</item>
+        <item name="colorSecondaryContainer">#FF3E4759</item>
+        <item name="colorOnSecondaryContainer">#FFDAE2F9</item>
+        <item name="colorTertiary">#FFDDBCE0</item>
+        <item name="colorOnTertiary">#FF3F2844</item>
+        <item name="colorTertiaryContainer">#FF573E5C</item>
+        <item name="colorOnTertiaryContainer">#FFFAD8FD</item>
+        <item name="colorSurfaceVariant">#FF44474E</item>
+        <item name="colorOnSurfaceVariant">#FFC4C6D0</item>
+        <item name="colorOutline">#FF8E9099</item>
+        <item name="colorAccentSeed">#FF6F7FA0</item>
+    </style>
+</resources>

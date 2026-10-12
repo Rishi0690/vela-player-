@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fitsSystemWindows="true" android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar" android:layout_width="match_parent" android:layout_height="?attr/actionBarSize"
+        app:navigationIcon="@drawable/ic_arrow_back" app:title="Theme editor" />
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/scroll" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingBottom="24dp">
+
+            <!-- Live preview: tinted with the color being edited, before it's applied. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/previewCard" style="@style/Widget.Material3.CardView.Filled"
+                android:layout_width="match_parent" android:layout_height="wrap_content" app:cardCornerRadius="24dp">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Preview" android:alpha="0.7" android:textAppearance="?attr/textAppearanceLabelLarge" />
+
+                    <LinearLayout android:id="@+id/previewRow" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp" android:gravity="center_vertical" android:orientation="horizontal" android:padding="8dp">
+                        <FrameLayout android:id="@+id/previewThumb" android:layout_width="88dp" android:layout_height="50dp">
+                            <ImageView android:id="@+id/previewPlayIcon" android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/ic_play" android:importantForAccessibility="no" />
+                            <View android:id="@+id/previewProgress" android:layout_width="44dp" android:layout_height="3dp" android:layout_gravity="bottom" />
+                        </FrameLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:layout_weight="1" android:orientation="vertical">
+                            <TextView android:id="@+id/previewTitle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Selected video" android:textAppearance="?attr/textAppearanceBodyLarge" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:alpha="0.7" android:text="1080p · 12:40" android:textAppearance="?attr/textAppearanceBodySmall" />
+                        </LinearLayout>
+                        <ImageView android:id="@+id/previewCheck" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_check_circle" android:importantForAccessibility="no" />
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/previewButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Play all" app:icon="@drawable/ic_play" />
+                        <com.google.android.material.chip.Chip android:id="@+id/previewChip" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:checked="true" android:text="Selected" />
+                        <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+                        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/previewSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                    </LinearLayout>
+
+                    <com.google.android.material.slider.Slider android:id="@+id/previewSlider" android:layout_width="match_parent" android:layout_height="wrap_content" android:value="0.6" android:valueFrom="0" android:valueTo="1" />
+                    <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/previewProgressBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:progress="45" app:trackCornerRadius="3dp" app:trackThickness="6dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView style="@style/ThemeSection" android:text="Appearance" />
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/modeGroup" android:layout_width="match_parent" android:layout_height="wrap_content"
+                app:selectionRequired="true" app:singleSelection="true">
+                <com.google.android.material.button.MaterialButton android:id="@+id/modeLight" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Light" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/modeDark" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Dark" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/modeSystem" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="System" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <TextView style="@style/ThemeSection" android:text="Preset themes" />
+            <LinearLayout android:id="@+id/presetContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+
+            <TextView style="@style/ThemeSection" android:text="Your saved themes" />
+            <TextView android:id="@+id/customEmpty" android:layout_width="match_parent" android:layout_height="wrap_content" android:alpha="0.7" android:text="Pick a color below and tap Save to keep it here. Long-press a saved theme to delete it." android:textAppearance="?attr/textAppearanceBodyMedium" />
+            <LinearLayout android:id="@+id/customContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+
+            <TextView style="@style/ThemeSection" android:text="Custom color" />
+            <com.hark.velaplayer.ColorPickerView android:id="@+id/picker" android:layout_width="match_parent" android:layout_height="wrap_content" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/hexLayout" style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+                android:hint="HEX color" app:prefixText="#" app:startIconDrawable="@drawable/ic_palette">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/hexInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:digits="0123456789abcdefABCDEF" android:imeOptions="actionDone" android:inputType="textCapCharacters|textNoSuggestions" android:maxLength="6" android:singleLine="true" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView android:id="@+id/limitNote" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:alpha="0.7" android:textAppearance="?attr/textAppearanceBodySmall" android:visibility="gone" />
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="12dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnSave" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="56dp" android:layout_weight="1" android:text="Save theme" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnApply" android:layout_width="0dp" android:layout_height="56dp" android:layout_marginStart="12dp" android:layout_weight="1" android:text="Apply" />
+    </LinearLayout>
+</LinearLayout>

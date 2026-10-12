@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/sel_all" android:icon="@drawable/ic_select_all" android:title="Select all" app:showAsAction="always" />
+    <item android:id="@+id/sel_playlist" android:icon="@drawable/ic_playlist_add" android:title="Add to playlist" app:showAsAction="ifRoom" />
+    <item android:id="@+id/sel_play" android:icon="@drawable/ic_play" android:title="Play selected" app:showAsAction="ifRoom" />
+    <item android:id="@+id/sel_share" android:icon="@drawable/ic_share" android:title="Share" app:showAsAction="never" />
+    <item android:id="@+id/sel_fav" android:title="Add to favorites" app:showAsAction="never" />
+    <item android:id="@+id/sel_unfav" android:title="Remove from favorites" app:showAsAction="never" />
+    <item android:id="@+id/sel_watched" android:title="Mark as watched" app:showAsAction="never" />
+    <item android:id="@+id/sel_unwatched" android:title="Mark as unwatched" app:showAsAction="never" />
+    <item android:id="@+id/sel_remove" android:title="Remove from this playlist" app:showAsAction="never" />
+    <item android:id="@+id/sel_delete" android:title="Delete files…" app:showAsAction="never" />
+    <item android:id="@+id/sel_delete_playlists" android:title="Delete playlists…" app:showAsAction="never" />
+    <item android:id="@+id/sel_clear" android:title="Clear selection" app:showAsAction="never" />
+</menu>

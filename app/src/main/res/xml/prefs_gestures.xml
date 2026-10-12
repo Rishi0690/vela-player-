@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory app:title="Swipe controls" app:iconSpaceReserved="false">
+        <ListPreference app:key="brightness_side" app:title="Brightness side" app:dialogTitle="Swipe up/down on this side for brightness" app:entries="@array/side_entries" app:entryValues="@array/side_values" app:defaultValue="left" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="volume_side" app:title="Volume side" app:dialogTitle="Swipe up/down on this side for volume" app:entries="@array/side_entries" app:entryValues="@array/side_values" app:defaultValue="right" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_brightness" app:title="Swipe up/down for brightness" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_volume" app:title="Swipe up/down for volume" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_double_tap_seek" app:title="Double-tap left/right to skip" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_double_tap_center" app:title="Double-tap center to play/pause" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_horizontal_seek" app:title="Swipe sideways to seek" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="gesture_pinch_zoom" app:title="Pinch to zoom, drag to pan" app:defaultValue="true" app:iconSpaceReserved="false" />
+        </PreferenceCategory>
+</PreferenceScreen>

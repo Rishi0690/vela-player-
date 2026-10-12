@@ -1,0 +1,4 @@
+<resources>
+    <!-- The seed color the user picked; the real UI colors come from the M3 palette built around it. -->
+    <attr name="colorAccentSeed" format="color" />
+</resources>

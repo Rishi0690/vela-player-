@@ -98,6 +98,31 @@ object Prefs {
     /** "auto" (prev/next when there is a queue, else seek), "seek" or "track". */
     fun pipControls(c: Context) = sp(c).getString("pip_controls", "auto") ?: "auto"
 
+    // ---- Focus Mode ----
+    fun focusFeature(c: Context) = sp(c).getBoolean("focus_feature", true)
+    fun focusAutoStart(c: Context) = sp(c).getBoolean("focus_auto_start", false)
+    fun focusShowTimer(c: Context) = sp(c).getBoolean("focus_show_timer", true)
+    fun focusMinimal(c: Context) = sp(c).getBoolean("focus_minimal", true)
+    fun focusSummary(c: Context) = sp(c).getBoolean("focus_summary", true)
+    fun focusGoalMs(c: Context): Long = (sp(c).getString("focus_goal_min", "0")?.toLongOrNull() ?: 0L) * 60_000L
+    /** 0 when break reminders are off. */
+    fun focusBreakMs(c: Context): Long =
+        if (!sp(c).getBoolean("focus_breaks", false)) 0L else (sp(c).getString("focus_break_min", "45")?.toLongOrNull() ?: 45L) * 60_000L
+
+    // ---- library views ----
+    /** "grid" or "list" for one section (all, folder, playlist, favorites, folders, playlists); falls back to the default view. */
+    fun viewMode(c: Context, section: String): String =
+        sp(c).getString("view_$section", null) ?: sp(c).getString("default_view", "list") ?: "list"
+    fun setViewMode(c: Context, section: String, mode: String) = sp(c).edit().putString("view_$section", mode).apply()
+    /** 0 = automatic (by screen width). */
+    fun gridColumns(c: Context): Int = sp(c).getString("grid_columns", "0")?.toIntOrNull() ?: 0
+    fun smartThumbs(c: Context) = sp(c).getBoolean("smart_thumbnails", true)
+    /** "options" (show the menu) or "select" (start selecting). */
+    fun longPressAction(c: Context) = sp(c).getString("long_press_action", "options") ?: "options"
+    /** Where new videos go in a playlist: "end" or "start". */
+    fun playlistAddAt(c: Context) = sp(c).getString("playlist_add_at", "end") ?: "end"
+    fun playlistCovers(c: Context) = sp(c).getBoolean("playlist_collage", true)
+
     fun applyTheme(c: Context) {
         val mode = when (sp(c).getString("theme", "dark")) {
             "light" -> AppCompatDelegate.MODE_NIGHT_NO

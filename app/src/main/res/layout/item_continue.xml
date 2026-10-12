@@ -54,7 +54,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:max="1000"
-            app:indicatorColor="@color/accent"
+            app:indicatorColor="?attr/colorPrimary"
             app:trackColor="#66FFFFFF"
             app:trackThickness="3dp" />
     </FrameLayout>

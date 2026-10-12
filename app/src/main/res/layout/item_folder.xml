@@ -50,6 +50,19 @@
             android:paddingVertical="1dp"
             android:textColor="@android:color/white"
             android:textSize="11sp" />
+        <TextView
+            android:id="@+id/selectCheck"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="6dp"
+            android:background="@drawable/bg_select_off"
+            android:gravity="center"
+            android:importantForAccessibility="no"
+            android:textColor="?attr/colorOnPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </FrameLayout>
 
     <LinearLayout
@@ -92,7 +105,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:max="1000"
-            app:indicatorColor="@color/accent"
+            app:indicatorColor="?attr/colorPrimary"
             app:trackColor="#33888888"
             app:trackCornerRadius="2dp"
             app:trackThickness="3dp" />

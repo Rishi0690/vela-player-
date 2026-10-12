@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory app:title="Browsing" app:iconSpaceReserved="false">
+        <ListPreference app:key="home_default" app:title="Open the app on" app:entries="@array/home_entries" app:entryValues="@array/home_values" app:defaultValue="folders" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="folder_sort" app:title="Sort folders by" app:entries="@array/folder_sort_entries" app:entryValues="@array/folder_sort_values" app:defaultValue="name" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="hide_system_folders" app:title="Hide system folders" app:summary="Skip hidden and app-data folders (like .thumbnails or Android/data)" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <SwitchPreferenceCompat app:key="show_watch_stats" app:title="Show watched counts" app:summary="Show watched and in-progress numbers on folders and lists" app:defaultValue="true" app:iconSpaceReserved="false" />
+        </PreferenceCategory>
+    <PreferenceCategory app:title="Thumbnails" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat app:key="smart_thumbnails" app:title="Smart thumbnails" app:summary="If a video's thumbnail is all black, use a real frame from inside the video" app:defaultValue="true" app:iconSpaceReserved="false" />
+        <Preference app:key="refresh_thumbs" app:title="Refresh thumbnails" app:summary="Forget loaded thumbnails and load them again" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+</PreferenceScreen>

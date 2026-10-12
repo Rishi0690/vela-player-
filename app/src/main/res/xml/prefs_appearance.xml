@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory app:title="Theme" app:iconSpaceReserved="false">
+        <Preference app:key="theme_editor" app:title="Theme editor" app:summary="Accent color, presets, custom HEX colors and your saved themes" app:icon="@drawable/ic_palette" />
+        <ListPreference app:key="theme" app:title="Appearance" app:entries="@array/theme_entries" app:entryValues="@array/theme_values" app:defaultValue="dark" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="true" />
+    </PreferenceCategory>
+    <PreferenceCategory app:title="Layout" app:iconSpaceReserved="false">
+        <ListPreference app:key="default_view" app:title="Default view for video lists" app:entries="@array/view_entries" app:entryValues="@array/view_values" app:defaultValue="list" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="grid_columns" app:title="Grid columns" app:entries="@array/grid_entries" app:entryValues="@array/grid_values" app:defaultValue="0" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <Preference app:key="reset_views" app:title="Use the default view everywhere" app:summary="Forget the grid/list choice made on each screen" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+</PreferenceScreen>

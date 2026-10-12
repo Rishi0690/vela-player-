@@ -94,6 +94,9 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_URIS = "uris"
         const val EXTRA_TITLES = "titles"
         const val EXTRA_INDEX = "index"
+        /** True when the queue was shuffled by the library (Shuffle play). Only changes the indicator. */
+        const val EXTRA_SHUFFLED = "shuffled"
+        private const val FOCUS_SAVE_MS = 10_000L
         private val SPEEDS = floatArrayOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 4f)
         private const val SPEED_MIN = 0.25f
         private const val SPEED_MAX = 4f
@@ -180,6 +183,17 @@ class PlayerActivity : AppCompatActivity() {
     // Speed popup
     private var speedPanelOpen = false
 
+    // Option panels (subtitles, audio, aspect, player options)
+    private lateinit var sheet: PlayerSheet
+
+    // Focus Mode
+    private lateinit var focus: FocusTracker
+    private var activityStarted = false
+    private var nextBreakAtMs = 0L
+    private var lastFocusSave = 0L
+    private var focusSummaryShowing = false
+    private val hideBreakRunnable = Runnable { fadeOut(b.breakCard) }
+
     // Quick video browser
     private var library: List<VideoItem>? = null
     private var libraryLoading = false
@@ -213,7 +227,7 @@ class PlayerActivity : AppCompatActivity() {
     private val ticker = object : Runnable {
         override fun run() {
             tick()
-            handler.postDelayed(this, if (externalActive) 100L else 250L)
+            handler.postDelayed(this, if (externalActive || (controlsVisible && player.isPlaying)) 100L else 250L)
         }
     }
 
@@ -224,6 +238,7 @@ class PlayerActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ lifecycle
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeManager.apply(this, player = true)
         super.onCreate(savedInstanceState)
         b = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(b.root)
@@ -245,6 +260,8 @@ class PlayerActivity : AppCompatActivity() {
             val pad = dp(12)
             b.browserPanel.setPadding(0, safe.top, safe.right, safe.bottom)
             b.browserList.setPadding(dp(8), 0, dp(8), pad)
+            (b.focusPill.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(14); b.focusPill.layoutParams = it }
+            (b.breakCard.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.topMargin = safe.top + dp(64); b.breakCard.layoutParams = it }
             (b.speedPanel.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let {
                 it.bottomMargin = safe.bottom + dp(92); b.speedPanel.layoutParams = it
             }
@@ -255,9 +272,11 @@ class PlayerActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    sheet.isOpen -> sheet.dismiss()
                     browserOpen -> closeBrowser()
                     speedPanelOpen -> hideSpeedPanel()
                     locked -> setUnlockVisible(true)
+                    focus.active -> endFocus(thenFinish = true)
                     else -> finish()
                 }
             }
@@ -275,6 +294,12 @@ class PlayerActivity : AppCompatActivity() {
         b.videoLayout.mode = aspect
         b.btnAspectLabel.text = aspect.short
         applySubtitleStyle()
+        sheet = PlayerSheet(b.root) { scheduleHide(); if (fullscreen) setFullscreen(true) }
+        // Soft shadows on the white icons of the text buttons too (speed, aspect ratio).
+        ShadowIcon.apply(b.btnSpeed, R.drawable.ic_speed)
+        ShadowIcon.apply(b.btnAspectLabel, R.drawable.ic_aspect)
+        focus = FocusTracker(this)
+        setupFocus()
         setupControls()
         setupGestures()
         setupSpeedPanel()
@@ -289,6 +314,7 @@ class PlayerActivity : AppCompatActivity() {
         applyOrientation(null)
         handler.post(ticker)
         setControlsVisible(true)
+        if (Prefs.focusFeature(this) && Prefs.focusAutoStart(this)) startFocus(announce = false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -299,19 +325,30 @@ class PlayerActivity : AppCompatActivity() {
         loadQueue(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Settings may have changed while away (timer, minimal controls, Focus button).
+        renderFocusUi()
+    }
+
     override fun onStart() {
         super.onStart()
+        activityStarted = true
+        updateFocusCounting()
         if (Prefs.backgroundAudio(this)) connectSession()
     }
 
     override fun onStop() {
         super.onStop()
+        activityStarted = false
+        updateFocusCounting()
         savePosition()
         val keepPlaying = Prefs.backgroundAudio(this) && player.isPlaying && !isFinishing
         if (!keepPlaying) player.pause()
     }
 
     override fun onDestroy() {
+        if (::focus.isInitialized && focus.active) focus.stop()
         handler.removeCallbacksAndMessages(null)
         try { unregisterReceiver(pipReceiver) } catch (_: Exception) { }
         if (playerReady) {
@@ -352,6 +389,9 @@ class PlayerActivity : AppCompatActivity() {
             b.btnUnlockRight.isVisible = false
             if (browserOpen) closeBrowser(false)
             if (speedPanelOpen) hideSpeedPanel()
+            if (sheet.isOpen) sheet.dismiss(animate = false)
+            b.breakCard.isVisible = false
+            b.focusPill.isVisible = false
             b.edgeOverlay.isVisible = false
             b.pipProgress.isVisible = true
             updatePipProgress()
@@ -359,6 +399,7 @@ class PlayerActivity : AppCompatActivity() {
         } else {
             b.edgeOverlay.isVisible = true
             b.pipProgress.isVisible = false
+            renderFocusUi()
         }
         b.videoLayout.resetZoom(false)
     }
@@ -366,6 +407,7 @@ class PlayerActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ queue / media
 
     private fun loadQueue(intent: Intent): Boolean {
+        b.shuffleBadge.isVisible = intent.getBooleanExtra(EXTRA_SHUFFLED, false)
         val uris = intent.getStringArrayListExtra(EXTRA_URIS)
         val titles = intent.getStringArrayListExtra(EXTRA_TITLES)
         val entries = ArrayList<Entry>()
@@ -436,6 +478,9 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            updateFocusCounting()
+            if (playbackState == Player.STATE_READY && ::focus.isInitialized) focus.updateDuration(player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+            if (playbackState == Player.STATE_ENDED && ::focus.isInitialized) focus.markCompleted()
             b.loading.isVisible = playbackState == Player.STATE_BUFFERING
             if (playbackState == Player.STATE_READY) b.errorPanel.isVisible = false
             if (playbackState == Player.STATE_ENDED) {
@@ -451,6 +496,7 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            updateFocusCounting()
             updatePlayButton()
             if (isPlaying && Prefs.keepScreenOn(this@PlayerActivity)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -460,6 +506,7 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             b.titleText.text = mediaItem?.mediaMetadata?.title ?: ""
+            if (::focus.isInitialized) focus.setVideo(mediaItem?.mediaId, mediaItem?.mediaMetadata?.title?.toString(), 0L)
             val scheme = mediaItem?.localConfiguration?.uri?.scheme
             isLocalMedia = scheme == "content" || scheme == "file"
             externalSubs = null; externalActive = false; externalName = null; shownExternal = emptyList()
@@ -485,6 +532,7 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                if (::focus.isInitialized) focus.markCompleted() // still attributed to the video that just finished
                 oldPosition.mediaItem?.let { Store.markWatched(this@PlayerActivity, it.mediaId) }
             }
         }
@@ -537,6 +585,18 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_DRM_UNSPECIFIED -> "This video is DRM-protected and can't be played here."
             else -> "Playback error (${e.errorCodeName})."
         }
+        // In a queue (Play all / playlist), skip a video that can't be opened instead of stopping everything.
+        val skippable = e.errorCode in intArrayOf(
+            PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
+        if (skippable && player.hasNextMediaItem()) {
+            val name = player.currentMediaItem?.mediaMetadata?.title ?: "a video"
+            toast("Skipped \"$name\": ${msg.substringBefore('.')}")
+            player.seekToNextMediaItem(); player.prepare(); player.play()
+            return
+        }
         b.errorText.text = msg
         b.errorPanel.isVisible = true
         b.loading.isVisible = false
@@ -563,13 +623,12 @@ class PlayerActivity : AppCompatActivity() {
         b.btnSpeed.setOnClickListener { showSpeedPanel(sliderOnly = false) }
         b.btnSpeed.setOnLongClickListener { showSpeedPanel(sliderOnly = true); true }
         b.btnBrowse.setOnClickListener { openBrowser() }
-        b.btnAspect.setOnClickListener { showAspectDialog() }
-        b.btnAspect.setOnLongClickListener { cycleAspect(); true }
         b.btnAspectLabel.setOnClickListener { cycleAspect() }
         b.btnAspectLabel.setOnLongClickListener { showAspectDialog(); true }
         b.btnSubtitle.setOnClickListener { showSubtitleDialog() }
         b.btnAudio.setOnClickListener { showAudioDialog() }
         b.btnMore.setOnClickListener { showMoreMenu(it) }
+        b.btnFocus.setOnClickListener { if (focus.active) endFocus(thenFinish = false) else startFocus(announce = true) }
         b.btnLock.setOnClickListener { lockControls() }
         b.btnLockRight.setOnClickListener { lockControls() }
         b.btnUnlock.setOnClickListener { unlockControls() }
@@ -590,13 +649,18 @@ class PlayerActivity : AppCompatActivity() {
             }
             override fun onStartTrackingTouch(sb: SeekBar) {
                 userSeeking = true
+                seekDragFrom = player.currentPosition
                 handler.removeCallbacks(hideControlsRunnable)
+                drag = Drag.IGNORE // a timeline drag never turns into a screen gesture
                 showSeekPreview(sb.progress.toLong())
+                b.seekPreview.alpha = 0f; b.seekPreview.scaleX = 0.9f; b.seekPreview.scaleY = 0.9f
+                b.seekPreview.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(160).setInterpolator(Motion.emphasized).start()
             }
             override fun onStopTrackingTouch(sb: SeekBar) {
-                userSeeking = false
                 player.seekTo(sb.progress.toLong())
-                b.seekPreview.isVisible = false
+                userSeeking = false
+                drag = Drag.NONE
+                b.seekPreview.animate().alpha(0f).setDuration(160).withEndAction { b.seekPreview.isVisible = false; b.seekPreview.alpha = 1f }.start()
                 scheduleHide()
             }
         })
@@ -706,6 +770,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun tick() {
         if (controlsVisible) updateProgress()
+        if (::focus.isInitialized && focus.active) focusTick()
         if (b.pipProgress.isVisible) updatePipProgress()
         if (externalActive) renderExternalSubs()
     }
@@ -717,6 +782,7 @@ class PlayerActivity : AppCompatActivity() {
         b.controls.animate().cancel()
         val slide = dp(28).toFloat()
         listOf(b.topBar, b.bottomBar, b.centerControls).forEach { it.animate().cancel() }
+        b.focusPill.animate().translationY(if (visible) dp(52).toFloat() else 0f).setDuration(300).setInterpolator(Motion.emphasized).start()
         if (visible) {
             // Top bar drops in, bottom bar rises, centre buttons pop — all on one soft curve.
             if (!b.controls.isVisible) {
@@ -745,7 +811,10 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun scheduleHide() {
         handler.removeCallbacks(hideControlsRunnable)
-        if (controlsVisible && player.isPlaying && !userSeeking) handler.postDelayed(hideControlsRunnable, 3500)
+        val sheetOpen = ::sheet.isInitialized && sheet.isOpen
+        val focusOn = ::focus.isInitialized && focus.active
+        if (controlsVisible && player.isPlaying && !userSeeking && !sheetOpen)
+            handler.postDelayed(hideControlsRunnable, if (focusOn && Prefs.focusMinimal(this)) 2200 else 3500)
     }
 
     private fun lockControls() {
@@ -834,11 +903,22 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun showAspectDialog() {
-        val modes = AspectMode.values()
-        val builder = dialog("Aspect ratio")
-            .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), aspect.ordinal) { d, i -> setAspect(modes[i]); d.dismiss() }
-        if (b.videoLayout.isZoomed) builder.setNeutralButton("Reset zoom") { _, _ -> b.videoLayout.resetZoom() }
-        builder.setPositiveButton("Close", null).show()
+        handler.removeCallbacks(hideControlsRunnable)
+        val acts = ArrayList<PlayerSheet.Action>()
+        if (b.videoLayout.isZoomed) acts += PlayerSheet.Action("Reset zoom", R.drawable.ic_zoom) { b.videoLayout.resetZoom() }
+        sheet.show("Aspect ratio", AspectMode.values().map { m ->
+            PlayerSheet.Option(m.label, aspectHint(m), selected = m == aspect) { setAspect(m) }
+        }, acts, footer = "Tip: tap the aspect button to cycle, pinch the video to zoom.")
+    }
+
+    private fun aspectHint(m: AspectMode): String? = when (m) {
+        AspectMode.FIT -> "Whole picture, black bars if needed"
+        AspectMode.STRETCH -> "Fills the screen, may distort"
+        AspectMode.ZOOM -> "Fills the screen, crops the edges"
+        AspectMode.FILL -> "Fills width or height"
+        AspectMode.ORIGINAL -> "Real pixel size"
+        AspectMode.AUTO -> "Uses the video's own ratio and rotates to match"
+        else -> null
     }
 
     // ------------------------------------------------------------------ gestures
@@ -1039,8 +1119,11 @@ class PlayerActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ seek preview
 
+    private var seekDragFrom = 0L
+
     private fun showSeekPreview(posMs: Long) {
-        b.seekPreviewTime.text = Fmt.time(posMs)
+        val diff = (posMs - (if (userSeeking && drag != Drag.SEEK) seekDragFrom else seekStart)) / 1000
+        b.seekPreviewTime.text = if (abs(diff) >= 1) "${Fmt.time(posMs)}   ${if (diff > 0) "+" else "−"}${Fmt.time(abs(diff) * 1000)}" else Fmt.time(posMs)
         b.seekPreview.isVisible = true
         // Follow the thumb horizontally.
         val sb = b.seekBar
@@ -1119,7 +1202,7 @@ class PlayerActivity : AppCompatActivity() {
             chip.text = if (sp == 1f) "1x · Normal" else formatSpeed(sp)
             if (sp == 1f) {
                 chip.chipStrokeWidth = dp(2).toFloat()
-                chip.chipStrokeColor = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this, R.color.accent))
+                chip.chipStrokeColor = android.content.res.ColorStateList.valueOf(ThemeManager.primary(this))
             }
             chip.setOnClickListener { applySpeed(sp) }
             b.speedPresets.addView(chip)
@@ -1153,6 +1236,7 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Tap: presets + slider. Press and hold: compact slider-only view. Speed changes apply instantly. */
     private fun showSpeedPanel(sliderOnly: Boolean) {
+        if (sheet.isOpen) sheet.dismiss(animate = false, notify = false)
         if (browserOpen) closeBrowser(false)
         val avail = (if (b.root.width > 0) b.root.width else resources.displayMetrics.widthPixels) - dp(24)
         b.speedPanel.layoutParams = b.speedPanel.layoutParams.apply { width = min(avail, dp(440)) }
@@ -1209,36 +1293,54 @@ class PlayerActivity : AppCompatActivity() {
         else -> null
     }
 
+    /** Track name split into a readable title (label + full language name) and details (channels, codec). */
+    private fun trackTexts(f: Format, n: Int, type: Int): Pair<String, String?> {
+        val title = ArrayList<String>()
+        f.label?.takeIf { it.isNotBlank() }?.let { title += it }
+        f.language?.takeIf { it.isNotBlank() && it != "und" }?.let {
+            val name = Locale.forLanguageTag(it).displayName
+            if (name.isNotBlank() && title.none { p -> p.equals(name, true) }) title += name
+        }
+        val details = ArrayList<String>()
+        if (type == C.TRACK_TYPE_AUDIO) {
+            when (f.channelCount) {
+                1 -> details += "Mono"; 2 -> details += "Stereo"; 6 -> details += "5.1"; 8 -> details += "7.1"
+                Format.NO_VALUE -> {}
+                else -> details += "${f.channelCount} channels"
+            }
+            codecName(f.sampleMimeType)?.let { details += it }
+            if (f.bitrate > 0) details += "${f.bitrate / 1000} kbps"
+        } else codecName(f.sampleMimeType ?: f.containerMimeType)?.let { details += it }
+        val t = if (title.isEmpty()) "Track $n" else title.joinToString(" · ")
+        return t to (listOf("Track $n") + details).joinToString(" · ")
+    }
+
     private fun showAudioDialog() {
-        val options = ArrayList<Pair<Tracks.Group, Int>>()
-        val labels = ArrayList<String>()
+        handler.removeCallbacks(hideControlsRunnable)
+        val opts = ArrayList<PlayerSheet.Option>()
+        var n = 0
         player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEach { g ->
             for (i in 0 until g.length) if (g.isTrackSupported(i)) {
-                options += g to i
-                labels += trackLabel(g.getTrackFormat(i), options.size, C.TRACK_TYPE_AUDIO)
+                n++
+                val f = g.getTrackFormat(i)
+                val (title, sub) = trackTexts(f, n, C.TRACK_TYPE_AUDIO)
+                opts += PlayerSheet.Option(title, sub, selected = g.isTrackSelected(i)) {
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                        .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
+                        .build()
+                    Prefs.saveAudioLang(this, f.language)
+                    showIndicator(R.drawable.ic_audiotrack, "Audio: $title", null); hideIndicatorSoon()
+                }
             }
         }
         val muted = player.volume == 0f
-        val builder = dialog("Audio")
-        if (options.isEmpty()) builder.setMessage("No playable audio tracks in this video.")
-        else {
-            val checked = options.indexOfFirst { (g, i) -> g.isTrackSelected(i) }
-            builder.setSingleChoiceItems(labels.toTypedArray(), checked) { d, which ->
-                val (g, i) = options[which]
-                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                    .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
-                    .build()
-                Prefs.saveAudioLang(this, g.getTrackFormat(i).language)
-                d.dismiss()
-            }
-        }
-        builder.setNeutralButton(if (muted) "Unmute" else "Mute") { _, _ ->
+        val acts = listOf(PlayerSheet.Action(if (muted) "Unmute" else "Mute", if (muted) R.drawable.ic_volume else R.drawable.ic_volume_off) {
             player.volume = if (muted) 1f else 0f
             showIndicator(if (muted) R.drawable.ic_volume else R.drawable.ic_volume_off, if (muted) "Sound on" else "Muted", null)
             hideIndicatorSoon()
-        }
-        builder.setPositiveButton("Close", null).show()
+        })
+        sheet.show("Audio", opts, acts, footer = if (opts.isEmpty()) "No playable audio tracks in this video." else null)
     }
 
     private sealed class SubOption {
@@ -1248,30 +1350,35 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun showSubtitleDialog() {
-        val options = ArrayList<SubOption>()
-        val labels = ArrayList<String>()
-        options += SubOption.Off; labels += "Off"
+        handler.removeCallbacks(hideControlsRunnable)
+        val textDisabled = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        val opts = ArrayList<PlayerSheet.Option>()
+        var anySelected = false
+        val embedded = ArrayList<PlayerSheet.Option>()
+        var n = 0
         player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEach { g ->
             for (i in 0 until g.length) if (g.isTrackSupported(i)) {
-                options += SubOption.Embedded(g, i)
-                labels += trackLabel(g.getTrackFormat(i), options.size - 1, C.TRACK_TYPE_TEXT)
+                n++
+                val (title, sub) = trackTexts(g.getTrackFormat(i), n, C.TRACK_TYPE_TEXT)
+                val sel = !externalActive && !textDisabled && g.isTrackSelected(i)
+                if (sel) anySelected = true
+                embedded += PlayerSheet.Option(title, sub, selected = sel) {
+                    selectSubtitle(SubOption.Embedded(g, i))
+                    showIndicator(R.drawable.ic_subtitles, "Subtitles: $title", null); hideIndicatorSoon()
+                }
             }
         }
-        if (externalSubs != null) { options += SubOption.External; labels += "File: ${externalName ?: "external"}" }
-
-        val textDisabled = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-        val checked = when {
-            externalActive -> options.indexOf(SubOption.External)
-            textDisabled -> 0
-            else -> options.indexOfFirst { it is SubOption.Embedded && it.group.isTrackSelected(it.index) }.let { if (it < 0) 0 else it }
+        opts += PlayerSheet.Option("Off", null, selected = !externalActive && !anySelected) {
+            selectSubtitle(SubOption.Off); showIndicator(R.drawable.ic_subtitles, "Subtitles off", null); hideIndicatorSoon()
         }
-        dialog("Subtitles")
-            .setSingleChoiceItems(labels.toTypedArray(), checked) { d, which ->
-                selectSubtitle(options[which]); d.dismiss()
-            }
-            .setNeutralButton("Load file") { _, _ -> pickSubtitle.launch(arrayOf("*/*")) }
-            .setPositiveButton("Style & timing") { _, _ -> showSubtitleStyleDialog() }
-            .show()
+        opts += embedded
+        if (externalSubs != null) opts += PlayerSheet.Option(externalName ?: "Subtitle file", "Loaded from file", selected = externalActive) {
+            selectSubtitle(SubOption.External); showIndicator(R.drawable.ic_subtitles, "Subtitles: ${externalName ?: "file"}", null); hideIndicatorSoon()
+        }
+        sheet.show("Subtitles", opts, listOf(
+            PlayerSheet.Action("Load file", R.drawable.ic_folder) { pickSubtitle.launch(arrayOf("*/*")) },
+            PlayerSheet.Action("Style & timing", R.drawable.ic_tune) { showSubtitleStyleDialog() }
+        ))
     }
 
     private fun selectSubtitle(o: SubOption) {
@@ -1469,39 +1576,155 @@ class PlayerActivity : AppCompatActivity() {
         dialog("Video info").setMessage(sb.toString().trim()).setPositiveButton("Close", null).show()
     }
 
-    private fun showMoreMenu(anchor: View) {
+    private fun showMoreMenu(@Suppress("UNUSED_PARAMETER") anchor: View) {
         handler.removeCallbacks(hideControlsRunnable)
-        val pm = PopupMenu(this, anchor)
-        pm.menu.add(0, 1, 0, "Playback speed (${formatSpeed(player.playbackParameters.speed)})")
-        pm.menu.add(0, 2, 1, "Aspect ratio (${aspect.short})")
-        pm.menu.add(0, 3, 2, "Load subtitle file")
-        pm.menu.add(0, 4, 3, "Video info")
-        if (pipSupported()) pm.menu.add(0, 5, 4, "Picture-in-picture")
-        pm.menu.add(0, 9, 8, "Browse videos")
-        pm.menu.add(0, 6, 5, "Background audio").apply { isCheckable = true; isChecked = Prefs.backgroundAudio(this@PlayerActivity) }
-        pm.menu.add(0, 7, 6, "Lock screen")
-        pm.menu.add(0, 8, 7, "All settings")
-        pm.setOnMenuItemClickListener { mi ->
-            when (mi.itemId) {
-                1 -> showSpeedDialog()
-                2 -> showAspectDialog()
-                3 -> pickSubtitle.launch(arrayOf("*/*"))
-                4 -> showInfoDialog()
-                5 -> enterPip()
-                6 -> {
-                    val on = !Prefs.backgroundAudio(this)
-                    Prefs.sp(this).edit().putBoolean("background_audio", on).apply()
-                    if (on) connectSession() else disconnectSession()
-                    toast(if (on) "Background audio on" else "Background audio off")
-                }
-                7 -> lockControls()
-                8 -> startActivity(Intent(this, SettingsActivity::class.java))
-                9 -> openBrowser()
-            }
-            true
+        val o = ArrayList<PlayerSheet.Option>()
+        o += PlayerSheet.Option("Playback speed", null, icon = R.drawable.ic_speed, trailing = formatSpeed(player.playbackParameters.speed)) { showSpeedDialog() }
+        o += PlayerSheet.Option("Aspect ratio", null, icon = R.drawable.ic_aspect, trailing = aspect.short) { showAspectDialog() }
+        if (Prefs.focusFeature(this)) o += PlayerSheet.Option("Focus Mode", if (focus.active) "Focused ${FocusFmt.clock(focus.elapsedMs())}" else "Track real watching time, fewer distractions",
+            icon = R.drawable.ic_focus, trailing = if (focus.active) "On" else "Off") { if (focus.active) endFocus(false) else startFocus(true) }
+        o += PlayerSheet.Option("Focus stats", null, icon = R.drawable.ic_insights) { startActivity(Intent(this, FocusActivity::class.java)) }
+        o += PlayerSheet.Option("Load subtitle file", null, icon = R.drawable.ic_subtitles) { pickSubtitle.launch(arrayOf("*/*")) }
+        o += PlayerSheet.Option("Video info", null, icon = R.drawable.ic_info) { showInfoDialog() }
+        if (pipSupported()) o += PlayerSheet.Option("Picture-in-picture", null, icon = R.drawable.ic_pip) { enterPip() }
+        o += PlayerSheet.Option("Browse videos", null, icon = R.drawable.ic_video_library) { openBrowser() }
+        o += PlayerSheet.Option("Background audio", "Keep playing when you leave the player", icon = R.drawable.ic_audiotrack,
+            trailing = if (Prefs.backgroundAudio(this)) "On" else "Off") {
+            val on = !Prefs.backgroundAudio(this)
+            Prefs.sp(this).edit().putBoolean("background_audio", on).apply()
+            if (on) connectSession() else disconnectSession()
+            toast(if (on) "Background audio on" else "Background audio off")
         }
-        pm.setOnDismissListener { scheduleHide() }
-        pm.show()
+        o += PlayerSheet.Option("Lock screen", null, icon = R.drawable.ic_lock) { lockControls() }
+        o += PlayerSheet.Option("All settings", null, icon = R.drawable.ic_tune) { startActivity(Intent(this, SettingsActivity::class.java)) }
+        sheet.show("Player options", o, radio = false)
+    }
+
+    // ------------------------------------------------------------------ Focus Mode
+
+    private fun setupFocus() {
+        b.btnFocus.isVisible = Prefs.focusFeature(this)
+        b.breakKeep.setOnClickListener { handler.removeCallbacks(hideBreakRunnable); fadeOut(b.breakCard) }
+        b.breakPause.setOnClickListener {
+            handler.removeCallbacks(hideBreakRunnable); fadeOut(b.breakCard)
+            player.pause()
+            showIndicator(R.drawable.ic_pause, "Paused for a break", null); hideIndicatorSoon()
+        }
+        renderFocusUi()
+    }
+
+    private fun startFocus(announce: Boolean) {
+        if (focus.active) return
+        focus.start()
+        val item = player.currentMediaItem
+        focus.setVideo(item?.mediaId, item?.mediaMetadata?.title?.toString(), player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        nextBreakAtMs = Prefs.focusBreakMs(this)
+        lastFocusSave = android.os.SystemClock.elapsedRealtime()
+        focusTodayBase = FocusStore.get(this).today()
+        updateFocusCounting()
+        renderFocusUi()
+        if (announce) {
+            val dnd = if (Dnd.isApplied(this)) " · Do Not Disturb on" else ""
+            showIndicator(R.drawable.ic_focus, "Focus Mode on$dnd", null); hideIndicatorSoon()
+        }
+    }
+
+    /** Ends the session, shows the summary (if enabled), and optionally closes the player after. */
+    private fun endFocus(thenFinish: Boolean) {
+        if (!focus.active) { if (thenFinish) finish(); return }
+        val id = focus.stop()
+        renderFocusUi()
+        val summary = if (id >= 0) FocusStore.get(this).sessionSummary(id) else null
+        if (summary == null || summary.focusMs < 1000 || !Prefs.focusSummary(this) || isInPipSafe()) {
+            if (!thenFinish) { showIndicator(R.drawable.ic_focus, "Focus Mode off", null); hideIndicatorSoon() }
+            if (thenFinish) finish()
+            return
+        }
+        showFocusSummary(summary, thenFinish)
+    }
+
+    private fun isInPipSafe() = Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode
+
+    private fun showFocusSummary(sm: FocusStore.Summary, thenFinish: Boolean) {
+        val store = FocusStore.get(this)
+        val today = store.today()
+        val goal = Prefs.focusGoalMs(this)
+        val lines = ArrayList<String>()
+        lines += "You focused for ${FocusFmt.dur(sm.focusMs)} of real watching time."
+        if (sm.videos > 0) lines += "Videos watched: ${sm.videos}" + if (sm.completed > 0) " (${sm.completed} finished)" else ""
+        lines += if (goal > 0) "Today: ${FocusFmt.dur(today)} of your ${FocusFmt.dur(goal)} goal" + (if (today >= goal) " — goal reached!" else "")
+        else "Today: ${FocusFmt.dur(today)} in total"
+        focusSummaryShowing = true
+        handler.removeCallbacks(hideControlsRunnable)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Focus session complete")
+            .setIcon(R.drawable.ic_focus)
+            .setMessage(lines.joinToString("\n"))
+            .setPositiveButton(if (thenFinish) "Done" else "OK") { _, _ -> }
+            .setNeutralButton("View stats") { _, _ -> startActivity(Intent(this, FocusActivity::class.java)) }
+            .setOnDismissListener { focusSummaryShowing = false; if (thenFinish) finish() else { scheduleHide(); if (fullscreen) setFullscreen(true) } }
+            .show()
+    }
+
+    /** Counts only while focus is on, the video is genuinely playing, and the player is visible (incl. PiP). */
+    private fun updateFocusCounting() {
+        if (!::focus.isInitialized) return
+        focus.setCounting(focus.active && activityStarted && playerReady && player.isPlaying)
+    }
+
+    private fun focusTick() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastFocusSave >= FOCUS_SAVE_MS) { focus.flush(); lastFocusSave = now; focusTodayBase = FocusStore.get(this).today() }
+        val elapsed = focus.elapsedMs()
+        if (b.focusPill.isVisible) {
+            b.focusText.text = "Focus ${FocusFmt.clock(elapsed)}"
+            val goal = Prefs.focusGoalMs(this)
+            if (goal > 0) {
+                val today = focusTodayBase + focus.unsavedMs()
+                b.focusGoal.setProgressCompat(((today.toFloat() / goal) * 1000).toInt().coerceIn(0, 1000), true)
+                val key = FocusStore.dayKey(System.currentTimeMillis())
+                if (today >= goal && Prefs.sp(this).getString("focus_goal_done_day", "") != key) {
+                    Prefs.sp(this).edit().putString("focus_goal_done_day", key).apply()
+                    showIndicator(R.drawable.ic_check_circle, "Daily focus goal reached!", null); hideIndicatorSoon()
+                }
+            }
+        }
+        val breakMs = Prefs.focusBreakMs(this)
+        if (breakMs > 0 && nextBreakAtMs <= 0) nextBreakAtMs = (elapsed / breakMs + 1) * breakMs // turned on mid-session
+        if (breakMs <= 0) nextBreakAtMs = 0
+        if (breakMs > 0 && elapsed >= nextBreakAtMs && nextBreakAtMs > 0) {
+            nextBreakAtMs = (elapsed / breakMs + 1) * breakMs
+            if (!isInPipSafe() && !locked) {
+                b.breakText.text = "You've been focusing for ${FocusFmt.dur(elapsed)}. A short break helps you remember more."
+                fadeIn(b.breakCard)
+                handler.removeCallbacks(hideBreakRunnable)
+                handler.postDelayed(hideBreakRunnable, 15_000)
+            }
+        }
+    }
+
+    /** Today's saved focus total (refreshed on each save, so the timer doesn't query the database every frame). */
+    private var focusTodayBase = 0L
+
+    private fun renderFocusUi() {
+        if (!::focus.isInitialized) return
+        val on = focus.active
+        b.btnFocus.isVisible = Prefs.focusFeature(this)
+        b.btnFocus.alpha = if (on) 1f else 0.85f
+        b.btnFocus.imageTintList = android.content.res.ColorStateList.valueOf(if (on) ThemeManager.primary(this) else 0xFFFFFFFF.toInt())
+        b.btnFocus.contentDescription = if (on) "Focus Mode on. Tap to end the session" else "Start Focus Mode"
+        val showPill = on && Prefs.focusShowTimer(this) && !isInPipSafe()
+        if (showPill && !b.focusPill.isVisible) fadeIn(b.focusPill) else if (!showPill) b.focusPill.isVisible = false
+        b.focusGoal.isVisible = on && Prefs.focusGoalMs(this) > 0
+        if (on) b.focusText.text = "Focus ${FocusFmt.clock(focus.elapsedMs())}"
+        // Minimal controls: hide extras, keep everything needed to watch.
+        val minimal = on && Prefs.focusMinimal(this)
+        b.btnBrowse.isVisible = !minimal
+        b.btnLockRight.isVisible = !minimal
+        b.btnRotate.isVisible = !minimal
+        b.btnPip.isVisible = !minimal && pipSupported()
+        if (!on) { handler.removeCallbacks(hideBreakRunnable); b.breakCard.isVisible = false }
+        if (!on && Prefs.focusMinimal(this)) b.btnPip.isVisible = pipSupported()
     }
 
     // ------------------------------------------------------------------ PiP & background

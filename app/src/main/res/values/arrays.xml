@@ -35,4 +35,16 @@
     <string-array name="folder_sort_values"><item>name</item><item>count</item><item>recent</item></string-array>
     <string-array name="pip_controls_entries"><item>Automatic (previous/next when there is a queue)</item><item>Rewind / play / forward</item><item>Previous / play / next</item></string-array>
     <string-array name="pip_controls_values"><item>auto</item><item>seek</item><item>track</item></string-array>
+    <string-array name="view_entries"><item>List</item><item>Grid</item></string-array>
+    <string-array name="view_values"><item>list</item><item>grid</item></string-array>
+    <string-array name="grid_entries"><item>Automatic (fits the screen)</item><item>2 columns</item><item>3 columns</item><item>4 columns</item></string-array>
+    <string-array name="grid_values"><item>0</item><item>2</item><item>3</item><item>4</item></string-array>
+    <string-array name="long_press_entries"><item>Show the options menu</item><item>Start selecting</item></string-array>
+    <string-array name="long_press_values"><item>options</item><item>select</item></string-array>
+    <string-array name="add_at_entries"><item>The end of the playlist</item><item>The start of the playlist</item></string-array>
+    <string-array name="add_at_values"><item>end</item><item>start</item></string-array>
+    <string-array name="goal_entries"><item>Off</item><item>15 minutes</item><item>30 minutes</item><item>45 minutes</item><item>1 hour</item><item>1.5 hours</item><item>2 hours</item><item>3 hours</item><item>4 hours</item></string-array>
+    <string-array name="goal_values"><item>0</item><item>15</item><item>30</item><item>45</item><item>60</item><item>90</item><item>120</item><item>180</item><item>240</item></string-array>
+    <string-array name="break_entries"><item>20 minutes</item><item>25 minutes</item><item>30 minutes</item><item>45 minutes</item><item>1 hour</item><item>1.5 hours</item></string-array>
+    <string-array name="break_values"><item>20</item><item>25</item><item>30</item><item>45</item><item>60</item><item>90</item></string-array>
 </resources>

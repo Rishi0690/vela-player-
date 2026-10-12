@@ -41,8 +41,7 @@ object ThumbLoader {
         val ctx = iv.context.applicationContext
         exec.execute {
             // The phone's own thumbnail is often an all-black first frame; if so, grab a real frame from inside the video.
-            val sys = systemThumb(ctx, uri, mediaId)
-            val bmp = if (sys != null && !isDark(sys)) sys else (frameThumb(ctx, uri, durationMs) ?: sys)
+            val bmp = loadBitmap(ctx, uri, mediaId, durationMs)
             if (bmp != null) cache.put(key, bmp) else failed.add(key)
             main.post {
                 if (iv.tag == key && bmp != null) {
@@ -55,8 +54,91 @@ object ThumbLoader {
         }
     }
 
-    private fun placeholder(iv: ImageView) { iv.setImageResource(R.drawable.ic_movie); iv.scaleType = ImageView.ScaleType.CENTER }
-    private fun show(iv: ImageView, b: Bitmap) { iv.scaleType = ImageView.ScaleType.CENTER_CROP; iv.setImageBitmap(b) }
+    /** Synchronous thumbnail (call off the main thread). Uses the same cache. */
+    fun bitmap(ctx: Context, uri: Uri, mediaId: Long = -1L, durationMs: Long = 0L): Bitmap? {
+        val key = uri.toString()
+        cache.get(key)?.let { return it }
+        if (failed.contains(key)) return null
+        val b = loadBitmap(ctx.applicationContext, uri, mediaId, durationMs)
+        if (b != null) cache.put(key, b) else failed.add(key)
+        return b
+    }
+
+    private fun loadBitmap(ctx: Context, uri: Uri, mediaId: Long, durationMs: Long): Bitmap? {
+        val sys = systemThumb(ctx, uri, mediaId)
+        // "Smart thumbnails" (Settings): skip black system thumbnails and grab a real frame instead.
+        if (!Prefs.smartThumbs(ctx)) return sys ?: frameThumb(ctx, uri, durationMs)
+        return if (sys != null && !isDark(sys)) sys else (frameThumb(ctx, uri, durationMs) ?: sys)
+    }
+
+    fun clearCache() { cache.evictAll(); failed.clear() }
+
+    private fun placeholder(iv: ImageView) { iv.imageTintList = null; iv.setImageResource(R.drawable.ic_movie); iv.scaleType = ImageView.ScaleType.CENTER }
+    private fun show(iv: ImageView, b: Bitmap) { iv.imageTintList = null; iv.scaleType = ImageView.ScaleType.CENTER_CROP; iv.setImageBitmap(b) }
+
+    // ---------------------------------------------------------------- playlist covers
+
+    /**
+     * Playlist cover: a 2×2 (or 2/3-piece) collage of the first videos' thumbnails, or the first one alone.
+     * The cache key includes the videos, so the cover updates when the playlist changes.
+     * With no thumbnails at all, a soft accent-colored placeholder is shown instead of a broken image.
+     */
+    fun loadCover(iv: ImageView, sources: List<Triple<Uri, Long, Long>>, collage: Boolean) {
+        val picked = sources.take(if (collage) 4 else 1)
+        val key = "cover:" + collage + ":" + picked.joinToString("|") { it.first.toString() }
+        iv.tag = key
+        cache.get(key)?.let { show(iv, it); return }
+        coverPlaceholder(iv)
+        if (picked.isEmpty()) return
+        val ctx = iv.context.applicationContext
+        exec.execute {
+            val bmps = picked.mapNotNull { bitmap(ctx, it.first, it.second, it.third) }
+            val out = when { bmps.isEmpty() -> null; bmps.size == 1 -> bmps[0]; else -> compose(bmps) }
+            if (out != null) cache.put(key, out)
+            main.post {
+                if (iv.tag == key && out != null) {
+                    iv.background = null
+                    show(iv, out)
+                    iv.alpha = 0f
+                    iv.animate().alpha(1f).setDuration(240).setInterpolator(Motion.emphasized).start()
+                }
+            }
+        }
+    }
+
+    private fun coverPlaceholder(iv: ImageView) {
+        val c = iv.context
+        val p = ThemeManager.primary(c)
+        val p2 = ThemeManager.attr(c, com.google.android.material.R.attr.colorPrimaryContainer)
+        iv.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR, intArrayOf(p, p2))
+        iv.setImageResource(R.drawable.ic_playlist)
+        iv.imageTintList = android.content.res.ColorStateList.valueOf(0xE6FFFFFF.toInt())
+        iv.scaleType = ImageView.ScaleType.CENTER
+    }
+
+    private fun compose(b: List<Bitmap>): Bitmap {
+        val w = 384; val h = 216; val g = 3
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val cv = android.graphics.Canvas(out)
+        cv.drawColor(0xFF101010.toInt())
+        val rects = when (b.size) {
+            2 -> listOf(android.graphics.Rect(0, 0, w / 2 - g / 2, h), android.graphics.Rect(w / 2 + g / 2, 0, w, h))
+            3 -> listOf(android.graphics.Rect(0, 0, w / 2 - g / 2, h), android.graphics.Rect(w / 2 + g / 2, 0, w, h / 2 - g / 2), android.graphics.Rect(w / 2 + g / 2, h / 2 + g / 2, w, h))
+            else -> listOf(android.graphics.Rect(0, 0, w / 2 - g / 2, h / 2 - g / 2), android.graphics.Rect(w / 2 + g / 2, 0, w, h / 2 - g / 2),
+                android.graphics.Rect(0, h / 2 + g / 2, w / 2 - g / 2, h), android.graphics.Rect(w / 2 + g / 2, h / 2 + g / 2, w, h))
+        }
+        val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+        b.take(rects.size).forEachIndexed { i, src0 ->
+            val src = if (Build.VERSION.SDK_INT >= 26 && src0.config == Bitmap.Config.HARDWARE) src0.copy(Bitmap.Config.ARGB_8888, false) else src0
+            val dst = rects[i]
+            // center-crop the thumbnail into its tile
+            val sr = src.width.toFloat() / src.height; val dr = dst.width().toFloat() / dst.height()
+            val crop = if (sr > dr) { val cw = (src.height * dr).toInt(); android.graphics.Rect((src.width - cw) / 2, 0, (src.width + cw) / 2, src.height) }
+            else { val ch = (src.width / dr).toInt(); android.graphics.Rect(0, (src.height - ch) / 2, src.width, (src.height + ch) / 2) }
+            cv.drawBitmap(src, crop, dst, paint)
+        }
+        return out
+    }
 
     private fun systemThumb(ctx: Context, uri: Uri, id: Long): Bitmap? = try {
         if (uri.scheme != "content") null

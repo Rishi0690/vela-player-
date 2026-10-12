@@ -4,7 +4,10 @@
     <item android:id="@+id/action_search" android:icon="@drawable/ic_search" android:title="Search"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
+    <item android:id="@+id/action_view" android:icon="@drawable/ic_grid" android:title="Grid view" app:showAsAction="ifRoom" />
     <item android:id="@+id/action_sort" android:icon="@drawable/ic_sort" android:title="Sort" app:showAsAction="ifRoom" />
+    <item android:id="@+id/action_select" android:icon="@drawable/ic_select" android:title="Select" app:showAsAction="never" />
+    <item android:id="@+id/action_focus" android:icon="@drawable/ic_insights" android:title="Focus stats" app:showAsAction="never" />
     <item android:id="@+id/action_open_url" android:icon="@drawable/ic_link" android:title="Open network stream" app:showAsAction="never" />
     <item android:id="@+id/action_open_file" android:icon="@drawable/ic_folder" android:title="Open file" app:showAsAction="never" />
     <item android:id="@+id/action_settings" android:icon="@drawable/ic_tune" android:title="Settings" app:showAsAction="never" />
