@@ -30,6 +30,13 @@ class SettingsActivity : AppCompatActivity() {
                 view?.post { Prefs.applyTheme(requireContext()) }
                 true
             }
+            findPreference<Preference>("clear_remembered")?.setOnPreferenceClickListener {
+                Prefs.sp(requireContext()).edit()
+                    .remove("last_audio_lang").remove("last_sub_lang").remove("last_sub_state").remove("last_sub_label")
+                    .apply()
+                android.widget.Toast.makeText(requireContext(), "Remembered tracks cleared", android.widget.Toast.LENGTH_SHORT).show()
+                true
+            }
             findPreference<Preference>("reset_all")?.setOnPreferenceClickListener {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("Reset all settings?")

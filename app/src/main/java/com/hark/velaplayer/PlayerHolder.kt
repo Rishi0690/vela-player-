@@ -44,13 +44,22 @@ object PlayerHolder {
 
         val selector = DefaultTrackSelector(c)
         val params = selector.buildUponParameters()
-        sp.getString("pref_audio_lang", "")?.trim()?.takeIf { it.isNotEmpty() }?.let { params.setPreferredAudioLanguage(it) }
-        val subLang = sp.getString("pref_sub_lang", "")?.trim()?.takeIf { it.isNotEmpty() }
-        if (sp.getBoolean("sub_auto", false)) {
-            params.setPreferredTextLanguage(subLang ?: Locale.getDefault().language)
-            params.setSelectUndeterminedTextLanguage(true)
-        } else if (subLang != null) {
-            params.setPreferredTextLanguage(subLang)
+        // Preferred languages: what the user picked last time (when remembered), otherwise the fixed Settings value.
+        // If the language isn't in a video, ExoPlayer quietly falls back to its normal default track.
+        Prefs.preferredAudioLang(c)?.let { params.setPreferredAudioLanguage(it) }
+        val subLang = Prefs.preferredSubLang(c)
+        when (Prefs.rememberedSubState(c)) {
+            "off" -> params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            "on" -> {
+                params.setPreferredTextLanguage(subLang ?: Locale.getDefault().language)
+                params.setSelectUndeterminedTextLanguage(true)
+            }
+            else -> if (sp.getBoolean("sub_auto", false)) {
+                params.setPreferredTextLanguage(subLang ?: Locale.getDefault().language)
+                params.setSelectUndeterminedTextLanguage(true)
+            } else if (subLang != null) {
+                params.setPreferredTextLanguage(subLang)
+            }
         }
         selector.setParameters(params)
 

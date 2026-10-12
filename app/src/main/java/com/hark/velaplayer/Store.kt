@@ -15,7 +15,7 @@ object Store {
     fun savePosition(c: Context, uri: String, title: String, pos: Long, dur: Long) {
         val e = sp(c).edit()
         if (dur > 0 && (pos >= dur - 10_000 || pos.toFloat() / dur > 0.97f)) {
-            e.remove("pos:$uri")
+            e.remove("pos:$uri").putBoolean("watched:$uri", true)
         } else if (pos > 3_000) {
             e.putLong("pos:$uri", pos).putLong("dur:$uri", dur).putString("title:$uri", title)
                 .putLong("time:$uri", System.currentTimeMillis())
@@ -23,6 +23,19 @@ object Store {
         e.apply()
     }
     fun clearPosition(c: Context, uri: String) = sp(c).edit().remove("pos:$uri").apply()
+
+    // ---- watched history (a video counts as watched once it was played to the end) ----
+    fun markWatched(c: Context, uri: String) = sp(c).edit().remove("pos:$uri").putBoolean("watched:$uri", true).apply()
+    fun setWatched(c: Context, uri: String, watched: Boolean) {
+        val e = sp(c).edit()
+        if (watched) e.remove("pos:$uri").putBoolean("watched:$uri", true) else e.remove("watched:$uri")
+        e.apply()
+    }
+    fun watchedSet(c: Context): Set<String> =
+        sp(c).all.keys.filter { it.startsWith("watched:") }.map { it.removePrefix("watched:") }.toSet()
+    fun inProgressSet(c: Context): Set<String> =
+        sp(c).all.keys.filter { it.startsWith("pos:") }.map { it.removePrefix("pos:") }.toSet()
+    fun lastPlayed(c: Context, uri: String): Long = sp(c).getLong("time:$uri", 0L)
     fun position(c: Context, uri: String): Long = sp(c).getLong("pos:$uri", 0L)
     fun duration(c: Context, uri: String): Long = sp(c).getLong("dur:$uri", 0L)
     fun continueList(c: Context): List<Entry> {

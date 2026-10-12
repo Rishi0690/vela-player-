@@ -22,6 +22,17 @@
             android:layout_height="match_parent" />
     </FrameLayout>
 
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/pipProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:max="1000"
+        android:visibility="gone"
+        app:indicatorColor="@color/accent"
+        app:trackColor="#44FFFFFF"
+        app:trackThickness="3dp" />
+
     <View
         android:id="@+id/gestureLayer"
         android:layout_width="match_parent"
@@ -35,37 +46,170 @@
         android:indeterminateTint="@color/accent"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/tapLeft"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="start|center_vertical"
-        android:layout_marginStart="48dp"
-        android:background="@drawable/bg_indicator"
-        android:drawableTop="@drawable/ic_rewind"
-        android:drawableTint="@android:color/white"
-        android:gravity="center"
-        android:padding="14dp"
-        android:textColor="@android:color/white"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+    <!-- Edge overlays: brightness / volume levels and skip feedback, kept near the screen edges (insets applied in code). -->
+    <FrameLayout
+        android:id="@+id/edgeOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
 
-    <TextView
-        android:id="@+id/tapRight"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="48dp"
-        android:background="@drawable/bg_indicator"
-        android:drawableTop="@drawable/ic_fast_forward"
-        android:drawableTint="@android:color/white"
-        android:gravity="center"
-        android:padding="14dp"
-        android:textColor="@android:color/white"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+        <LinearLayout
+            android:id="@+id/sideLeft"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="28dp"
+            android:alpha="0"
+            android:background="@drawable/bg_pill"
+            android:gravity="center_horizontal"
+            android:minWidth="56dp"
+            android:orientation="vertical"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="14dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/sideLeftIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:importantForAccessibility="no"
+                app:tint="@android:color/white" />
+
+            <FrameLayout
+                android:id="@+id/sideLeftTrack"
+                android:layout_width="6dp"
+                android:layout_height="120dp"
+                android:layout_marginVertical="10dp"
+                android:background="@drawable/bg_vbar_track">
+
+                <View
+                    android:id="@+id/sideLeftFill"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_gravity="bottom"
+                    android:background="@drawable/bg_vbar_fill" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/sideLeftText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/sideRight"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="28dp"
+            android:alpha="0"
+            android:background="@drawable/bg_pill"
+            android:gravity="center_horizontal"
+            android:minWidth="56dp"
+            android:orientation="vertical"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="14dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/sideRightIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:importantForAccessibility="no"
+                app:tint="@android:color/white" />
+
+            <FrameLayout
+                android:id="@+id/sideRightTrack"
+                android:layout_width="6dp"
+                android:layout_height="120dp"
+                android:layout_marginVertical="10dp"
+                android:background="@drawable/bg_vbar_track">
+
+                <View
+                    android:id="@+id/sideRightFill"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_gravity="bottom"
+                    android:background="@drawable/bg_vbar_fill" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/sideRightText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tapLeft"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="40dp"
+            android:alpha="0"
+            android:background="@drawable/bg_pill"
+            android:gravity="center"
+            android:minWidth="92dp"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/tapLeftIcon"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_rewind"
+                app:tint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/tapLeftText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tapRight"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="40dp"
+            android:alpha="0"
+            android:background="@drawable/bg_pill"
+            android:gravity="center"
+            android:minWidth="92dp"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/tapRightIcon"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_fast_forward"
+                app:tint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/tapRightText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/indicator"
@@ -146,6 +290,7 @@
                 android:textColor="@android:color/white"
                 android:textSize="16sp" />
 
+            <ImageButton android:id="@+id/btnBrowse" style="@style/PlayerIcon" android:contentDescription="Browse videos" android:src="@drawable/ic_video_library" />
             <ImageButton android:id="@+id/btnSubtitle" style="@style/PlayerIcon" android:contentDescription="Subtitles" android:src="@drawable/ic_subtitles" />
             <ImageButton android:id="@+id/btnAudio" style="@style/PlayerIcon" android:contentDescription="Audio" android:src="@drawable/ic_audiotrack" />
             <ImageButton android:id="@+id/btnAspect" style="@style/PlayerIcon" android:contentDescription="Aspect ratio" android:src="@drawable/ic_aspect" />
@@ -232,12 +377,14 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSpeed"
-                    style="@style/Widget.Material3.Button.TextButton"
+                    style="@style/Widget.Material3.Button.TextButton.Icon"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
-                    android:contentDescription="Playback speed"
+                    android:contentDescription="Playback speed. Tap for speeds, press and hold for the slider"
                     android:text="1x"
-                    android:textColor="@android:color/white" />
+                    android:textColor="@android:color/white"
+                    app:icon="@drawable/ic_speed"
+                    app:iconTint="@android:color/white" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAspectLabel"
@@ -342,5 +489,262 @@
                 android:layout_height="wrap_content"
                 android:text="Retry" />
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- Playback speed popup -->
+    <LinearLayout
+        android:id="@+id/speedPanel"
+        android:layout_width="440dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="92dp"
+        android:alpha="0"
+        android:background="@drawable/bg_panel"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_speed"
+                app:tint="@color/accent" />
+
+            <TextView
+                android:id="@+id/speedValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="1.00x"
+                android:textColor="@android:color/white"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/speedNormalTag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_badge"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
+                android:text="Normal"
+                android:textColor="@android:color/white"
+                android:textSize="11sp" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/speedReset"
+                style="@style/Widget.Material3.Button.TextButton.Icon"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:minWidth="0dp"
+                android:text="1x"
+                android:textColor="@android:color/white"
+                android:contentDescription="Reset to normal speed"
+                app:icon="@drawable/ic_replay"
+                app:iconTint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/speedClose"
+                style="@style/PlayerIcon"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:contentDescription="Close speed control"
+                android:src="@drawable/ic_close" />
+        </LinearLayout>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/speedSlider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:contentDescription="Playback speed slider"
+            android:stepSize="0.05"
+            android:valueFrom="0.25"
+            android:valueTo="4.0"
+            android:value="1.0"
+            app:labelBehavior="floating"
+            app:thumbColor="@color/accent"
+            app:trackColorActive="@color/accent"
+            app:trackColorInactive="#44FFFFFF"
+            app:tickVisible="false" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="-6dp"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp">
+
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:alpha="0.6" android:text="0.25x" android:textColor="@android:color/white" android:textSize="11sp" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:alpha="0.6" android:text="4x" android:textColor="@android:color/white" android:textSize="11sp" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:id="@+id/speedPresetScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:scrollbars="none">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/speedPresets"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:chipSpacingHorizontal="6dp"
+                app:singleLine="true"
+                app:singleSelection="true" />
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- Quick video browser (slide-out drawer) -->
+    <View
+        android:id="@+id/browserScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="#80000000"
+        android:clickable="true"
+        android:contentDescription="Close video list"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/browserPanel"
+        android:layout_width="360dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/bg_drawer"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="4dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/browserTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/browserSubtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.65"
+                    android:ellipsize="middle"
+                    android:maxLines="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/browserClose"
+                style="@style/PlayerIcon"
+                android:contentDescription="Close video list"
+                android:src="@drawable/ic_close" />
+        </LinearLayout>
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/browserScope"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            app:selectionRequired="true"
+            app:singleLine="true"
+            app:singleSelection="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipScopeAll"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All videos" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipScopeFolder"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="This folder" />
+        </com.google.android.material.chip.ChipGroup>
+
+        <EditText
+            android:id="@+id/browserSearch"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginHorizontal="12dp"
+            android:layout_marginVertical="6dp"
+            android:background="@drawable/bg_search"
+            android:drawableStart="@drawable/ic_search"
+            android:drawablePadding="8dp"
+            android:drawableTint="#AAFFFFFF"
+            android:hint="Search videos"
+            android:imeOptions="actionSearch"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingHorizontal="12dp"
+            android:textColor="@android:color/white"
+            android:textColorHint="#88FFFFFF"
+            android:textSize="14sp" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/browserList"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingHorizontal="8dp"
+                android:paddingBottom="12dp" />
+
+            <TextView
+                android:id="@+id/browserEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:alpha="0.7"
+                android:gravity="center"
+                android:padding="24dp"
+                android:textColor="@android:color/white"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
 </FrameLayout>

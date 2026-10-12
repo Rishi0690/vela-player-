@@ -33,6 +33,71 @@ object Prefs {
     fun backgroundAudio(c: Context) = sp(c).getBoolean("background_audio", false)
     fun autoPip(c: Context) = sp(c).getBoolean("auto_pip", false)
 
+    // ---- remembered track preferences (each independent) ----
+    fun rememberAudioLang(c: Context) = sp(c).getBoolean("remember_audio_lang", true)
+    fun rememberSubLang(c: Context) = sp(c).getBoolean("remember_sub_lang", true)
+    fun rememberSubSelection(c: Context) = sp(c).getBoolean("remember_sub_selection", true)
+    fun rememberSubStyle(c: Context) = sp(c).getBoolean("remember_sub_appearance", true)
+
+    /** Audio language to prefer: the last one picked (if remembered), else the fixed preference from Settings. */
+    fun preferredAudioLang(c: Context): String? {
+        val s = sp(c)
+        val last = if (rememberAudioLang(c)) s.getString("last_audio_lang", null)?.takeIf { it.isNotBlank() } else null
+        return last ?: s.getString("pref_audio_lang", "")?.trim()?.takeIf { it.isNotEmpty() }
+    }
+    fun saveAudioLang(c: Context, lang: String?) {
+        if (rememberAudioLang(c) && !lang.isNullOrBlank() && lang != "und") sp(c).edit().putString("last_audio_lang", lang).apply()
+    }
+
+    fun preferredSubLang(c: Context): String? {
+        val s = sp(c)
+        val last = if (rememberSubLang(c)) s.getString("last_sub_lang", null)?.takeIf { it.isNotBlank() } else null
+        return last ?: s.getString("pref_sub_lang", "")?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** "on", "off" or null (nothing remembered / remembering disabled). */
+    fun rememberedSubState(c: Context): String? =
+        if (rememberSubSelection(c)) sp(c).getString("last_sub_state", null) else null
+    fun rememberedSubLabel(c: Context): String? =
+        if (rememberSubSelection(c)) sp(c).getString("last_sub_label", null)?.takeIf { it.isNotBlank() } else null
+
+    fun saveSubChoice(c: Context, on: Boolean, label: String?, lang: String?) {
+        val e = sp(c).edit()
+        if (rememberSubSelection(c)) {
+            e.putString("last_sub_state", if (on) "on" else "off")
+            if (on) e.putString("last_sub_label", label ?: "")
+        }
+        if (on && rememberSubLang(c) && !lang.isNullOrBlank() && lang != "und") e.putString("last_sub_lang", lang)
+        e.apply()
+    }
+
+    fun subDelay(c: Context): Long = if (rememberSubStyle(c)) sp(c).getLong("last_sub_delay", 0L) else 0L
+    fun saveSubDelay(c: Context, ms: Long) { if (rememberSubStyle(c)) sp(c).edit().putLong("last_sub_delay", ms).apply() }
+
+    // ---- gesture sides: "left" or "right" ----
+    fun brightnessSide(c: Context) = sp(c).getString("brightness_side", "left") ?: "left"
+    fun volumeSide(c: Context) = sp(c).getString("volume_side", "right") ?: "right"
+
+    // ---- home screen ----
+    /** "folders" or "all" — the section the home screen should open on. */
+    fun homeStartSection(c: Context): String {
+        val s = sp(c)
+        return when (s.getString("home_default", "folders")) {
+            "all" -> "all"
+            "last" -> s.getString("last_home_section", "folders") ?: "folders"
+            else -> "folders"
+        }
+    }
+    fun saveHomeSection(c: Context, section: String) = sp(c).edit().putString("last_home_section", section).apply()
+    fun hideSystemFolders(c: Context) = sp(c).getBoolean("hide_system_folders", true)
+    fun folderSort(c: Context) = sp(c).getString("folder_sort", "name") ?: "name"
+    fun showWatchStats(c: Context) = sp(c).getBoolean("show_watch_stats", true)
+
+    // ---- picture-in-picture ----
+    fun pipEnabled(c: Context) = sp(c).getBoolean("pip_enabled", true)
+    /** "auto" (prev/next when there is a queue, else seek), "seek" or "track". */
+    fun pipControls(c: Context) = sp(c).getString("pip_controls", "auto") ?: "auto"
+
     fun applyTheme(c: Context) {
         val mode = when (sp(c).getString("theme", "dark")) {
             "light" -> AppCompatDelegate.MODE_NIGHT_NO

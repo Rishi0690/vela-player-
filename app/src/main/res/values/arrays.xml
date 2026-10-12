@@ -27,4 +27,12 @@
     <string-array name="buffer_values"><item>low</item><item>normal</item><item>high</item></string-array>
     <string-array name="theme_entries"><item>Dark</item><item>Light</item><item>Follow system</item></string-array>
     <string-array name="theme_values"><item>dark</item><item>light</item><item>system</item></string-array>
+    <string-array name="side_entries"><item>Left side</item><item>Right side</item></string-array>
+    <string-array name="side_values"><item>left</item><item>right</item></string-array>
+    <string-array name="home_entries"><item>Folders first</item><item>All videos first</item><item>Remember last section</item></string-array>
+    <string-array name="home_values"><item>folders</item><item>all</item><item>last</item></string-array>
+    <string-array name="folder_sort_entries"><item>Name (A–Z)</item><item>Most videos first</item><item>Recently added first</item></string-array>
+    <string-array name="folder_sort_values"><item>name</item><item>count</item><item>recent</item></string-array>
+    <string-array name="pip_controls_entries"><item>Automatic (previous/next when there is a queue)</item><item>Rewind / play / forward</item><item>Previous / play / next</item></string-array>
+    <string-array name="pip_controls_values"><item>auto</item><item>seek</item><item>track</item></string-array>
 </resources>

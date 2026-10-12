@@ -1,6 +1,24 @@
 package com.hark.velaplayer
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.graphics.drawable.Icon
+import android.os.SystemClock
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.LayoutInflater
+import android.view.ViewGroup
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.chip.Chip
+import com.google.android.material.slider.Slider
+import com.hark.velaplayer.databinding.ItemBrowserBinding
 import android.app.PictureInPictureParams
 import android.content.ComponentName
 import android.content.Intent
@@ -77,6 +95,23 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_TITLES = "titles"
         const val EXTRA_INDEX = "index"
         private val SPEEDS = floatArrayOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 4f)
+        private const val SPEED_MIN = 0.25f
+        private const val SPEED_MAX = 4f
+        private const val SPEED_STEP = 0.05f
+        private const val ACTION_PIP = "com.hark.velaplayer.PIP_CONTROL"
+        private const val EXTRA_CONTROL = "control"
+        private const val CTRL_PLAY = 1
+        private const val CTRL_PAUSE = 2
+        private const val CTRL_PREV = 3
+        private const val CTRL_NEXT = 4
+        private const val CTRL_REWIND = 5
+        private const val CTRL_FORWARD = 6
+
+        /** Snaps any speed onto the slider's 0.05 grid within its range. */
+        fun snapSpeed(v: Float): Float {
+            val steps = ((v.coerceIn(SPEED_MIN, SPEED_MAX) - SPEED_MIN) / SPEED_STEP).roundToInt()
+            return ((SPEED_MIN + steps * SPEED_STEP) * 100).roundToInt() / 100f
+        }
 
         fun formatSpeed(s: Float): String {
             val r = (s * 100).roundToInt() / 100f
@@ -131,9 +166,49 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var gestures: GestureDetector
     private lateinit var scaleGestures: ScaleGestureDetector
 
+    // Track preferences are applied once per video, after its tracks are known.
+    private var tracksAppliedFor: String? = null
+    // Subtitle look used for this session when "Remember subtitle appearance" is off.
+    private val sessionStyle = HashMap<String, Any>()
+
+    // Skip feedback (buttons and double-tap share it).
+    private var seekFbSide = 0
+    private var seekFbAccum = 0L
+    private var seekFbTime = 0L
+    private var dragSide = "left"
+
+    // Speed popup
+    private var speedPanelOpen = false
+
+    // Quick video browser
+    private var library: List<VideoItem>? = null
+    private var libraryLoading = false
+    private var browserOpen = false
+    private var browserScopeAll = false
+    private var browserFolderId: String? = null
+    private var browserFolderName: String? = null
+    private var browserQuery = ""
+    private val browserAdapter = BrowserAdapter()
+
     private val hideControlsRunnable = Runnable { setControlsVisible(false) }
     private val hideIndicatorRunnable = Runnable { b.indicator.isVisible = false }
-    private val hideTapRunnable = Runnable { b.tapLeft.isVisible = false; b.tapRight.isVisible = false; tapAccum = 0L }
+    private val hideTapRunnable = Runnable { fadeOut(b.tapLeft); fadeOut(b.tapRight); seekFbAccum = 0L }
+    private val hideSideRunnable = Runnable { fadeOut(b.sideLeft); fadeOut(b.sideRight) }
+
+    private val pipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (!playerReady || intent?.action != ACTION_PIP) return
+            when (intent.getIntExtra(EXTRA_CONTROL, 0)) {
+                CTRL_PLAY -> togglePlayPauseTo(true)
+                CTRL_PAUSE -> togglePlayPauseTo(false)
+                CTRL_PREV -> { savePosition(); player.seekToPreviousMediaItem() }
+                CTRL_NEXT -> { savePosition(); player.seekToNextMediaItem() }
+                CTRL_REWIND -> seekBy(-seekIntervalMs)
+                CTRL_FORWARD -> seekBy(seekIntervalMs)
+            }
+            updatePipParams()
+        }
+    }
     private val hideUnlockRunnable = Runnable { b.btnUnlock.isVisible = false }
     private val ticker = object : Runnable {
         override fun run() {
@@ -166,12 +241,26 @@ class PlayerActivity : AppCompatActivity() {
             val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             b.videoFrame.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             b.controls.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            b.edgeOverlay.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            val pad = dp(12)
+            b.browserPanel.setPadding(0, safe.top, safe.right, safe.bottom)
+            b.browserList.setPadding(dp(8), 0, dp(8), pad)
+            (b.speedPanel.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let {
+                it.bottomMargin = safe.bottom + dp(92); b.speedPanel.layoutParams = it
+            }
             insets
         }
         setFullscreen(true)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { if (locked) showUnlockButton() else finish() }
+            override fun handleOnBackPressed() {
+                when {
+                    browserOpen -> closeBrowser()
+                    speedPanelOpen -> hideSpeedPanel()
+                    locked -> showUnlockButton()
+                    else -> finish()
+                }
+            }
         })
 
         seekIntervalMs = Prefs.seekInterval(this)
@@ -188,7 +277,10 @@ class PlayerActivity : AppCompatActivity() {
         applySubtitleStyle()
         setupControls()
         setupGestures()
+        setupSpeedPanel()
+        setupBrowser()
         if (!pipSupported()) b.btnPip.isVisible = false
+        ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
 
         if (!loadQueue(intent)) {
             Toast.makeText(this, "Nothing to play", Toast.LENGTH_SHORT).show()
@@ -221,6 +313,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        try { unregisterReceiver(pipReceiver) } catch (_: Exception) { }
         if (playerReady) {
             savePosition()
             disconnectSession()
@@ -246,7 +339,8 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Prefs.autoPip(this) && player.isPlaying && pipSupported()) enterPip()
+        // Android 12+ enters PiP on its own (setAutoEnterEnabled); older versions need a manual call.
+        if (Build.VERSION.SDK_INT < 31 && Prefs.autoPip(this) && player.isPlaying && pipSupported()) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
@@ -255,6 +349,15 @@ class PlayerActivity : AppCompatActivity() {
             setControlsVisible(false)
             b.indicator.isVisible = false
             b.btnUnlock.isVisible = false
+            if (browserOpen) closeBrowser(false)
+            if (speedPanelOpen) hideSpeedPanel()
+            b.edgeOverlay.isVisible = false
+            b.pipProgress.isVisible = true
+            updatePipProgress()
+            updatePipParams()
+        } else {
+            b.edgeOverlay.isVisible = true
+            b.pipProgress.isVisible = false
         }
         b.videoLayout.resetZoom(false)
     }
@@ -271,16 +374,22 @@ class PlayerActivity : AppCompatActivity() {
             intent.data?.let { entries += Entry(it.toString(), displayName(it)) }
         }
         if (entries.isEmpty()) return false
-        val start = intent.getIntExtra(EXTRA_INDEX, 0).coerceIn(0, entries.lastIndex)
+        startQueue(entries, intent.getIntExtra(EXTRA_INDEX, 0))
+        return true
+    }
+
+    /** Replaces the queue and starts playing [index]. Speed, aspect, subtitle look etc. carry over. */
+    private fun startQueue(entries: List<Entry>, index: Int) {
+        val start = index.coerceIn(0, entries.lastIndex)
         val startPos = if (Prefs.resume(this)) Store.position(this, entries[start].uri) else 0L
         externalSubs = null; externalActive = false; shownExternal = emptyList()
+        tracksAppliedFor = null
         b.errorPanel.isVisible = false
         player.setMediaItems(entries.map { buildItem(it) }, start, startPos)
         player.setPlaybackSpeed(Prefs.speed(this))
         player.pauseAtEndOfMediaItems = !Prefs.autoplayNext(this)
         player.prepare()
         player.playWhenReady = true
-        return true
     }
 
     private fun buildItem(e: Entry): MediaItem {
@@ -329,7 +438,7 @@ class PlayerActivity : AppCompatActivity() {
             b.loading.isVisible = playbackState == Player.STATE_BUFFERING
             if (playbackState == Player.STATE_READY) b.errorPanel.isVisible = false
             if (playbackState == Player.STATE_ENDED) {
-                player.currentMediaItem?.let { Store.clearPosition(this@PlayerActivity, it.mediaId) }
+                player.currentMediaItem?.let { Store.markWatched(this@PlayerActivity, it.mediaId) }
                 setControlsVisible(true)
             }
             updatePlayButton(); updateProgress()
@@ -345,6 +454,7 @@ class PlayerActivity : AppCompatActivity() {
             if (isPlaying && Prefs.keepScreenOn(this@PlayerActivity)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (isPlaying) scheduleHide() else { handler.removeCallbacks(hideControlsRunnable); savePosition() }
+            updatePipParams()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -360,11 +470,21 @@ class PlayerActivity : AppCompatActivity() {
                 if (p > 0) player.seekTo(p)
             }
             updateNavButtons()
+            resetTrackParamsForNewItem()
+            updatePipParams()
+            if (browserOpen) renderBrowser(false)
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            val id = player.currentMediaItem?.mediaId ?: return
+            if (tracksAppliedFor == id || tracks.groups.isEmpty()) return
+            tracksAppliedFor = id
+            applyRememberedTracks(tracks)
         }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
-                oldPosition.mediaItem?.let { Store.clearPosition(this@PlayerActivity, it.mediaId) }
+                oldPosition.mediaItem?.let { Store.markWatched(this@PlayerActivity, it.mediaId) }
             }
         }
 
@@ -374,9 +494,10 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
             b.btnSpeed.text = formatSpeed(playbackParameters.speed)
+            if (speedPanelOpen) refreshSpeedPanel(playbackParameters.speed)
         }
 
-        override fun onTimelineChanged(timeline: Timeline, reason: Int) { updateNavButtons(); updateProgress() }
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) { updateNavButtons(); updateProgress(); updatePipParams() }
     }
 
     private val analyticsListener = object : AnalyticsListener {
@@ -433,11 +554,13 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupControls() {
         b.btnBack.setOnClickListener { finish() }
         b.btnPlay.setOnClickListener { togglePlayPause(); scheduleHide() }
-        b.btnRewind.setOnClickListener { seekBy(-seekIntervalMs); scheduleHide() }
-        b.btnForward.setOnClickListener { seekBy(seekIntervalMs); scheduleHide() }
+        b.btnRewind.setOnClickListener { showSeekFeedback(-1, seekBy(-seekIntervalMs)); scheduleHide() }
+        b.btnForward.setOnClickListener { showSeekFeedback(1, seekBy(seekIntervalMs)); scheduleHide() }
         b.btnPrev.setOnClickListener { savePosition(); player.seekToPreviousMediaItem(); scheduleHide() }
         b.btnNext.setOnClickListener { savePosition(); player.seekToNextMediaItem(); scheduleHide() }
-        b.btnSpeed.setOnClickListener { showSpeedDialog() }
+        b.btnSpeed.setOnClickListener { showSpeedPanel(sliderOnly = false) }
+        b.btnSpeed.setOnLongClickListener { showSpeedPanel(sliderOnly = true); true }
+        b.btnBrowse.setOnClickListener { openBrowser() }
         b.btnAspect.setOnClickListener { showAspectDialog() }
         b.btnAspect.setOnLongClickListener { cycleAspect(); true }
         b.btnAspectLabel.setOnClickListener { cycleAspect() }
@@ -485,15 +608,63 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun seekBy(delta: Long) {
-        if (!player.isCurrentMediaItemSeekable) return
+    private fun togglePlayPauseTo(play: Boolean) {
+        if (play) {
+            if (player.playbackState == Player.STATE_ENDED) player.seekTo(player.currentMediaItemIndex, 0)
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            player.play()
+        } else player.pause()
+    }
+
+    /** Seeks by [delta] (clamped to the video) and returns how far it actually moved, in ms (signed). */
+    private fun seekBy(delta: Long): Long {
+        if (!player.isCurrentMediaItemSeekable) return 0L
         val dur = player.duration
-        var t = player.currentPosition + delta
+        val from = player.currentPosition
+        var t = from + delta
         if (t < 0) t = 0
         if (dur != C.TIME_UNSET && t > dur) t = dur
         player.seekTo(t)
         updateProgress()
+        return t - from
     }
+
+    /**
+     * Shared skip feedback for the skip buttons and double-tap: shows the real amount moved near that side,
+     * adding up repeated taps in the same direction.
+     */
+    private fun showSeekFeedback(side: Int, movedMs: Long) {
+        if (!player.isCurrentMediaItemSeekable) return
+        val now = SystemClock.uptimeMillis()
+        if (side != seekFbSide || now - seekFbTime > 1000) seekFbAccum = 0L
+        seekFbSide = side; seekFbTime = now
+        seekFbAccum += abs(movedMs)
+        val secs = (seekFbAccum + 500) / 1000
+        val box = if (side < 0) b.tapLeft else b.tapRight
+        val text = if (side < 0) b.tapLeftText else b.tapRightText
+        handler.removeCallbacks(hideTapRunnable)
+        (if (side < 0) b.tapRight else b.tapLeft).let { it.animate().cancel(); it.isVisible = false }
+        text.text = when {
+            secs == 0L -> if (side < 0) "At start" else "At end"
+            else -> (if (side < 0) "−" else "+") + secs + if (secs == 1L) " second" else " seconds"
+        }
+        fadeIn(box)
+        handler.postDelayed(hideTapRunnable, 900)
+    }
+
+    private fun fadeIn(v: View) {
+        v.animate().cancel()
+        if (!v.isVisible) { v.alpha = 0f; v.isVisible = true }
+        v.animate().alpha(1f).setDuration(120).start()
+    }
+
+    private fun fadeOut(v: View) {
+        if (!v.isVisible) return
+        v.animate().cancel()
+        v.animate().alpha(0f).setDuration(220).withEndAction { v.isVisible = false }.start()
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
 
     private fun updatePlayButton() {
         val showPause = player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE
@@ -532,6 +703,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun tick() {
         if (controlsVisible) updateProgress()
+        if (b.pipProgress.isVisible) updatePipProgress()
         if (externalActive) renderExternalSubs()
     }
 
@@ -649,6 +821,7 @@ class PlayerActivity : AppCompatActivity() {
         gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (speedPanelOpen) { hideSpeedPanel(); return true }
                 if (locked) showUnlockButton() else setControlsVisible(!controlsVisible)
                 return true
             }
@@ -702,17 +875,7 @@ class PlayerActivity : AppCompatActivity() {
             else -> 0
         }
         if (side != 0 && Prefs.gesture(this, "gesture_double_tap_seek") && player.isCurrentMediaItemSeekable) {
-            val now = System.currentTimeMillis()
-            if (side != lastTapSide || now - lastTapTime > 1000) tapAccum = 0
-            lastTapSide = side; lastTapTime = now
-            tapAccum += seekIntervalMs
-            seekBy(side * seekIntervalMs)
-            val tv = if (side < 0) b.tapLeft else b.tapRight
-            (if (side < 0) b.tapRight else b.tapLeft).isVisible = false
-            tv.text = (if (side < 0) "−" else "+") + "${tapAccum / 1000}s"
-            tv.isVisible = true
-            handler.removeCallbacks(hideTapRunnable)
-            handler.postDelayed(hideTapRunnable, 800)
+            showSeekFeedback(side, seekBy(side * seekIntervalMs))
         } else if (side == 0 && Prefs.gesture(this, "gesture_double_tap_center")) {
             togglePlayPause()
             val playing = player.playWhenReady
@@ -737,9 +900,7 @@ class PlayerActivity : AppCompatActivity() {
                 b.videoLayout.isZoomed -> Drag.PAN
                 abs(tdx) > abs(tdy) * 1.2f ->
                     if (Prefs.gesture(this, "gesture_horizontal_seek") && player.isCurrentMediaItemSeekable && player.duration > 0) Drag.SEEK else Drag.IGNORE
-                abs(tdy) > abs(tdx) * 1.2f ->
-                    if (e1.x < w / 2) { if (Prefs.gesture(this, "gesture_brightness")) Drag.BRIGHTNESS else Drag.IGNORE }
-                    else { if (Prefs.gesture(this, "gesture_volume")) Drag.VOLUME else Drag.IGNORE }
+                abs(tdy) > abs(tdx) * 1.2f -> verticalDragFor(e1.x, w)
                 else -> return
             }
             when (drag) {
@@ -764,14 +925,14 @@ class PlayerActivity : AppCompatActivity() {
                 brightness = (brightness + dy / h).coerceIn(0.01f, 1f)
                 window.attributes = window.attributes.apply { screenBrightness = brightness }
                 val pct = (brightness * 100).roundToInt()
-                showIndicator(R.drawable.ic_brightness, "Brightness $pct%", pct)
+                showSideLevel(R.drawable.ic_brightness, pct)
             }
             Drag.VOLUME -> {
                 val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 volumeLevel = (volumeLevel + dy / h * max * 1.5f).coerceIn(0f, max.toFloat())
                 try { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volumeLevel.roundToInt(), 0) } catch (_: SecurityException) { }
                 val pct = if (max > 0) (volumeLevel / max * 100).roundToInt() else 0
-                showIndicator(if (pct == 0) R.drawable.ic_volume_off else R.drawable.ic_volume, "Volume $pct%", pct)
+                showSideLevel(if (pct == 0) R.drawable.ic_volume_off else R.drawable.ic_volume, pct)
             }
             else -> {}
         }
@@ -782,9 +943,51 @@ class PlayerActivity : AppCompatActivity() {
             player.seekTo(seekTarget)
             userSeeking = false
         }
-        if (drag != Drag.NONE && drag != Drag.IGNORE) hideIndicatorSoon()
+        when (drag) {
+            Drag.BRIGHTNESS, Drag.VOLUME -> { handler.removeCallbacks(hideSideRunnable); handler.postDelayed(hideSideRunnable, 800) }
+            Drag.NONE, Drag.IGNORE -> {}
+            else -> hideIndicatorSoon()
+        }
         drag = Drag.NONE
         scaling = false
+    }
+
+    /**
+     * Which vertical gesture a swipe starting at [x] controls, from the user's side settings.
+     * If both brightness and volume are set to the same side, that half is split: the outer part (near the edge)
+     * is brightness and the inner part is volume.
+     */
+    private fun verticalDragFor(x: Float, w: Float): Drag {
+        val side = if (x < w / 2) "left" else "right"
+        val wantsB = Prefs.gesture(this, "gesture_brightness") && Prefs.brightnessSide(this) == side
+        val wantsV = Prefs.gesture(this, "gesture_volume") && Prefs.volumeSide(this) == side
+        dragSide = side
+        return when {
+            wantsB && wantsV -> {
+                val outer = if (side == "left") x < w / 4 else x > w * 3 / 4
+                if (outer) Drag.BRIGHTNESS else Drag.VOLUME
+            }
+            wantsB -> Drag.BRIGHTNESS
+            wantsV -> Drag.VOLUME
+            else -> Drag.IGNORE
+        }
+    }
+
+    /** Brightness/volume level pill, shown at the edge of the side being swiped. */
+    private fun showSideLevel(icon: Int, pct: Int) {
+        handler.removeCallbacks(hideSideRunnable)
+        val left = dragSide == "left"
+        val box = if (left) b.sideLeft else b.sideRight
+        val other = if (left) b.sideRight else b.sideLeft
+        val track = if (left) b.sideLeftTrack else b.sideRightTrack
+        val fill = if (left) b.sideLeftFill else b.sideRightFill
+        (if (left) b.sideLeftIcon else b.sideRightIcon).setImageResource(icon)
+        (if (left) b.sideLeftText else b.sideRightText).text = "$pct%"
+        val trackH = if (track.height > 0) track.height else dp(120)
+        fill.layoutParams = fill.layoutParams.apply { height = (trackH * pct.coerceIn(0, 100) / 100f).roundToInt() }
+        if (other.isVisible) { other.animate().cancel(); other.isVisible = false }
+        b.indicator.isVisible = false
+        fadeIn(box)
     }
 
     private fun currentBrightness(): Float {
@@ -873,18 +1076,80 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun showSpeedDialog() {
-        val cur = player.playbackParameters.speed
-        val idx = SPEEDS.indexOfFirst { abs(it - cur) < 0.01f }
-        dialog("Playback speed")
-            .setSingleChoiceItems(SPEEDS.map { formatSpeed(it) }.toTypedArray(), idx) { d, i ->
-                player.setPlaybackSpeed(SPEEDS[i])
-                Prefs.saveSpeed(this, SPEEDS[i])
-                d.dismiss()
+    // ------------------------------------------------------------------ speed popup
+
+    private fun setupSpeedPanel() {
+        b.speedSlider.setLabelFormatter { String.format(Locale.US, "%.2fx", it) }
+        b.speedSlider.addOnChangeListener { _, value, fromUser -> if (fromUser) applySpeed(value) }
+        b.speedSlider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) { handler.removeCallbacks(hideControlsRunnable) }
+            override fun onStopTrackingTouch(slider: Slider) { applySpeed(slider.value) }
+        })
+        SPEEDS.forEach { sp ->
+            val chip = layoutInflater.inflate(R.layout.chip_speed, b.speedPresets, false) as Chip
+            chip.id = View.generateViewId()
+            chip.tag = sp
+            chip.text = if (sp == 1f) "1x · Normal" else formatSpeed(sp)
+            if (sp == 1f) {
+                chip.chipStrokeWidth = dp(2).toFloat()
+                chip.chipStrokeColor = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this, R.color.accent))
             }
-            .setPositiveButton("Close", null)
-            .show()
+            chip.setOnClickListener { applySpeed(sp) }
+            b.speedPresets.addView(chip)
+        }
+        b.speedReset.setOnClickListener { applySpeed(1f) }
+        b.speedClose.setOnClickListener { hideSpeedPanel() }
     }
+
+    /** Changes the real playback speed and remembers it (Prefs decides whether it's used next time). */
+    private fun applySpeed(v: Float) {
+        val s = snapSpeed(v)
+        player.setPlaybackSpeed(s)
+        Prefs.saveSpeed(this, s)
+        refreshSpeedPanel(s)
+    }
+
+    private fun refreshSpeedPanel(speed: Float) {
+        val s = snapSpeed(speed)
+        b.speedValue.text = String.format(Locale.US, "%.2fx", speed)
+        b.speedNormalTag.isVisible = abs(speed - 1f) < 0.001f
+        if (abs(b.speedSlider.value - s) > 0.001f) b.speedSlider.value = s
+        var found = false
+        for (i in 0 until b.speedPresets.childCount) {
+            val c = b.speedPresets.getChildAt(i) as Chip
+            val match = abs((c.tag as Float) - speed) < 0.001f
+            c.isChecked = match
+            if (match) found = true
+        }
+        if (!found) b.speedPresets.clearCheck()
+    }
+
+    /** Tap: presets + slider. Press and hold: compact slider-only view. Speed changes apply instantly. */
+    private fun showSpeedPanel(sliderOnly: Boolean) {
+        if (browserOpen) closeBrowser(false)
+        val avail = (if (b.root.width > 0) b.root.width else resources.displayMetrics.widthPixels) - dp(24)
+        b.speedPanel.layoutParams = b.speedPanel.layoutParams.apply { width = min(avail, dp(440)) }
+        b.speedPresetScroll.isVisible = !sliderOnly
+        refreshSpeedPanel(player.playbackParameters.speed)
+        speedPanelOpen = true
+        handler.removeCallbacks(hideControlsRunnable)
+        fadeIn(b.speedPanel)
+        b.speedPanel.translationY = dp(16).toFloat()
+        b.speedPanel.animate().translationY(0f).alpha(1f).setDuration(160).start()
+        if (!sliderOnly) b.speedPresets.post {
+            val checked = b.speedPresets.findViewById<View>(b.speedPresets.checkedChipId)
+            if (checked != null) b.speedPresetScroll.smoothScrollTo((checked.left - dp(60)).coerceAtLeast(0), 0)
+        }
+    }
+
+    private fun hideSpeedPanel() {
+        speedPanelOpen = false
+        fadeOut(b.speedPanel)
+        if (fullscreen) setFullscreen(true)
+        scheduleHide()
+    }
+
+    private fun showSpeedDialog() = showSpeedPanel(sliderOnly = false)
 
     private fun trackLabel(f: Format, n: Int, type: Int): String {
         val parts = ArrayList<String>()
@@ -937,6 +1202,7 @@ class PlayerActivity : AppCompatActivity() {
                     .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                     .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
                     .build()
+                Prefs.saveAudioLang(this, g.getTrackFormat(i).language)
                 d.dismiss()
             }
         }
@@ -984,19 +1250,22 @@ class PlayerActivity : AppCompatActivity() {
     private fun selectSubtitle(o: SubOption) {
         when (o) {
             SubOption.Off -> {
+                Prefs.saveSubChoice(this, false, null, null)
                 externalActive = false
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
                 b.subtitleView.setCues(emptyList())
             }
             is SubOption.Embedded -> {
+                val f = o.group.getTrackFormat(o.index)
+                Prefs.saveSubChoice(this, true, f.label, f.language)
                 externalActive = false
                 b.subtitleView.setCues(emptyList())
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                     .setOverrideForType(TrackSelectionOverride(o.group.mediaTrackGroup, o.index)).build()
             }
-            SubOption.External -> activateExternal()
+            SubOption.External -> { Prefs.saveSubChoice(this, true, null, null); activateExternal() }
         }
     }
 
@@ -1033,7 +1302,7 @@ class PlayerActivity : AppCompatActivity() {
                         result == null -> toast("Couldn't open \"$name\".")
                         result.isEmpty() -> toast("No subtitle lines found in \"$name\". Is it a valid SRT/VTT file?")
                         else -> {
-                            externalSubs = result; externalName = name; subtitleDelayMs = 0
+                            externalSubs = result; externalName = name; subtitleDelayMs = Prefs.subDelay(this)
                             activateExternal()
                             toast("Loaded ${result.size} subtitle lines")
                         }
@@ -1062,12 +1331,25 @@ class PlayerActivity : AppCompatActivity() {
         toast("Added \"$name\" as a subtitle track")
     }
 
+    // Subtitle look: saved to settings when "Remember subtitle appearance" is on, otherwise kept for this session only.
+    private fun styleInt(k: String, def: Int): Int =
+        if (Prefs.rememberSubStyle(this)) Prefs.sp(this).getInt(k, def) else (sessionStyle[k] as? Int) ?: Prefs.sp(this).getInt(k, def)
+    private fun styleStr(k: String, def: String): String =
+        if (Prefs.rememberSubStyle(this)) Prefs.sp(this).getString(k, def) ?: def
+        else (sessionStyle[k] as? String) ?: Prefs.sp(this).getString(k, def) ?: def
+    private fun putStyle(k: String, v: Any) {
+        if (Prefs.rememberSubStyle(this)) {
+            val e = Prefs.sp(this).edit()
+            if (v is Int) e.putInt(k, v) else e.putString(k, v.toString())
+            e.apply()
+        } else sessionStyle[k] = v
+    }
+
     private fun applySubtitleStyle() {
-        val sp = Prefs.sp(this)
-        val size = sp.getInt("sub_size", 100)
-        val pos = sp.getInt("sub_position", 8)
-        val fg = try { Color.parseColor(sp.getString("sub_color", "#FFFFFFFF")) } catch (e: Exception) { Color.WHITE }
-        val (bg, edge) = when (sp.getString("sub_bg", "outline")) {
+        val size = styleInt("sub_size", 100)
+        val pos = styleInt("sub_position", 8)
+        val fg = try { Color.parseColor(styleStr("sub_color", "#FFFFFFFF")) } catch (e: Exception) { Color.WHITE }
+        val (bg, edge) = when (styleStr("sub_bg", "outline")) {
             "shadow" -> Color.TRANSPARENT to CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
             "semi" -> 0x99000000.toInt() to CaptionStyleCompat.EDGE_TYPE_NONE
             "black" -> Color.BLACK to CaptionStyleCompat.EDGE_TYPE_NONE
@@ -1080,24 +1362,23 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun showSubtitleStyleDialog() {
-        val sp = Prefs.sp(this)
         val v = DialogSubtitleStyleBinding.inflate(layoutInflater)
         val colorValues = resources.getStringArray(R.array.sub_color_values)
         val bgValues = resources.getStringArray(R.array.sub_bg_values)
         v.subColor.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, resources.getStringArray(R.array.sub_color_entries))
         v.subBg.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, resources.getStringArray(R.array.sub_bg_entries))
-        v.subColor.setSelection(colorValues.indexOf(sp.getString("sub_color", "#FFFFFFFF")).coerceAtLeast(0))
-        v.subBg.setSelection(bgValues.indexOf(sp.getString("sub_bg", "outline")).coerceAtLeast(0))
-        v.subSize.progress = sp.getInt("sub_size", 100) - 50
-        v.subPos.progress = sp.getInt("sub_position", 8)
-        v.sizeLabel.text = "Text size: ${sp.getInt("sub_size", 100)}%"
-        v.posLabel.text = "Position from bottom: ${sp.getInt("sub_position", 8)}%"
+        v.subColor.setSelection(colorValues.indexOf(styleStr("sub_color", "#FFFFFFFF")).coerceAtLeast(0))
+        v.subBg.setSelection(bgValues.indexOf(styleStr("sub_bg", "outline")).coerceAtLeast(0))
+        v.subSize.progress = styleInt("sub_size", 100) - 50
+        v.subPos.progress = styleInt("sub_position", 8)
+        v.sizeLabel.text = "Text size: ${styleInt("sub_size", 100)}%"
+        v.posLabel.text = "Position from bottom: ${styleInt("sub_position", 8)}%"
 
         val delayEnabled = externalSubs != null
         listOf(v.delayMinus1, v.delayMinus, v.delayPlus, v.delayPlus1).forEach { it.isEnabled = delayEnabled }
         fun showDelay() { v.delayValue.text = String.format(Locale.US, "%+.1fs", subtitleDelayMs / 1000f) }
         showDelay()
-        fun shift(d: Long) { subtitleDelayMs += d; shownExternal = emptyList(); showDelay(); renderExternalSubs() }
+        fun shift(d: Long) { subtitleDelayMs += d; Prefs.saveSubDelay(this, subtitleDelayMs); shownExternal = emptyList(); showDelay(); renderExternalSubs() }
         v.delayMinus1.setOnClickListener { shift(-1000) }
         v.delayMinus.setOnClickListener { shift(-100) }
         v.delayPlus.setOnClickListener { shift(100) }
@@ -1106,8 +1387,8 @@ class PlayerActivity : AppCompatActivity() {
         val seekListener = object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
                 if (!fromUser) return
-                if (s === v.subSize) { sp.edit().putInt("sub_size", p + 50).apply(); v.sizeLabel.text = "Text size: ${p + 50}%" }
-                else { sp.edit().putInt("sub_position", p).apply(); v.posLabel.text = "Position from bottom: $p%" }
+                if (s === v.subSize) { putStyle("sub_size", p + 50); v.sizeLabel.text = "Text size: ${p + 50}%" }
+                else { putStyle("sub_position", p); v.posLabel.text = "Position from bottom: $p%" }
                 applySubtitleStyle()
             }
             override fun onStartTrackingTouch(s: SeekBar) {}
@@ -1116,11 +1397,11 @@ class PlayerActivity : AppCompatActivity() {
         v.subSize.setOnSeekBarChangeListener(seekListener)
         v.subPos.setOnSeekBarChangeListener(seekListener)
         v.subColor.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, view: View?, pos: Int, id: Long) { sp.edit().putString("sub_color", colorValues[pos]).apply(); applySubtitleStyle() }
+            override fun onItemSelected(p: AdapterView<*>?, view: View?, pos: Int, id: Long) { putStyle("sub_color", colorValues[pos]); applySubtitleStyle() }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
         v.subBg.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, view: View?, pos: Int, id: Long) { sp.edit().putString("sub_bg", bgValues[pos]).apply(); applySubtitleStyle() }
+            override fun onItemSelected(p: AdapterView<*>?, view: View?, pos: Int, id: Long) { putStyle("sub_bg", bgValues[pos]); applySubtitleStyle() }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
         dialog("Subtitle style & timing").setView(v.root).setPositiveButton("Done", null).show()
@@ -1169,6 +1450,7 @@ class PlayerActivity : AppCompatActivity() {
         pm.menu.add(0, 3, 2, "Load subtitle file")
         pm.menu.add(0, 4, 3, "Video info")
         if (pipSupported()) pm.menu.add(0, 5, 4, "Picture-in-picture")
+        pm.menu.add(0, 9, 8, "Browse videos")
         pm.menu.add(0, 6, 5, "Background audio").apply { isCheckable = true; isChecked = Prefs.backgroundAudio(this@PlayerActivity) }
         pm.menu.add(0, 7, 6, "Lock screen")
         pm.menu.add(0, 8, 7, "All settings")
@@ -1187,6 +1469,7 @@ class PlayerActivity : AppCompatActivity() {
                 }
                 7 -> lockControls()
                 8 -> startActivity(Intent(this, SettingsActivity::class.java))
+                9 -> openBrowser()
             }
             true
         }
@@ -1196,22 +1479,69 @@ class PlayerActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ PiP & background
 
-    private fun pipSupported() = Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    private fun pipSupported() = Build.VERSION.SDK_INT >= 26 && Prefs.pipEnabled(this) &&
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    private fun pipAction(icon: Int, title: String, ctrl: Int, enabled: Boolean = true): RemoteAction? {
+        if (Build.VERSION.SDK_INT < 26) return null
+        val pi = PendingIntent.getBroadcast(
+            this, ctrl, Intent(ACTION_PIP).setPackage(packageName).putExtra(EXTRA_CONTROL, ctrl),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return RemoteAction(Icon.createWithResource(this, icon), title, title, pi).apply { isEnabled = enabled }
+    }
+
+    /**
+     * PiP buttons that drive the real player. Android shows a limited number (usually 3), so the most useful
+     * ones win: play/pause always, then previous/next when there's a queue (or the Settings choice), else rewind/forward.
+     */
+    private fun pipActions(): List<RemoteAction> {
+        if (Build.VERSION.SDK_INT < 26) return emptyList()
+        val max = (try { maxNumPictureInPictureActions } catch (_: Exception) { 3 }).coerceAtLeast(1)
+        val hasQueue = player.mediaItemCount > 1
+        val useTrack = when (Prefs.pipControls(this)) { "track" -> true; "seek" -> false; else -> hasQueue }
+        val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE
+        val secs = seekIntervalMs / 1000
+        val play = if (playing) pipAction(R.drawable.ic_pip_pause, "Pause", CTRL_PAUSE) else pipAction(R.drawable.ic_pip_play, "Play", CTRL_PLAY)
+        val prev = pipAction(R.drawable.ic_pip_skip_prev, "Previous video", CTRL_PREV, player.hasPreviousMediaItem())
+        val next = pipAction(R.drawable.ic_pip_skip_next, "Next video", CTRL_NEXT, player.hasNextMediaItem())
+        val seekable = player.isCurrentMediaItemSeekable
+        val rew = pipAction(R.drawable.ic_pip_rewind, "Rewind $secs seconds", CTRL_REWIND, seekable)
+        val fwd = pipAction(R.drawable.ic_pip_fast_forward, "Forward $secs seconds", CTRL_FORWARD, seekable)
+        // Display order (left to right) and priority (what survives when space is short).
+        val display = listOf(rew, prev, play, next, fwd)
+        val priority = if (useTrack) listOf(play, next, prev, fwd, rew) else listOf(play, fwd, rew, next, prev)
+        val keep = priority.filterNotNull().take(max).toSet()
+        return display.filterNotNull().filter { it in keep }
+    }
 
     private fun pipParams(): PictureInPictureParams? {
         if (Build.VERSION.SDK_INT < 26) return null
         val vs = player.videoSize
         var ratio = if (vs.width > 0 && vs.height > 0) vs.width * vs.pixelWidthHeightRatio / vs.height else 16f / 9f
         ratio = ratio.coerceIn(1f / 2.39f, 2.39f)
-        return PictureInPictureParams.Builder().setAspectRatio(Rational((ratio * 1000).roundToInt(), 1000)).build()
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational((ratio * 1000).roundToInt(), 1000))
+            .setActions(pipActions())
+        if (Build.VERSION.SDK_INT >= 31) {
+            builder.setAutoEnterEnabled(Prefs.autoPip(this) && player.isPlaying)
+            builder.setSeamlessResizeEnabled(true)
+        }
+        return builder.build()
     }
 
     private fun updatePipParams() {
+        if (!playerReady) return
         if (pipSupported() && Build.VERSION.SDK_INT >= 26) try { pipParams()?.let { setPictureInPictureParams(it) } } catch (_: Exception) { }
     }
 
+    private fun updatePipProgress() {
+        val dur = player.duration
+        b.pipProgress.progress = if (dur != C.TIME_UNSET && dur > 0) (player.currentPosition * 1000 / dur).toInt() else 0
+    }
+
     private fun enterPip() {
-        if (!pipSupported() || Build.VERSION.SDK_INT < 26) { toast("Picture-in-picture isn't available on this device"); return }
+        if (!pipSupported() || Build.VERSION.SDK_INT < 26) { toast("Picture-in-picture is off or not available on this device"); return }
         setControlsVisible(false)
         try { pipParams()?.let { enterPictureInPictureMode(it) } } catch (e: Exception) { toast("Couldn't start picture-in-picture") }
     }
@@ -1228,6 +1558,256 @@ class PlayerActivity : AppCompatActivity() {
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         stopService(Intent(this, PlaybackService::class.java))
+    }
+
+    // ------------------------------------------------------------------ remembered track preferences
+
+    /** Normalises "hi", "hin", "hi-IN", "en_US" etc. to one ISO-639-2 code so languages compare reliably. */
+    private fun langKey(x: String?): String? {
+        if (x.isNullOrBlank() || x == "und") return null
+        val base = x.lowercase(Locale.ROOT).substringBefore('-').substringBefore('_')
+        return try { Locale(base).isO3Language.ifEmpty { base } } catch (_: Exception) { base }
+    }
+    private fun sameLang(a: String?, b2: String?): Boolean { val x = langKey(a); return x != null && x == langKey(b2) }
+
+    /** New video: drop the previous video's manual picks and re-apply the remembered defaults. */
+    private fun resetTrackParamsForNewItem() {
+        tracksAppliedFor = null
+        val pb = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setPreferredAudioLanguage(Prefs.preferredAudioLang(this))
+        val state = Prefs.rememberedSubState(this)
+        pb.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, state == "off")
+        val subLang = Prefs.preferredSubLang(this)
+        if (state == "on" || Prefs.sp(this).getBoolean("sub_auto", false)) {
+            pb.setPreferredTextLanguage(subLang ?: Locale.getDefault().language).setSelectUndeterminedTextLanguage(true)
+        } else pb.setPreferredTextLanguage(subLang)
+        player.trackSelectionParameters = pb.build()
+    }
+
+    /**
+     * Picks the remembered audio language and subtitle track for this video when it has them.
+     * Anything missing falls back to the normal default without interrupting playback.
+     */
+    private fun applyRememberedTracks(tracks: Tracks) {
+        var params = player.trackSelectionParameters.buildUpon()
+        var changed = false
+
+        val audioLang = if (Prefs.rememberAudioLang(this)) Prefs.sp(this).getString("last_audio_lang", null) else null
+        if (audioLang != null) {
+            val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            val selectedOk = audio.any { g -> (0 until g.length).any { g.isTrackSelected(it) && sameLang(g.getTrackFormat(it).language, audioLang) } }
+            if (!selectedOk) {
+                loop@ for (g in audio) for (i in 0 until g.length) {
+                    if (g.isTrackSupported(i) && sameLang(g.getTrackFormat(i).language, audioLang)) {
+                        params = params.setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i)); changed = true; break@loop
+                    }
+                }
+            }
+        }
+
+        if (Prefs.rememberedSubState(this) == "on") {
+            val texts = ArrayList<Pair<Tracks.Group, Int>>()
+            tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEach { g ->
+                for (i in 0 until g.length) if (g.isTrackSupported(i)) texts += g to i
+            }
+            if (texts.isNotEmpty()) {
+                val label = Prefs.rememberedSubLabel(this)
+                val lang = Prefs.preferredSubLang(this)
+                fun fmt(p: Pair<Tracks.Group, Int>) = p.first.getTrackFormat(p.second)
+                val pick = texts.firstOrNull { label != null && fmt(it).label == label && (lang == null || sameLang(fmt(it).language, lang)) }
+                    ?: texts.firstOrNull { lang != null && sameLang(fmt(it).language, lang) }
+                    ?: texts.firstOrNull { it.first.isTrackSelected(it.second) }
+                    ?: texts.firstOrNull { (fmt(it).selectionFlags and C.SELECTION_FLAG_DEFAULT) != 0 }
+                    ?: texts.first()
+                if (!pick.first.isTrackSelected(pick.second)) {
+                    params = params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(pick.first.mediaTrackGroup, pick.second))
+                    changed = true
+                }
+            }
+        }
+        if (changed) player.trackSelectionParameters = params.build()
+    }
+
+    // ------------------------------------------------------------------ quick video browser
+
+    private fun hasVideoPermission(): Boolean {
+        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
+        return ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun setupBrowser() {
+        b.browserList.layoutManager = LinearLayoutManager(this)
+        b.browserList.adapter = browserAdapter
+        b.browserClose.setOnClickListener { closeBrowser() }
+        b.browserScrim.setOnClickListener { closeBrowser() }
+        b.browserScope.setOnCheckedStateChangeListener { _, ids ->
+            browserScopeAll = ids.firstOrNull() == R.id.chipScopeAll
+            renderBrowser(true)
+        }
+        b.browserSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(e: Editable?) { browserQuery = e?.toString() ?: ""; renderBrowser(false) }
+        })
+    }
+
+    private fun openBrowser() {
+        if (browserOpen) return
+        if (speedPanelOpen) hideSpeedPanel()
+        setControlsVisible(false)
+        browserOpen = true
+        val w = (if (b.root.width > 0) b.root.width else resources.displayMetrics.widthPixels)
+        val panelW = min(dp(380), (w * 0.88f).toInt())
+        b.browserPanel.layoutParams = b.browserPanel.layoutParams.apply { width = panelW }
+        b.browserPanel.translationX = panelW.toFloat()
+        b.browserPanel.isVisible = true
+        b.browserPanel.animate().cancel()
+        b.browserPanel.animate().translationX(0f).setDuration(220).start()
+        fadeIn(b.browserScrim)
+        if (!hasVideoPermission()) {
+            library = emptyList()
+            renderBrowser(true)
+            return
+        }
+        if (library == null) {
+            b.browserEmpty.text = "Loading videos…"; b.browserEmpty.isVisible = true
+            loadLibraryForBrowser()
+        } else renderBrowser(true)
+    }
+
+    private fun loadLibraryForBrowser() {
+        if (libraryLoading) return
+        libraryLoading = true
+        io.execute {
+            val items = VideoRepository.load(this)
+            runOnUiThread {
+                libraryLoading = false
+                library = items
+                if (browserOpen) renderBrowser(true)
+            }
+        }
+    }
+
+    private fun closeBrowser(animate: Boolean = true) {
+        browserOpen = false
+        val panel = b.browserPanel
+        panel.animate().cancel()
+        if (animate) panel.animate().translationX(panel.width.toFloat()).setDuration(200).withEndAction { if (!browserOpen) panel.isVisible = false }.start()
+        else panel.isVisible = false
+        fadeOut(b.browserScrim)
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.hideSoftInputFromWindow(b.browserSearch.windowToken, 0)
+        if (fullscreen) setFullscreen(true)
+    }
+
+    /** The library entry for what's playing now (matched by its content uri or its file path). */
+    private fun currentLibraryItem(): VideoItem? {
+        val lib = library ?: return null
+        val id = player.currentMediaItem?.mediaId ?: return null
+        lib.firstOrNull { it.uri.toString() == id }?.let { return it }
+        val u = Uri.parse(id)
+        val path = if (u.scheme == "file") u.path else null
+        if (path != null) lib.firstOrNull { it.path == path }?.let { return it }
+        val name = player.currentMediaItem?.mediaMetadata?.title?.toString()
+        return lib.firstOrNull { name != null && it.name == name && it.durationMs > 0 && abs(it.durationMs - player.duration) < 2000 }
+    }
+
+    private fun renderBrowser(scrollToCurrent: Boolean) {
+        val lib = library ?: return
+        val cur = currentLibraryItem()
+        if (cur != null) { browserFolderId = cur.bucketId; browserFolderName = cur.bucketName }
+        val folderKnown = browserFolderId != null
+        b.chipScopeFolder.isEnabled = folderKnown
+        b.chipScopeFolder.text = browserFolderName?.let { "Folder: $it" } ?: "This folder"
+        if (!folderKnown && !browserScopeAll) { browserScopeAll = true; b.chipScopeAll.isChecked = true; return }
+        if (browserScopeAll != b.chipScopeAll.isChecked) {
+            if (browserScopeAll) b.chipScopeAll.isChecked = true else b.chipScopeFolder.isChecked = true
+            return // the chip listener renders again with the new scope
+        }
+
+        val scope = if (browserScopeAll) lib
+        else lib.filter { it.bucketId == browserFolderId }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        val q = browserQuery.trim().lowercase()
+        val shown = if (q.isEmpty()) scope else scope.filter { it.name.lowercase().contains(q) }
+
+        val countText = if (scope.size == 1) "1 video" else "${scope.size} videos"
+        if (browserScopeAll) {
+            b.browserTitle.text = "All videos"
+            b.browserSubtitle.text = countText
+        } else {
+            b.browserTitle.text = browserFolderName ?: "This folder"
+            val path = scope.firstOrNull()?.folderPath
+            b.browserSubtitle.text = if (path != null) "$countText · $path" else countText
+        }
+        browserAdapter.submit(shown, scope)
+        b.browserEmpty.isVisible = shown.isEmpty()
+        b.browserEmpty.text = when {
+            !hasVideoPermission() -> "Allow video access on the home screen to browse your videos here."
+            q.isNotEmpty() -> "Nothing matches \"$browserQuery\"."
+            else -> "No videos here."
+        }
+        if (scrollToCurrent) {
+            val idx = shown.indexOfFirst { it.uri.toString() == player.currentMediaItem?.mediaId }
+            if (idx >= 0) (b.browserList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(idx, dp(80))
+        }
+    }
+
+    /** Plays [item] right away, queueing the rest of the list it was picked from (so next/previous follow that list). */
+    private fun playFromBrowser(item: VideoItem, scope: List<VideoItem>) {
+        savePosition()
+        val idx = scope.indexOf(item).coerceAtLeast(0)
+        val from = (idx - 250).coerceAtLeast(0)
+        val to = (from + 500).coerceAtMost(scope.size)
+        val window = scope.subList(from, to)
+        browserFolderId = item.bucketId; browserFolderName = item.bucketName
+        userRotated = false
+        startQueue(window.map { Entry(it.uri.toString(), it.name) }, idx - from)
+        closeBrowser()
+    }
+
+    private inner class BrowserAdapter : RecyclerView.Adapter<BrowserVH>() {
+        var rows: List<VideoItem> = emptyList()
+        var scope: List<VideoItem> = emptyList()
+        @SuppressLint("NotifyDataSetChanged")
+        fun submit(r: List<VideoItem>, sc: List<VideoItem>) { rows = r; scope = sc; notifyDataSetChanged() }
+        override fun getItemCount() = rows.size
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+            BrowserVH(ItemBrowserBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        override fun onBindViewHolder(holder: BrowserVH, position: Int) = holder.bind(rows[position])
+    }
+
+    private inner class BrowserVH(val v: ItemBrowserBinding) : RecyclerView.ViewHolder(v.root) {
+        fun bind(item: VideoItem) {
+            val uri = item.uri.toString()
+            val current = uri == player.currentMediaItem?.mediaId
+            v.title.text = item.name
+            v.title.setTypeface(null, if (current) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            val parts = ArrayList<String>()
+            if (current) parts += "Now playing"
+            if (browserScopeAll && item.bucketName.isNotEmpty()) parts += item.bucketName
+            if (item.height > 0) parts += "${item.height}p"
+            v.subtitle.text = parts.joinToString(" · ")
+            v.durationBadge.isVisible = item.durationMs > 0
+            v.durationBadge.text = Fmt.time(item.durationMs)
+            v.nowPlaying.isVisible = current
+            val pos = Store.position(this@PlayerActivity, uri)
+            val dur = item.durationMs.takeIf { it > 0 } ?: Store.duration(this@PlayerActivity, uri)
+            v.progress.isVisible = !current && pos > 0 && dur > 0
+            if (dur > 0) v.progress.progress = (pos * 1000 / dur).toInt().coerceIn(0, 1000)
+            if (current) v.root.setBackgroundResource(R.drawable.bg_current_row)
+            else {
+                val tv = android.util.TypedValue()
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+                v.root.setBackgroundResource(tv.resourceId)
+            }
+            ThumbLoader.load(v.thumb, item)
+            v.root.setOnClickListener {
+                if (current) closeBrowser() else playFromBrowser(item, browserAdapter.scope)
+            }
+        }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
