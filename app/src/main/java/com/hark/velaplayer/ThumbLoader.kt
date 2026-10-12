@@ -91,7 +91,7 @@ object ThumbLoader {
      * With no thumbnails at all, a soft accent-colored placeholder is shown instead of a broken image.
      */
     fun loadCover(iv: ImageView, sources: List<Triple<Uri, Long, Long>>, collage: Boolean) {
-        val picked = sources.take(if (collage) 4 else 1)
+        val picked = sources.take(1) // v2.5.1: always a single thumbnail (no 4-up collage)
         val key = "cover:" + collage + ":" + picked.joinToString("|") { it.first.toString() }
         iv.tag = key
         cache.get(key)?.let { show(iv, it); return }

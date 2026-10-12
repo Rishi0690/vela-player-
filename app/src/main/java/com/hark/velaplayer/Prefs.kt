@@ -121,7 +121,8 @@ object Prefs {
     fun longPressAction(c: Context) = sp(c).getString("long_press_action", "options") ?: "options"
     /** Where new videos go in a playlist: "end" or "start". */
     fun playlistAddAt(c: Context) = sp(c).getString("playlist_add_at", "end") ?: "end"
-    fun playlistCovers(c: Context) = sp(c).getBoolean("playlist_collage", true)
+    /** v2.5.1: collage covers removed; playlists always show one thumbnail (the first video). */
+    @Suppress("UNUSED_PARAMETER") fun playlistCovers(c: Context) = false
 
     fun applyTheme(c: Context) {
         val mode = when (sp(c).getString("theme", "dark")) {

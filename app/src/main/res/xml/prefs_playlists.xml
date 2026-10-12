@@ -6,7 +6,6 @@
     </PreferenceCategory>
     <PreferenceCategory app:title="Playlists" app:iconSpaceReserved="false">
         <ListPreference app:key="playlist_add_at" app:title="Add new videos to" app:entries="@array/add_at_entries" app:entryValues="@array/add_at_values" app:defaultValue="end" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
-        <SwitchPreferenceCompat app:key="playlist_collage" app:title="Collage covers" app:summary="Show up to 4 video thumbnails on each playlist (off: just the first video)" app:defaultValue="true" app:iconSpaceReserved="false" />
         <Preference app:key="dup_info" app:title="Duplicates" app:summary="A video that's already in a playlist is never added twice; you'll see how many were skipped." app:selectable="false" app:iconSpaceReserved="false" />
     </PreferenceCategory>
 </PreferenceScreen>
