@@ -35,6 +35,19 @@ import com.hark.velaplayer.databinding.ItemFolderBinding
 import com.hark.velaplayer.databinding.ItemSummaryBinding
 import com.hark.velaplayer.databinding.ItemPlaylistBinding
 import com.hark.velaplayer.databinding.ItemVideoBinding
+import android.app.Activity
+import android.app.RecoverableSecurityException
+import android.content.ContentValues
+import android.media.MediaScannerConnection
+import android.provider.MediaStore
+import android.view.Gravity
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.activity.result.IntentSenderRequest
+import androidx.core.widget.TextViewCompat
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -73,6 +86,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { loadLibrary() }
+
+    /** Runs after the system "Allow Vela to modify/delete?" dialog is approved (Android 10+). */
+    private var afterGrant: (() -> Unit)? = null
+    private val grantLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val next = afterGrant; afterGrant = null
+        if (r.resultCode == Activity.RESULT_OK) next?.invoke() else toast("Cancelled")
+    }
+    /** Android 10 and older: storage write permission, asked only when the user renames or deletes. */
+    private var afterWritePerm: (() -> Unit)? = null
+    private val writePermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val next = afterWritePerm; afterWritePerm = null
+        if (ok) next?.invoke() else toast("Storage permission is needed to change files")
+    }
 
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -374,45 +400,290 @@ class MainActivity : AppCompatActivity() {
         play(videos.map { it.entry }, videos.indexOf(row))
     }
 
+    private class Action(val label: String, val icon: Int, val danger: Boolean = false, val run: () -> Unit)
+
+    /** XPlayer-style options sheet used by long-press and the ⋮ button. */
+    private fun showSheet(title: String, subtitle: String?, actions: List<Action>) {
+        val d = BottomSheetDialog(this)
+        val dp = resources.displayMetrics.density
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, (12 * dp).toInt(), 0, (16 * dp).toInt()) }
+        root.addView(TextView(this).apply {
+            text = title; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+            setPadding((20 * dp).toInt(), (4 * dp).toInt(), (20 * dp).toInt(), if (subtitle == null) (10 * dp).toInt() else 0)
+        })
+        if (subtitle != null) root.addView(TextView(this).apply {
+            text = subtitle; alpha = 0.65f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setPadding((20 * dp).toInt(), (2 * dp).toInt(), (20 * dp).toInt(), (10 * dp).toInt())
+        })
+        val tv = android.util.TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+        actions.forEach { a ->
+            root.addView(TextView(this).apply {
+                text = a.label
+                TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+                gravity = Gravity.CENTER_VERTICAL
+                minHeight = (52 * dp).toInt()
+                setPadding((20 * dp).toInt(), 0, (20 * dp).toInt(), 0)
+                compoundDrawablePadding = (20 * dp).toInt()
+                setCompoundDrawablesRelativeWithIntrinsicBounds(a.icon, 0, 0, 0)
+                if (a.danger) setTextColor(0xFFE5534B.toInt())
+                TextViewCompat.setCompoundDrawableTintList(this, textColors)
+                setBackgroundResource(tv.resourceId)
+                setOnClickListener { d.dismiss(); a.run() }
+            })
+        }
+        d.setContentView(android.widget.ScrollView(this).apply { addView(root) })
+        d.show()
+    }
+
     private fun onVideoLongClick(row: Row.Video) {
-        val actions = ArrayList<Pair<String, () -> Unit>>()
-        actions += "Play" to { play(listOf(row.entry), 0) }
-        actions += (if (row.favorite) "Remove from favorites" else "Add to favorites") to {
+        val item = row.item
+        val a = ArrayList<Action>()
+        a += Action("Play", R.drawable.ic_play) { play(listOf(row.entry), 0) }
+        if (row.progress > 0f) a += Action("Play from start", R.drawable.ic_replay) {
+            Store.clearPosition(this, row.entry.uri); play(listOf(row.entry), 0)
+        }
+        a += Action(if (row.favorite) "Remove from favorites" else "Add to favorites", R.drawable.ic_star) {
             val added = Store.toggleFavorite(this, row.entry)
             toast(if (added) "Added to favorites" else "Removed from favorites"); refresh()
         }
-        actions += "Add to playlist" to { addToPlaylistDialog(row.entry) }
+        a += Action("Add to playlist", R.drawable.ic_playlist) { addToPlaylistDialog(row.entry) }
         openPlaylist?.let { pl ->
-            actions += "Remove from this playlist" to {
+            a += Action("Remove from this playlist", R.drawable.ic_close) {
                 Store.removeFromPlaylist(this, pl, row.entry.uri)
                 toast("Removed from playlist (the file is untouched)"); refresh()
             }
         }
-        actions += (if (row.watched) "Mark as unwatched" else "Mark as watched") to {
+        a += Action(if (row.watched) "Mark as unwatched" else "Mark as watched", R.drawable.ic_check_circle) {
             Store.setWatched(this, row.entry.uri, !row.watched); refresh()
         }
-        if (row.progress > 0f) actions += "Remove from In progress" to { Store.clearPosition(this, row.entry.uri); refresh() }
-        actions += "Details" to { detailsDialog(row) }
-        MaterialAlertDialogBuilder(this).setTitle(row.entry.title)
-            .setItems(actions.map { it.first }.toTypedArray()) { _, i -> actions[i].second() }.show()
+        if (row.progress > 0f) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
+        val shareable = Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
+        if (shareable) a += Action("Share", R.drawable.ic_share) { share(listOf(Uri.parse(row.entry.uri))) }
+        if (item != null) {
+            a += Action("Rename", R.drawable.ic_edit) { renameVideoDialog(item) }
+            a += Action("Delete", R.drawable.ic_delete, danger = true) { confirmDelete(listOf(item), "Delete \"${item.name}\"?") }
+        }
+        a += Action("Properties", R.drawable.ic_info) { detailsDialog(row) }
+        val sub = item?.let { listOfNotNull(it.durationMs.takeIf { d -> d > 0 }?.let { d -> Fmt.time(d) }, it.size.takeIf { z -> z > 0 }?.let { z -> Formatter.formatShortFileSize(this, z) }).joinToString(" · ") }
+        showSheet(row.entry.title, sub?.takeIf { it.isNotEmpty() }, a)
     }
 
     private fun onFolderLongClick(row: Row.Folder) {
         val f = row.folder
-        MaterialAlertDialogBuilder(this).setTitle(f.name)
-            .setItems(arrayOf("Play all", "Open", "Details")) { _, i ->
-                when (i) {
-                    0 -> play(f.videos.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).map { Entry(it.uri.toString(), it.name) }, 0)
-                    1 -> { openFolder = f.id; filter = "all"; refresh() }
-                    2 -> {
-                        val size = f.videos.sumOf { it.size }
-                        val dur = f.videos.sumOf { it.durationMs }
-                        val msg = "Videos available: ${f.videos.size}\nWatched: ${row.watched}\nIn progress: ${row.inProgress}\n" +
-                            "Total length: ${Fmt.time(dur)}\nTotal size: ${Formatter.formatFileSize(this, size)}" +
-                            (f.path?.let { "\nPath: $it" } ?: "")
-                        MaterialAlertDialogBuilder(this).setTitle("Folder details").setMessage(msg).setPositiveButton("Close", null).show()
+        val sortedEntries = { f.videos.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).map { Entry(it.uri.toString(), it.name) } }
+        val allWatched = row.watched >= f.videos.size && f.videos.isNotEmpty()
+        val a = ArrayList<Action>()
+        a += Action("Play all", R.drawable.ic_play) { play(sortedEntries(), 0) }
+        a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries().shuffled(), 0) }
+        a += Action("Open", R.drawable.ic_folder) { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
+        a += Action("Add all to playlist", R.drawable.ic_playlist) { addManyToPlaylistDialog(sortedEntries()) }
+        a += Action(if (allWatched) "Mark all as unwatched" else "Mark all as watched", R.drawable.ic_check_circle) {
+            f.videos.forEach { Store.setWatched(this, it.uri.toString(), !allWatched) }; refresh()
+        }
+        a += Action("Share all", R.drawable.ic_share) { share(f.videos.map { it.uri }) }
+        a += Action("Rename folder", R.drawable.ic_edit) { renameFolderDialog(f) }
+        a += Action("Delete folder", R.drawable.ic_delete, danger = true) {
+            confirmDelete(f.videos, "Delete folder \"${f.name}\"?", "All ${f.videos.size} videos in this folder will be permanently deleted from your phone.")
+        }
+        a += Action("Properties", R.drawable.ic_info) {
+            val size = f.videos.sumOf { it.size }
+            val dur = f.videos.sumOf { it.durationMs }
+            val msg = "Videos available: ${f.videos.size}\nWatched: ${row.watched}\nIn progress: ${row.inProgress}\n" +
+                "Total length: ${Fmt.time(dur)}\nTotal size: ${Formatter.formatFileSize(this, size)}" +
+                (f.path?.let { "\nPath: $it" } ?: "")
+            MaterialAlertDialogBuilder(this).setTitle("Folder properties").setMessage(msg).setPositiveButton("Close", null).show()
+        }
+        showSheet(f.name, f.path, a)
+    }
+
+    // ------------------------------------------------------------------ file actions (share / rename / delete)
+
+    private fun share(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val i = if (uris.size == 1) Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
+        else Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+        i.type = "video/*"; i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try { startActivity(Intent.createChooser(i, "Share")) } catch (_: Exception) { toast("No app to share with") }
+    }
+
+    /** Old Android (10 and below) edits files directly and needs the storage permission first. */
+    private fun withLegacyWrite(action: () -> Unit) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) action()
+        else { afterWritePerm = action; writePermLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) }
+    }
+
+    private fun textDialog(title: String, initial: String, selectEnd: Int, onOk: (String) -> Unit) {
+        val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT; setSingleLine(); setText(initial) }
+        val box = FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0); addView(input)
+        }
+        val dlg = MaterialAlertDialogBuilder(this).setTitle(title).setView(box)
+            .setPositiveButton("Rename") { _, _ -> onOk(input.text.toString().trim()) }
+            .setNegativeButton("Cancel", null).create()
+        dlg.setOnShowListener {
+            input.requestFocus(); input.setSelection(0, selectEnd.coerceIn(0, initial.length))
+            dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        }
+        dlg.show()
+    }
+
+    private val badChars = Regex("[\\\\/:*?\"<>|]")
+
+    private fun renameVideoDialog(item: VideoItem) {
+        val dot = item.name.lastIndexOf('.')
+        val ext = if (dot > 0) item.name.substring(dot) else ""
+        textDialog("Rename video", item.name, if (dot > 0) dot else item.name.length) { raw ->
+            var name = raw
+            if (name.isEmpty()) { toast("Name can't be empty"); return@textDialog }
+            if (badChars.containsMatchIn(name)) { toast("Name can't contain \\ / : * ? \" < > |"); return@textDialog }
+            if (ext.isNotEmpty() && !name.endsWith(ext, ignoreCase = true)) name += ext
+            if (name == item.name) return@textDialog
+            renameVideo(item, name)
+        }
+    }
+
+    private fun renameVideo(item: VideoItem, newName: String) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            afterGrant = { applyVideoRename(item, newName) }
+            launchGrant(MediaStore.createWriteRequest(contentResolver, listOf(item.uri)).intentSender)
+        } else withLegacyWrite { applyVideoRename(item, newName) }
+    }
+
+    private fun applyVideoRename(item: VideoItem, newName: String) {
+        io.execute {
+            val ok = try {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    contentResolver.update(item.uri, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, newName) }, null, null) > 0
+                } else {
+                    val old = item.path?.let { File(it) }
+                    val dest = old?.let { File(it.parentFile, newName) }
+                    if (old == null || dest == null || dest.exists()) false
+                    else if (old.renameTo(dest)) {
+                        try {
+                            contentResolver.update(item.uri, ContentValues().apply {
+                                put(MediaStore.MediaColumns.DATA, dest.absolutePath); put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+                            }, null, null)
+                        } catch (_: Exception) { }
+                        MediaScannerConnection.scanFile(this, arrayOf(old.absolutePath, dest.absolutePath), null, null)
+                        true
+                    } else false
+                }
+            } catch (_: Exception) { false }
+            main.post {
+                if (ok) { Store.renameTitle(this, item.uri.toString(), newName); toast("Renamed"); loadLibrary() }
+                else toast("Couldn't rename. A file with that name may already exist.")
+            }
+        }
+    }
+
+    private fun renameFolderDialog(f: VideoFolder) {
+        if (Build.VERSION.SDK_INT == 29) { toast("Renaming folders isn't supported on Android 10"); return }
+        textDialog("Rename folder", f.name, f.name.length) { raw ->
+            val name = raw
+            if (name.isEmpty()) { toast("Name can't be empty"); return@textDialog }
+            if (badChars.containsMatchIn(name) || name.startsWith(".")) { toast("That folder name isn't allowed"); return@textDialog }
+            if (name == f.name) return@textDialog
+            if (Build.VERSION.SDK_INT >= 30) {
+                afterGrant = { applyFolderRename(f, name) }
+                launchGrant(MediaStore.createWriteRequest(contentResolver, f.videos.map { it.uri }).intentSender)
+            } else withLegacyWrite { applyFolderRename(f, name) }
+        }
+    }
+
+    /** Android 11+: moves the folder's videos to a sibling folder with the new name. Older: renames the directory. */
+    private fun applyFolderRename(f: VideoFolder, newName: String) {
+        io.execute {
+            var moved = 0
+            try {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    f.videos.forEach { v ->
+                        val rel = contentResolver.query(v.uri, arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use { c ->
+                            if (c.moveToFirst()) c.getString(0) else null
+                        } ?: return@forEach
+                        val parts = rel.trimEnd('/').split('/')
+                        if (parts.isEmpty()) return@forEach
+                        val newRel = (parts.dropLast(1) + newName).joinToString("/") + "/"
+                        try {
+                            if (contentResolver.update(v.uri, ContentValues().apply { put(MediaStore.MediaColumns.RELATIVE_PATH, newRel) }, null, null) > 0) moved++
+                        } catch (_: Exception) { }
+                    }
+                } else {
+                    val dir = f.path?.let { File(it) }
+                    val dest = dir?.let { File(it.parentFile, newName) }
+                    if (dir != null && dest != null && !dest.exists() && dir.renameTo(dest)) {
+                        moved = f.videos.size
+                        val paths = f.videos.mapNotNull { it.path } + f.videos.mapNotNull { v -> v.path?.let { File(dest, File(it).name).absolutePath } }
+                        MediaScannerConnection.scanFile(this, paths.toTypedArray(), null, null)
                     }
                 }
+            } catch (_: Exception) { }
+            main.post {
+                when {
+                    moved == 0 -> toast("Couldn't rename this folder. Android may not allow it in this location.")
+                    moved < f.videos.size -> toast("Moved $moved of ${f.videos.size} videos to \"$newName\"")
+                    else -> toast("Folder renamed")
+                }
+                openFolder = null
+                main.postDelayed({ loadLibrary() }, if (Build.VERSION.SDK_INT >= 30) 0L else 1500L)
+            }
+        }
+    }
+
+    private fun confirmDelete(items: List<VideoItem>, title: String, message: String = "This video will be permanently deleted from your phone.") {
+        if (items.isEmpty()) return
+        MaterialAlertDialogBuilder(this).setTitle(title).setMessage(message)
+            .setPositiveButton("Delete") { _, _ -> deleteVideos(items) }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun deleteVideos(items: List<VideoItem>) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            // Android shows its own confirmation and deletes the files when the user allows it.
+            afterGrant = { onDeleted(items) }
+            launchGrant(MediaStore.createDeleteRequest(contentResolver, items.map { it.uri }).intentSender)
+        } else withLegacyWrite {
+            io.execute {
+                val gone = items.filter { v ->
+                    try {
+                        v.path?.let { File(it).delete() }
+                        contentResolver.delete(v.uri, null, null)
+                        v.path?.let { !File(it).exists() } ?: true
+                    } catch (_: Exception) { false }
+                }
+                main.post {
+                    if (gone.size < items.size) toast("Deleted ${gone.size} of ${items.size}")
+                    onDeleted(gone)
+                }
+            }
+        }
+    }
+
+    private fun onDeleted(items: List<VideoItem>) {
+        if (items.isEmpty()) return
+        Store.forget(this, items.map { it.uri.toString() })
+        val ids = items.map { it.uri.toString() }.toSet()
+        library = library.filter { it.uri.toString() !in ids }
+        byUri = library.associateBy { it.uri.toString() }
+        toast(if (items.size == 1) "Deleted" else "Deleted ${items.size} videos")
+        refresh(); loadLibrary()
+    }
+
+    private fun launchGrant(sender: android.content.IntentSender) {
+        try { grantLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
+        catch (_: Exception) { afterGrant = null; toast("Couldn't ask for permission") }
+    }
+
+    private fun addManyToPlaylistDialog(entries: List<Entry>) {
+        val names = Store.playlists(this).keys.toList()
+        if (names.isEmpty()) { toast("Create a playlist first in the Playlists tab"); return }
+        MaterialAlertDialogBuilder(this).setTitle("Add ${entries.size} videos to")
+            .setItems(names.toTypedArray()) { _, i ->
+                val n = entries.count { Store.addToPlaylist(this, names[i], it) }
+                toast("Added $n to \"${names[i]}\""); refresh()
             }.show()
     }
 
@@ -548,6 +819,7 @@ class MainActivity : AppCompatActivity() {
             ThumbLoader.load(v.thumb, item?.uri ?: Uri.parse(row.entry.uri), item?.id ?: -1L, item?.durationMs ?: 0L)
             itemView.setOnClickListener { val p = bindingAdapterPosition; if (p != RecyclerView.NO_POSITION) onVideoClick(p) }
             itemView.setOnLongClickListener { onVideoLongClick(row); true }
+            v.more.setOnClickListener { onVideoLongClick(row) }
         }
     }
 
@@ -572,6 +844,7 @@ class MainActivity : AppCompatActivity() {
             ThumbLoader.load(v.thumb, f.videos.maxByOrNull { it.dateAdded })
             itemView.setOnClickListener { openFolder = f.id; filter = "all"; refresh(); b.list.scrollToPosition(0) }
             itemView.setOnLongClickListener { onFolderLongClick(row); true }
+            v.more.setOnClickListener { onFolderLongClick(row) }
         }
     }
 

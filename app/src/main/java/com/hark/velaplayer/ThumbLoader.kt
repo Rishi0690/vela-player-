@@ -40,7 +40,9 @@ object ThumbLoader {
         if (failed.contains(key)) return
         val ctx = iv.context.applicationContext
         exec.execute {
-            val bmp = systemThumb(ctx, uri, mediaId) ?: frameThumb(ctx, uri, durationMs)
+            // The phone's own thumbnail is often an all-black first frame; if so, grab a real frame from inside the video.
+            val sys = systemThumb(ctx, uri, mediaId)
+            val bmp = if (sys != null && !isDark(sys)) sys else (frameThumb(ctx, uri, durationMs) ?: sys)
             if (bmp != null) cache.put(key, bmp) else failed.add(key)
             main.post { if (iv.tag == key && bmp != null) show(iv, bmp) }
         }
@@ -56,6 +58,23 @@ object ThumbLoader {
         else null
     } catch (_: Throwable) { null }
 
+    /** True when the picture is (almost) all black — samples a grid of pixels. */
+    private fun isDark(src: Bitmap): Boolean = try {
+        // Hardware bitmaps can't be read pixel by pixel, so read a software copy.
+        val b = if (Build.VERSION.SDK_INT >= 26 && src.config == Bitmap.Config.HARDWARE) src.copy(Bitmap.Config.ARGB_8888, false) else src
+        val w = b.width; val h = b.height
+        if (w <= 0 || h <= 0) true else {
+            var sum = 0L; var n = 0
+            for (yi in 1..9) for (xi in 1..9) {
+                val c = b.getPixel(w * xi / 10, h * yi / 10)
+                sum += (299 * ((c shr 16) and 0xFF) + 587 * ((c shr 8) and 0xFF) + 114 * (c and 0xFF)) / 1000
+                n++
+            }
+            sum / n < 20
+        }
+    } catch (_: Throwable) { false }
+
+    /** Tries a few points inside the video (10%, 25%, 50%) and keeps the first frame that isn't black. */
     private fun frameThumb(ctx: Context, uri: Uri, durationMs: Long): Bitmap? {
         if (uri.scheme == "http" || uri.scheme == "https") return null
         val r = MediaMetadataRetriever()
@@ -63,13 +82,22 @@ object ThumbLoader {
             r.setDataSource(ctx, uri)
             val dur = durationMs.takeIf { it > 0 }
                 ?: r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            val atMs = if (dur > 0) (dur / 10).coerceIn(1_000L, 60_000L).coerceAtMost(dur) else 1_000L
-            val frame = if (Build.VERSION.SDK_INT >= 27)
-                r.getScaledFrameAtTime(atMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 384, 216)
-            else r.getFrameAtTime(atMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            frame ?: r.frameAtTime
+            val points = if (dur > 0) listOf(dur / 10, dur / 4, dur / 2).map { it.coerceAtLeast(500L) } else listOf(1_000L, 5_000L)
+            var fallback: Bitmap? = null
+            for (atMs in points) {
+                val f = grab(r, atMs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    ?: grab(r, atMs, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC) ?: continue
+                if (!isDark(f)) return f
+                if (fallback == null) fallback = f
+            }
+            fallback ?: r.frameAtTime
         } catch (_: Throwable) { null } finally {
             try { r.release() } catch (_: Throwable) { }
         }
     }
+
+    private fun grab(r: MediaMetadataRetriever, atMs: Long, option: Int): Bitmap? = try {
+        if (Build.VERSION.SDK_INT >= 27) r.getScaledFrameAtTime(atMs * 1000, option, 384, 216)
+        else r.getFrameAtTime(atMs * 1000, option)
+    } catch (_: Throwable) { null }
 }

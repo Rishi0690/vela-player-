@@ -89,6 +89,26 @@ object Store {
         val m = playlists(c); m[name]?.removeAll { it.uri == uri }; savePlaylists(c, m)
     }
 
+    // ---- file changes made from the library ----
+    /** A video was renamed: update the saved title everywhere it appears. */
+    fun renameTitle(c: Context, uri: String, title: String) {
+        val e = sp(c).edit()
+        if (sp(c).contains("title:$uri")) e.putString("title:$uri", title)
+        e.putString("favorites", write(favorites(c).map { if (it.uri == uri) Entry(uri, title) else it }))
+        e.apply()
+        val m = playlists(c); m.values.forEach { l -> l.replaceAll { if (it.uri == uri) Entry(uri, title) else it } }; savePlaylists(c, m)
+    }
+    /** A video file was deleted: forget its progress, watched mark, favorite and playlist entries. */
+    fun forget(c: Context, uris: Collection<String>) {
+        if (uris.isEmpty()) return
+        val set = uris.toSet()
+        val e = sp(c).edit()
+        set.forEach { u -> listOf("pos:", "dur:", "title:", "time:", "watched:").forEach { e.remove(it + u) } }
+        e.putString("favorites", write(favorites(c).filter { it.uri !in set }))
+        e.apply()
+        val m = playlists(c); m.values.forEach { l -> l.removeAll { it.uri in set } }; savePlaylists(c, m)
+    }
+
     private fun read(json: String): List<Entry> = try {
         val a = JSONArray(json)
         (0 until a.length()).map { val o = a.getJSONObject(it); Entry(o.getString("uri"), o.optString("title")) }
