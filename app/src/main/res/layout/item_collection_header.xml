@@ -14,15 +14,21 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/cover"
-            android:layout_width="96dp"
-            android:layout_height="54dp"
+        <com.hark.velaplayer.StackedThumbLayout
+            android:id="@+id/stack"
+            android:layout_width="106dp"
+            android:layout_height="62dp"
             android:layout_marginEnd="14dp"
-            android:importantForAccessibility="no"
-            android:scaleType="centerCrop"
-            android:visibility="gone"
-            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+            android:visibility="gone">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/cover"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop"
+                app:shapeAppearanceOverlay="@style/RoundedThumb" />
+        </com.hark.velaplayer.StackedThumbLayout>
 
         <LinearLayout
             android:layout_width="0dp"

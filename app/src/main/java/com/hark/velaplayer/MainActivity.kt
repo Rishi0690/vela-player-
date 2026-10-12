@@ -1517,17 +1517,17 @@ class MainActivity : ThemedActivity() {
             fun of(v: ItemVideoGridBinding) = VideoViews(v.root, v.thumb, v.title, v.subtitle, v.durationBadge, v.progress, v.favIcon, v.watchedIcon, v.more, v.selectCheck)
         }
     }
-    class FolderViews(val root: View, val thumb: ImageView, val name: TextView, val count: TextView, val badge: TextView, val bar: LinearProgressIndicator, val more: ImageButton, val path: TextView?) {
+    class FolderViews(val root: View, val thumb: ImageView, val name: TextView, val count: TextView, val badge: TextView, val bar: LinearProgressIndicator, val more: ImageButton, val path: TextView?, val stack: StackedThumbLayout) {
         companion object {
-            fun of(v: ItemFolderBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, v.path)
-            fun of(v: ItemFolderGridBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, null)
+            fun of(v: ItemFolderBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, v.path, v.stack)
+            fun of(v: ItemFolderGridBinding) = FolderViews(v.root, v.thumb, v.name, v.count, v.countBadge, v.watchedBar, v.more, null, v.stack)
         }
     }
     class PlaylistViews(val root: View, val cover: ImageView, val name: TextView, val count: TextView, val badge: TextView, val more: ImageButton, val check: TextView,
-                        val progress: LinearProgressIndicator, val progressText: TextView) {
+                        val progress: LinearProgressIndicator, val progressText: TextView, val stack: StackedThumbLayout) {
         companion object {
-            fun of(v: ItemPlaylistBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck, v.playlistProgress, v.playlistProgressText)
-            fun of(v: ItemPlaylistGridBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck, v.playlistProgress, v.playlistProgressText)
+            fun of(v: ItemPlaylistBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck, v.playlistProgress, v.playlistProgressText, v.stack)
+            fun of(v: ItemPlaylistGridBinding) = PlaylistViews(v.root, v.cover, v.name, v.count, v.countBadge, v.more, v.selectCheck, v.playlistProgress, v.playlistProgressText, v.stack)
         }
     }
 
@@ -1616,7 +1616,9 @@ class MainActivity : ThemedActivity() {
             v.path?.text = f.path ?: ""
             v.bar.isVisible = stats && row.watched > 0
             v.bar.progress = if (n > 0) row.watched * 1000 / n else 0
-            ThumbLoader.load(v.thumb, f.videos.maxByOrNull { it.dateAdded })
+            val newest = f.videos.sortedByDescending { it.dateAdded }
+            ThumbLoader.load(v.thumb, newest.firstOrNull())
+            v.stack.setStack(n, newest.getOrNull(1)?.let { Triple(it.uri, it.id, it.durationMs) })
         }
     }
 
@@ -1651,6 +1653,7 @@ class MainActivity : ThemedActivity() {
             }
             v.progress.contentDescription = if (row.progress < 0f) "Empty playlist" else "${Math.round(row.progress * 100)} percent watched"
             ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context))
+            v.stack.setStack(row.count, row.covers.getOrNull(1))
             bindSelection()
         }
         fun bindSelection() { showSelection(v.root, v.check, row?.let { selKey(it) }); v.more.isVisible = !selecting }
@@ -1670,8 +1673,8 @@ class MainActivity : ThemedActivity() {
             v.btnAdd.isVisible = row.playlist
             v.l23BtnReorder.isVisible = row.playlist && adapter.rows.count { it is Row.Video } > 1
             v.l23BtnReorder.isChecked = reordering
-            v.cover.isVisible = row.playlist
-            if (row.playlist) ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context))
+            v.stack.isVisible = row.playlist
+            if (row.playlist) { ThumbLoader.loadCover(v.cover, row.covers, Prefs.playlistCovers(itemView.context)); v.stack.setStack(row.covers.size, row.covers.getOrNull(1)) }
         }
     }
 

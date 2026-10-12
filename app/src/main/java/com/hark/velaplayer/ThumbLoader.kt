@@ -54,6 +54,13 @@ object ThumbLoader {
         }
     }
 
+    /** Async thumbnail for custom drawing; the callback runs on the main thread. */
+    fun fetch(ctx: Context, uri: Uri, mediaId: Long, durationMs: Long, cb: (Bitmap?) -> Unit) {
+        cache.get(uri.toString())?.let { cb(it); return }
+        val app = ctx.applicationContext
+        exec.execute { val b = bitmap(app, uri, mediaId, durationMs); main.post { cb(b) } }
+    }
+
     /** Synchronous thumbnail (call off the main thread). Uses the same cache. */
     fun bitmap(ctx: Context, uri: Uri, mediaId: Long = -1L, durationMs: Long = 0L): Bitmap? {
         val key = uri.toString()
