@@ -185,41 +185,15 @@ class VaultSettingsActivity : ThemedActivity() {
             note(c, "The vault always locks when you close it or leave the app.")
         }
 
-        header(c, "Main Settings")
-        switchRow(c, "Hide Hidden Vault instructions from main Settings",
-            "Removes the Hidden Vault section from Vela's Settings. Holding the Vela Player name on Home for 5 seconds still opens the vault.",
+        header(c, "(Recommended) Main Settings")
+        switchRow(c, "Hide the vault from Settings",
+            "Turn this on so nobody sees the word \"Vault\" in Vela's Settings. To open the vault, just hold \"Vela Player\" on the Home screen for 5 seconds.",
             VaultAuth.hideInstructions(this)) { _, on ->
             VaultAuth.setHideInstructions(this, on)
-            toast(if (on) "Instructions hidden from Settings" else "Instructions shown in Settings again")
+            toast(if (on) "Vault hidden from Settings" else "Vault shown in Settings again")
         }
 
-        header(c, "Appearance & privacy")
-        switchRow(c, "Grid view by default", "Show the vault as a grid instead of a list", Prefs.viewMode(this, "vault") == "grid") { _, on ->
-            Prefs.setViewMode(this, "vault", if (on) "grid" else "list"); changed = true
-        }
-        switchRow(c, "Show thumbnails", "Off shows a plain icon instead of a frame from each video", VaultAuth.showThumbnails(this)) { _, on ->
-            VaultAuth.setShowThumbnails(this, on); changed = true
-        }
-
-        header(c, "Data")
         val n = Vault.count(this)
-        row(c, "Unhide all videos", if (n == 0) "The vault is empty" else "Return all $n video${if (n == 1) "" else "s"} to the normal library", danger = n > 0) {
-            if (n == 0) return@row
-            val priv = VaultStorage.privateItems(this)
-            MaterialAlertDialogBuilder(this).setTitle("Unhide all $n video${if (n == 1) "" else "s"}?")
-                .setMessage("Videos hidden in Vela only go back to the normal library with their resume points; their files aren't changed." +
-                    if (priv.isEmpty()) "" else "\n\n${priv.size} in private storage are copied back to phone storage (original folder when " +
-                        "Android allows it, otherwise Movies/Vela Restored), checked, and then removed from private storage.")
-                .setPositiveButton("Unhide all") { _, _ ->
-                    Vault.unhide(this, Vault.items(this).filter { !it.isPrivate }.map { it.uri }); changed = true
-                    if (priv.isEmpty()) { toast("All videos are back in the library"); showMain() }
-                    else VaultStorage.restore(this, storageReq, priv) { showMain() }
-                }.setNegativeButton("Cancel", null).show()
-        }
-        row(c, "Reset custom order", "Go back to newest hidden first. Videos stay in the vault.") {
-            Vault.setOrder(this, emptyList()); changed = true; toast("Custom order reset")
-        }
-
         header(c, "Storage & uninstalling")
         val priv = VaultStorage.privateItems(this)
         val appN = n - priv.size

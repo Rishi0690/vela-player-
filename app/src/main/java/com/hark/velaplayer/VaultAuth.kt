@@ -80,7 +80,8 @@ object VaultAuth {
     fun hideInstructions(c: Context) = sp(c).getBoolean("hide_instructions", false)
     fun setHideInstructions(c: Context, on: Boolean) = sp(c).edit().putBoolean("hide_instructions", on).apply()
 
-    fun showThumbnails(c: Context) = sp(c).getBoolean("show_thumbs", true)
+    /** v2.5.2: the toggle was removed from vault settings, so thumbnails are always shown. */
+    @Suppress("UNUSED_PARAMETER") fun showThumbnails(c: Context) = true
     fun setShowThumbnails(c: Context, on: Boolean) = sp(c).edit().putBoolean("show_thumbs", on).apply()
 
     fun setLockAfterMin(c: Context, min: Int) = sp(c).edit().putString("lock_after", min.toString()).apply()
