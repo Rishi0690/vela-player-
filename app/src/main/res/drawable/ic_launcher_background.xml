@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v2.15: plain white background for the user's launcher artwork (tools/icongen/gen_user_icon.py). -->
+<!-- v2.16.1: transparent background — the user's logo stands on its own (tools/icongen/gen_user_icon.py). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FFFFFF" />
+    <solid android:color="#00000000" />
 </shape>

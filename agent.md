@@ -179,3 +179,8 @@ Full UI/UX + motion polish across the app: consistent motion system, design toke
 ## v2.16 (versionCode 31)
 - Search light bug fixed in Motion.lightSweep: was unclipped rotated rect (square light past pill ends, drifting), and overlapping sweeps on rapid open/close. Now clipped to rounded shape, one per view (tag_light_sweep), fade in/out, edge rim light, bounds follow resize.
 - SearchMorph: layered glass field, focus rim light (once per focus), glyph lift, clear-button pop, field rise on open.
+
+## v2.16.1 (versionCode 32)
+- Icon from user transparent SVG (tools/icongen/user_icon_source.svg -> png via cairosvg), transparent adaptive bg.
+- Play orb: dark halo + core under glass (bg_player_play) for bright frames.
+- PlayerActivity.fitButtonRow: bottom button row adapts (pill icons drop, icon buttons 48->36dp) so btnLockRight never overflows; bottomBar margins reduced.

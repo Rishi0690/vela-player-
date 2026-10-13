@@ -330,6 +330,12 @@ class PlayerActivity : AppCompatActivity() {
             insets
         }
         setFullscreen(true)
+        b.p23ButtonRow.addOnLayoutChangeListener { _, l, _, r, _, ol, _, or, _ -> if (r - l != or - ol) b.p23ButtonRow.post { fitButtonRow() } }
+        listOf(b.btnSpeed, b.btnAspectLabel).forEach { p -> p.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { b.p23ButtonRow.post { fitButtonRow() } }
+        }) }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -1011,6 +1017,34 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
+
+    /**
+     * v2.16.1 fix — right lock button pushed off-screen in portrait. Root cause: the bottom button row is a
+     * horizontal LinearLayout of fixed 48dp icons + two wrap_content pills + a weighted Space. On narrow portrait
+     * widths (after cutout/system insets) the children's total width exceeded the row, the Space can't go below 0,
+     * so LinearLayout simply laid the last child (btnLockRight) past the right edge. Now the row adapts to whatever
+     * width it really gets: first the pills drop their icons, then the icon buttons shrink (48 → down to 36dp,
+     * still a comfortable target). Runs on every row size change (rotation, insets, multi-window) and pill text change.
+     */
+    private var pillIcons: Pair<android.graphics.drawable.Drawable?, android.graphics.drawable.Drawable?>? = null
+    private fun fitButtonRow() {
+        val row = b.p23ButtonRow
+        val avail = row.width - row.paddingLeft - row.paddingRight
+        if (avail <= 0) return
+        val icons = pillIcons ?: (b.btnSpeed.icon to b.btnAspectLabel.icon).also { pillIcons = it }
+        val iconBtns = (0 until row.childCount).map { row.getChildAt(it) }.filter { it is ShadowImageButton && it.isVisible }
+        val pills = listOf(b.btnSpeed, b.btnAspectLabel).filter { it.isVisible }
+        val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        fun pillsWidth(): Int = pills.sumOf { p -> p.measure(unspec, View.MeasureSpec.makeMeasureSpec(dp(48), View.MeasureSpec.EXACTLY)); p.measuredWidth + (p.layoutParams as ViewGroup.MarginLayoutParams).let { it.leftMargin + it.rightMargin } }
+        var showIcons = true
+        if (b.btnSpeed.icon == null) { b.btnSpeed.icon = icons.first; b.btnAspectLabel.icon = icons.second }
+        var pw = pillsWidth()
+        if (pw + iconBtns.size * dp(48) > avail) { showIcons = false; b.btnSpeed.icon = null; b.btnAspectLabel.icon = null; pw = pillsWidth() }
+        val each = if (iconBtns.isEmpty()) dp(48) else ((avail - pw) / iconBtns.size).coerceIn(dp(36), dp(48))
+        var changed = false
+        iconBtns.forEach { v -> val lp = v.layoutParams; if (lp.width != each) { lp.width = each; v.layoutParams = lp; changed = true } }
+        if (!showIcons || changed) row.requestLayout()
+    }
 
     /** v2.12: last icon state of the play button, so a real change morphs (▶ ⇄ ‖) instead of swapping. */
     private var playIconPause: Boolean? = null
