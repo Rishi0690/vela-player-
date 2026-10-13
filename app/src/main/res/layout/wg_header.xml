@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14 shared widget header: accent icon chip, title + subtitle, up to two round actions. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hdr" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:gravity="center_vertical" android:orientation="horizontal" android:paddingStart="12dp" android:paddingTop="10dp" android:paddingEnd="8dp" android:paddingBottom="6dp">
+    <FrameLayout android:layout_width="30dp" android:layout_height="30dp">
+        <ImageView android:id="@+id/hdrChip" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/wg_circle" android:importantForAccessibility="no" />
+        <ImageView android:id="@+id/hdrIcon" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="7dp" android:src="@drawable/wgi_continue" android:importantForAccessibility="no" />
+    </FrameLayout>
+    <LinearLayout android:id="@+id/hdrText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="10dp" android:background="@drawable/wg_ripple_tile" android:orientation="vertical">
+        <TextView android:id="@+id/hdrTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="14sp" />
+        <TextView android:id="@+id/hdrSub" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:ellipsize="end" android:maxLines="1" android:textColor="#B3FFFFFF" android:textSize="11sp" />
+    </LinearLayout>
+    <ImageView android:id="@+id/hdrAction2" android:layout_width="34dp" android:layout_height="34dp" android:padding="8dp"
+        android:background="@drawable/wg_ripple_circle" android:src="@drawable/wgi_shuffle" android:contentDescription="Shuffle" android:visibility="gone" />
+    <FrameLayout android:id="@+id/hdrAction1Wrap" android:layout_width="34dp" android:layout_height="34dp" android:layout_marginStart="4dp">
+        <ImageView android:id="@+id/hdrAction1Bg" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/wg_circle" android:importantForAccessibility="no" />
+        <ImageView android:id="@+id/hdrAction1" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp"
+            android:background="@drawable/wg_ripple_circle" android:src="@drawable/wgi_open" android:contentDescription="Open Vela" />
+    </FrameLayout>
+</LinearLayout>

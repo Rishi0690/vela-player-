@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14 Now Playing, compact bar (4x1 / 2x1): artwork, title + state, play/pause, next. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wgRoot" android:layout_width="match_parent" android:layout_height="match_parent">
+    <include layout="@layout/wg_bg" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:gravity="center_vertical" android:orientation="horizontal" android:paddingStart="8dp" android:paddingEnd="8dp">
+        <ImageView android:id="@+id/npArt" android:layout_width="44dp" android:layout_height="44dp"
+            android:scaleType="fitCenter" android:contentDescription="Artwork" />
+        <LinearLayout android:id="@+id/npText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="10dp" android:layout_marginEnd="4dp" android:orientation="vertical">
+            <TextView android:id="@+id/npTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="14sp" />
+            <TextView android:id="@+id/npSub" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="1dp" android:ellipsize="end" android:maxLines="1" android:textColor="#B3FFFFFF" android:textSize="11.5sp" />
+        </LinearLayout>
+        <ImageView android:id="@+id/npPrev" android:layout_width="34dp" android:layout_height="34dp" android:padding="7dp"
+            android:background="@drawable/wg_ripple_circle" android:src="@drawable/wgi_prev" android:contentDescription="Previous video" />
+        <FrameLayout android:id="@+id/npPlayWrap" android:layout_width="40dp" android:layout_height="40dp" android:layout_marginStart="2dp" android:layout_marginEnd="2dp">
+            <ImageView android:id="@+id/npPlayBg" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/wg_circle" android:importantForAccessibility="no" />
+            <ImageView android:id="@+id/npPlay" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp"
+                android:background="@drawable/wg_ripple_circle" android:src="@drawable/wgi_play" android:contentDescription="Play" />
+        </FrameLayout>
+        <ImageView android:id="@+id/npNext" android:layout_width="34dp" android:layout_height="34dp" android:padding="7dp"
+            android:background="@drawable/wg_ripple_circle" android:src="@drawable/wgi_next" android:contentDescription="Next video" />
+    </LinearLayout>
+</FrameLayout>

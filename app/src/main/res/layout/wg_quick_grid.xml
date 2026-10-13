@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GENERATED layout (v2.14 Quick Access, grid 2x2 / 4x2). Four glass shortcut tiles, each set up in code (WidgetRenderer.quick). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wgRoot" android:layout_width="match_parent" android:layout_height="match_parent">
+    <include layout="@layout/wg_bg" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="8dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal">
+        <LinearLayout android:id="@+id/qs1" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="0dp" android:layout_marginEnd="3dp" android:orientation="vertical" android:gravity="center">
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+                <ImageView android:id="@+id/qs1Bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs1Sheen" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_sheen" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs1Stroke" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_stroke" android:importantForAccessibility="no" />
+                <LinearLayout android:id="@+id/qs1Tap" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/wg_ripple_tile"
+                    android:gravity="center" android:orientation="vertical" android:padding="6dp">
+                    <ImageView android:id="@+id/qs1Icon" android:layout_width="24dp" android:layout_height="24dp" android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/qs1Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:layout_marginStart="0dp"
+                        android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="11.5sp" />
+                </LinearLayout>
+            </FrameLayout>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/qs2" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="3dp" android:layout_marginEnd="0dp" android:orientation="vertical" android:gravity="center">
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+                <ImageView android:id="@+id/qs2Bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs2Sheen" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_sheen" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs2Stroke" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_stroke" android:importantForAccessibility="no" />
+                <LinearLayout android:id="@+id/qs2Tap" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/wg_ripple_tile"
+                    android:gravity="center" android:orientation="vertical" android:padding="6dp">
+                    <ImageView android:id="@+id/qs2Icon" android:layout_width="24dp" android:layout_height="24dp" android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/qs2Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:layout_marginStart="0dp"
+                        android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="11.5sp" />
+                </LinearLayout>
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal" android:layout_marginTop="6dp">
+        <LinearLayout android:id="@+id/qs3" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="0dp" android:layout_marginEnd="3dp" android:orientation="vertical" android:gravity="center">
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+                <ImageView android:id="@+id/qs3Bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs3Sheen" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_sheen" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs3Stroke" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_stroke" android:importantForAccessibility="no" />
+                <LinearLayout android:id="@+id/qs3Tap" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/wg_ripple_tile"
+                    android:gravity="center" android:orientation="vertical" android:padding="6dp">
+                    <ImageView android:id="@+id/qs3Icon" android:layout_width="24dp" android:layout_height="24dp" android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/qs3Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:layout_marginStart="0dp"
+                        android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="11.5sp" />
+                </LinearLayout>
+            </FrameLayout>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/qs4" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="3dp" android:layout_marginEnd="0dp" android:orientation="vertical" android:gravity="center">
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+                <ImageView android:id="@+id/qs4Bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs4Sheen" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_sheen" android:importantForAccessibility="no" />
+                <ImageView android:id="@+id/qs4Stroke" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/wg_tile_stroke" android:importantForAccessibility="no" />
+                <LinearLayout android:id="@+id/qs4Tap" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/wg_ripple_tile"
+                    android:gravity="center" android:orientation="vertical" android:padding="6dp">
+                    <ImageView android:id="@+id/qs4Icon" android:layout_width="24dp" android:layout_height="24dp" android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/qs4Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:layout_marginStart="0dp"
+                        android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="11.5sp" />
+                </LinearLayout>
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

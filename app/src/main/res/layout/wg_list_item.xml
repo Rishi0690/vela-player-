@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14 list widget row: rounded thumbnail (progress line baked in), title, meta. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/itRoot" android:layout_width="match_parent" android:layout_height="64dp"
+    android:background="@drawable/wg_ripple_tile" android:gravity="center_vertical" android:orientation="horizontal"
+    android:paddingStart="6dp" android:paddingEnd="8dp">
+    <ImageView android:id="@+id/itThumb" android:layout_width="88dp" android:layout_height="50dp" android:scaleType="fitCenter" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:orientation="vertical">
+        <TextView android:id="@+id/itTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:ellipsize="end" android:fontFamily="sans-serif-medium" android:maxLines="2" android:textColor="#FFFFFFFF" android:textSize="13sp" />
+        <TextView android:id="@+id/itMeta" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp"
+            android:ellipsize="end" android:maxLines="1" android:textColor="#B3FFFFFF" android:textSize="11sp" />
+    </LinearLayout>
+    <ImageView android:id="@+id/itPlay" android:layout_width="28dp" android:layout_height="28dp" android:padding="6dp" android:src="@drawable/wgi_play" android:importantForAccessibility="no" />
+</LinearLayout>

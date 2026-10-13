@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14 grid tile: rounded 16:9 thumbnail (duration baked in) and a one-line title. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/itRoot" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_weight="1"
+    android:background="@drawable/wg_ripple_tile" android:orientation="vertical" android:padding="3dp">
+    <ImageView android:id="@+id/itThumb" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:adjustViewBounds="true" android:scaleType="fitCenter" android:importantForAccessibility="no" />
+    <TextView android:id="@+id/itTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"
+        android:ellipsize="end" android:maxLines="1" android:paddingStart="2dp" android:paddingEnd="2dp" android:textColor="#FFFFFFFF" android:textSize="11.5sp" />
+</LinearLayout>

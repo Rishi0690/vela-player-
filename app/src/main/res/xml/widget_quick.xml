@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14 Quick Access widget. Rendered by WidgetRenderer; sizes adapt on resize (onAppWidgetOptionsChanged). -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp" android:minHeight="40dp"
+    android:minResizeWidth="110dp" android:minResizeHeight="40dp"
+    android:targetCellWidth="4" android:targetCellHeight="1"
+    android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/wg_initial"
+    android:previewImage="@drawable/wg_preview_quick"
+    android:description="@string/wg_desc_quick"
+    android:configure="com.hark.velaplayer.WidgetDetailActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional" />

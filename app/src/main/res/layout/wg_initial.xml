@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14: shown by the launcher for a moment before the first real render (fixed Midnight Glass colours). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/wg_initial_bg">
+    <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_gravity="center"
+        android:alpha="0.55" android:src="@drawable/wgi_play" android:importantForAccessibility="no" />
+</FrameLayout>

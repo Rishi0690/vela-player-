@@ -229,6 +229,7 @@ class MainActivity : ThemedActivity() {
         // "Open app where I left off" (default ON): reopen the exact screen, never start playback by itself.
         // A recreated activity (rotation, process death) always comes back to where it was.
         if (Prefs.openWhereLeftOff(this) || savedInstanceState != null) restoreUiState()
+        if (savedInstanceState == null) applyWidgetDestination(intent, initial = true)
 
         b.chips.setOnCheckedStateChangeListener { group, ids ->
             val newTab = when (ids.firstOrNull()) {
@@ -274,6 +275,7 @@ class MainActivity : ThemedActivity() {
         b.accessBannerButton.setOnClickListener { openAppSettings() }
         b.accessBannerClose.setOnClickListener { bannerDismissed = true; b.accessBanner.isVisible = false }
         b.swipeRefresh.setColorSchemeColors(ThemeManager.primary(this))
+        Artwork.applyTo(b.emptyArt, android.widget.ImageView.ScaleType.FIT_CENTER) // v2.14
         b.swipeRefresh.setOnRefreshListener { ThumbLoader.clearFailures(); loadLibrary() }
 
         // Ask only when we have no access at all; limited access shows the banner instead of re-asking every launch.
@@ -798,6 +800,7 @@ class MainActivity : ThemedActivity() {
             R.id.action_open_file -> openFile.launch(arrayOf("video/*"))
             R.id.action_theme -> ThemeSwitch.toggle(this, findViewById(R.id.action_theme))
             R.id.action_settings -> startActivity(Intent(this, SettingsActivity::class.java))
+            R.id.action_widgets -> startActivity(Intent(this, WidgetsActivity::class.java))
             else -> return super.onOptionsItemSelected(item)
         }
         return true
@@ -1891,5 +1894,41 @@ class MainActivity : ThemedActivity() {
         }
     }
 
-    companion object { private const val PAYLOAD_SEL = "sel" }
+    companion object {
+        private const val PAYLOAD_SEL = "sel"
+        /** v2.14 widgets: open a library destination ("all", "folders", "favorites", "playlists", "continue"). */
+        const val EXTRA_OPEN = "vela_open"
+        /** v2.14 widgets: with EXTRA_OPEN = "playlists", open this playlist when it still exists. */
+        const val EXTRA_OPEN_PLAYLIST = "vela_open_playlist"
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (::b.isInitialized) applyWidgetDestination(intent, initial = false)
+    }
+
+    /**
+     * v2.14: a widget shortcut asked for a destination. Switches to that tab (top level, or the given playlist) the
+     * same way the chips do. Called before the chip listener exists on a cold start ([initial]).
+     */
+    private fun applyWidgetDestination(i: Intent?, initial: Boolean) {
+        val dest = i?.getStringExtra(EXTRA_OPEN) ?: return
+        val pl = i.getStringExtra(EXTRA_OPEN_PLAYLIST)
+        i.removeExtra(EXTRA_OPEN); i.removeExtra(EXTRA_OPEN_PLAYLIST)
+        val t = when (dest) { "all", "continue" -> Tab.ALL; "favorites" -> Tab.FAVORITES; "playlists" -> Tab.PLAYLISTS; "folders" -> Tab.FOLDERS; else -> return }
+        if (!initial) { actionMode?.finish(); reorderMode?.finish() }
+        if (t == Tab.FOLDERS) folderOfTab = null
+        if (t == Tab.PLAYLISTS) playlistOfTab = pl?.takeIf { Store.playlists(this).containsKey(it) }
+        if (initial) {
+            tab = t
+            chipFor(t).isChecked = true
+            if (dest == "continue") filterOfTab[t] = "progress"
+        } else {
+            if (tab != t) chipFor(t).isChecked = true
+            if (dest == "continue") filter = "progress"
+            refresh()
+            saveUiState()
+        }
+    }
 }

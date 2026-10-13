@@ -292,10 +292,18 @@ class VaultActivity : ThemedActivity() {
             if (center) gravity = android.view.Gravity.CENTER_HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(top) }
         }
-        col.addView(android.widget.ImageView(this).apply {
-            setImageResource(R.drawable.vault_ic_hide)
-            imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(this@VaultActivity))
-            layoutParams = LinearLayout.LayoutParams(px(48), px(48)).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL; topMargin = px(8) }
+        // v2.14: theme-tinted Vela artwork with the vault mark in a glass orb (same icon as before).
+        col.addView(android.widget.FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(150)).apply { topMargin = px(4) }
+            addView(android.widget.ImageView(this@VaultActivity).apply { Artwork.applyTo(this, android.widget.ImageView.ScaleType.FIT_CENTER); alpha = 0.85f },
+                android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(android.widget.FrameLayout(this@VaultActivity).apply {
+                setBackgroundResource(R.drawable.bg_empty_orb)
+                addView(android.widget.ImageView(this@VaultActivity).apply {
+                    setImageResource(R.drawable.vault_ic_hide)
+                    imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(this@VaultActivity))
+                }, android.widget.FrameLayout.LayoutParams(px(40), px(40), android.view.Gravity.CENTER))
+            }, android.widget.FrameLayout.LayoutParams(px(76), px(76), android.view.Gravity.CENTER))
         })
         col.addView(text("Welcome to Hidden Vault", com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall, top = 12, center = true))
         col.addView(text("Keep private videos out of your library. You can protect the vault with a PIN, a pattern or your fingerprint, or use it without a password. You can change this later in Vault settings.",

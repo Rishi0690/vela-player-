@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.13`, `versionCode 28`
+- Current version: `versionName 2.14`, `versionCode 29`
 
 ## Golden rules
 1. **Never break existing playback.** Every change must keep the player, gestures, aspect modes, subtitles, audio tracks and queue working.
@@ -66,6 +66,13 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 | `PlayerSession.kt` / `FrameCapture.kt` / `VolumeBoost.kt` | Player session state, frame preview capture, volume boost |
 | `VelaScroller.kt` | v2.8 slim draggable scroll indicator for every RecyclerView (`VelaScroller.attach(rv)`): reads the list's real scroll offset/range, fades after 1.2 s, hidden when content fits, RTL aware, accent colour. Native ScrollViews use the theme's `scrollbar_thumb` |
 | `HoldTitleView.kt` | v2.3 Home "Vela Player" title: 5 s continuous hold opens the Hidden Vault |
+| `WidgetModel.kt` | v2.14 widgets: `WidgetKind` (5 widgets, gallery sizes), `Shortcut`, per-widget `WidgetConfig` (follow theme / accent, glass opacity, corners, progress, prev/next, shortcuts, source) saved per appWidgetId in `WidgetStore` (prefs `vela_widgets`, + gallery "pending" config), `WidgetPalette` (theme → plain ints) |
+| `WidgetData.kt` | `WItem`, `NowState` (LIVE player / RESUME last session / EMPTY; main-thread snapshot), `WidgetData` (real Store/PlayerSession/MediaStore data, vault + .ts filtering, missing-file check), `WidgetArt` (small rounded thumbnails with baked progress/duration, Now Playing art + scrim, progress bars, themed placeholders) |
+| `WidgetRenderer.kt` | Builds every widget's RemoteViews (real widgets AND in-app previews, `Spec.preview`), glass tinting, PendingIntents |
+| `WidgetSystem.kt` | `WidgetUpdater` (player listener, 15 s progress tick, theme/data/app hooks), `VelaWidgetProvider` + 5 providers, `WidgetActionReceiver` (controls → player's PiP control broadcast; pin callback; MY_PACKAGE_REPLACED), `WidgetListService` (list/grid factory) |
+| `WidgetLaunchActivity.kt` | No-UI trampoline for widget taps: builds the real queue at tap time (same intent as `MainActivity.play`), opens library tabs (`MainActivity.EXTRA_OPEN`), Vault (own lock), player |
+| `WidgetsActivity.kt` / `WidgetDetailActivity.kt` | In-app Widgets gallery (live previews, `WidgetPreview`, `WidgetStage`, `WidgetPreviewFrame`) and detail / configure screen ("Add to home screen" via `requestPinAppWidget`, or "Save widget" as the launcher's configure activity) |
+| `Artwork.kt` | v2.14 theme-tinted "luminous glass forms" artwork (Widgets hero, Home empty state, Vault welcome) |
 
 ## Resources
 - Layouts: `res/layout/` (`activity_*`, `item_*` list + `*_grid` variants, dialogs)
@@ -91,6 +98,25 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 - Design: midnight-blue → near-black atmosphere with violet/blue glows; stacked glass "screens" with a glowing play triangle and a seek bar (accent progress + glowing thumb). NO letters/text/app name (the name may change). Foreground stays inside the 66 dp safe circle.
 - No in-app place shows the logo (no splash/about screen).
 
+## v2.14 Home-screen widgets
+- **Widgets** (AppWidgetProvider + RemoteViews, all real data, no fake controls):
+  - **Now Playing** (merges "Playback controls"): Compact bar (4x1/2x1: art, title, play/pause, next/prev when wide), Square (2x2: full-bleed art + scrim, play orb), Medium (4x2: art, label, title, live Chronometer time, progress, prev/play/next), Large (4x3+: 16:9 art). Size picked from launcher options (`npSize`: h<100 bar, w<200 square, h<200 medium, else large), re-rendered on resize. States: LIVE (real player), RESUME (last `PlayerSession`, play = resume through the app), EMPTY (opens library). Vault videos show "Private video" with no artwork.
+  - **Continue Watching** (ListView via `WidgetListService`; thumbnails with baked progress, "x min left"; tap = player with the continue queue, `SOURCE_CONTINUE`).
+  - **Quick Access** (4 configurable shortcuts: Resume, Continue, Videos, Folders, Favorites, Playlists, Vault (opt-in, opens behind its lock); row layout when h<100, grid otherwise; first tile = accent "hero").
+  - **Recently Added** (GridView, columns auto_fit 128dp → 2 compact / 3–4 large; needs video permission, otherwise an honest empty state; tap = play that video, `SOURCE_ALL`).
+  - **Playlist & Favorites** (configure chooses Favorites or a playlist; Play all / Shuffle in the header; deleted playlist → "tap to choose another" reopens settings).
+- **Controls**: `WidgetActionReceiver` re-sends `PlayerActivity.ACTION_PIP` + `CTRL_*` (the PiP path: savePosition, queue rules). Play acts in place only when the player is visible or background audio is on (`WidgetUpdater.canPlayInPlace`); otherwise it opens the player (`EXTRA_WIDGET_PLAY` starts playback, never in vault mode). Prev/next are dimmed and inert at queue ends, hidden without a player.
+- **Updates**: `PlayerHolder.create/release` → `WidgetUpdater.attach/detach`; player events re-render Now Playing (debounced 250 ms); while playing with the screen on, a partial update every 15 s refreshes time + progress (the Chronometer ticks by itself). Store / vault changes → list widgets (throttled to 20 s). Library grid: app start, theme, `updatePeriodMillis` 3 h. `PlayerActivity.onNewIntent` with no queue now only brings the player to the front (also fixes the media-notification tap resetting vault mode).
+- **Theme sync**: `WidgetPalette.resolve` reads `ThemeManager.selection` → `ThemeManager.palette` / `customPalette` for an explicit light/dark configuration context (custom colours included); never a second theme system. `VelaApp` → `WidgetUpdater.install` listens to `theme`, `theme_key`, `accent_seed`, `theme_secondary`, `theme_base`, `theme_version` and re-renders all widgets; also app start, `VelaApp.onConfigurationChanged` (night mode), MY_PACKAGE_REPLACED. In "System" mode on Android 12+ both palettes are sent (`RemoteViews.setColorInt` day/night) so widgets switch with the system even when Vela isn't running (bitmaps keep the mode they were drawn in until the next update). Per-widget "Follow app theme" (default) or a custom accent (contrast-nudged to ≥3:1).
+- **Glass in RemoteViews** (no blur possible): `layout/wg_bg.xml` = six WHITE layers (fill, bottom wash, two light pools, sheen, 1 dp hairline) tinted at render time (`ImageView.setColorFilter` + `setImageAlpha`). Corner sets `r1` (24 dp; Android 12+ `@android:dimen/system_app_widget_background_radius`), `r2` 34 dp, `r3` 12 dp. GENERATED by `tools/widgetgen/gen_widget_res.py` (also the plain white `wgi_*` icons: launcher-inflated views can't resolve `?attr` tints, so never use the app's `ic_*` icons in widgets). Only RemoteViews-safe classes in `wg_*` layouts (FrameLayout, LinearLayout, ImageView, TextView, Chronometer, ListView, GridView; no `<View>`/`<Space>`).
+- **Bitmaps**: one art bitmap per update (≤ ~400 px long side), list thumbnails per item (88×50 dp, ≤2.5x density) → far below the binder limit. `WidgetArt` caches Now Playing art so ticks never re-decode.
+- **Widgets page**: Settings › Widgets (`open_widgets`) and Home › ⋮ › Widgets (`action_widgets`, overflow only; toolbar untouched). Gallery cards render the REAL layouts with real data in the current theme (`WidgetPreview.render` → `RemoteViews.apply`, lists filled inline via `previewItems`). Detail: big live preview, size chips (preview only; real size = resize on the home screen), Style (Follow app theme / accent swatches, Glass: Clear/Balanced/Frosted/Solid, Corners: Launcher/Round/Crisp), Content options per widget, "Add to home screen" (`requestPinAppWidget`, callback → `ACTION_PINNED` adopts the pending config; unsupported launchers get step-by-step instructions). It is also every widget's `android:configure` activity (`reconfigurable|configuration_optional`).
+- **Picker previews**: `drawable-nodpi/wg_preview_*.webp`, GENERATED by `tools/widgetgen/gen_previews.py . [showcase.png]` (static Midnight Glass mock of the real layouts; regenerate after layout changes).
+
+## v2.14 Artwork
+- "Luminous glass forms" (original, procedural): lit glass ring, two stacked glass screens with a play glint, light ribbons, bokeh. `tools/artgen/gen_art.py . [preview.png]` (numpy + Pillow) → `drawable-nodpi/art_forms_a|b|hi.webp` (white alpha layers) + `art_luminous_forms.webp` (merged, for widgets).
+- `Artwork.drawable()` tints the layers with the live theme (accent, second glow; deeper ink in light mode). Used on the Widgets hero, the Home empty state (behind the glass orb) and the Vault welcome (behind the vault mark). Widget placeholders (`WidgetArt`) use the same art when a video has no thumbnail. Real thumbnails always win.
+
 ## v2.12 motion map (one language, different gesture per interaction)
 | Interaction | Motion |
 |---|---|
@@ -115,7 +141,7 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 - New settings go in the matching `prefs_*.xml` category. Read them through `Prefs.kt`.
 - Brightness and volume gesture sides are independent settings.
 - Motion: subtle and fast, NOT iPhone-style big slides (user rejected it in v2.6). Respect reduced motion. Never let an animation block input or playback.
-- Hidden Vault entry is only the 5 s hold on the Home title.
+- Hidden Vault entry is the 5 s hold on the Home title. v2.14 adds one opt-in exception: a "Vault" Quick Access widget shortcut the user must pick themselves (off by default); it opens VaultActivity, which still authenticates first.
 - Commit messages: `vX.Y: short summary of what changed`.
 
 ## Release checklist
@@ -141,4 +167,5 @@ Full UI/UX + motion polish across the app: consistent motion system, design toke
 - v2.10.2 home toolbar order fixed by user: theme, search, grid/list, sort, overflow (all always visible). Never drop home toolbar items.
 - v2.12 Midnight Glass design system + cinematic motion (visual only; see sections above). Default theme Midnight Glass; v2.11 keys migrate via `ThemeManager.LEGACY` (explicit `pure_black` → Obsidian Noir; installs that never picked a theme get Midnight Glass). Not device-tested at release time.
 - v2.13 Item options sheet restyled (`ItemSheet.kt`, also Vault item options which were a plain list dialog), grouped rows (Delete moved to its own last group; all actions and behaviour unchanged), multi-select ActionMode bar = glass capsule (`bg_action_mode`, `Widget.Vela.ActionMode`), rename/new-playlist fields = glass (`Glass.styleField`). New launcher icon (see "Launcher icon"). Not device-tested at release time.
+- v2.14 Premium widgets (Now Playing, Continue Watching, Quick Access, Recently Added, Playlist & Favorites), Widgets gallery + detail/configure screen, theme-synced widget glass, original artwork (Widgets hero, empty state, Vault welcome). See "v2.14 Home-screen widgets". Not device-tested at release time.
 - v2.11 Premium black glass UI + theme gallery (visual only): glass system (attrs/styles/Glass.kt/VelaDialogBuilder), deep black/charcoal surfaces per theme, frosted light mode, 26 themes in 5 sections (Glass Dark, Vivid, Warm, Cool, Light-friendly), default = Pure Black Glass (installs that never picked a theme move to it; any explicit old pick is kept), gallery with live preview (tap = preview, tap again / Apply = apply with cross-fade recreate via `ThemeSwitch.prepareCrossfade`), saved custom themes with edit/duplicate/rename/delete, Advanced (secondary accent + background/glass base, quantised to nearest tuned palette), Reset. New pref keys only: `theme_key`, `theme_secondary`, `theme_base`. Not device-tested at release time.

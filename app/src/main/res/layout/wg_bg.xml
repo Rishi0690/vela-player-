@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.14 widget glass: six white layers, each tinted with the live theme palette in code (WidgetRenderer.glass).
+     RemoteViews cannot blur, so depth comes from the layered fill, wash, light pools, sheen and hairline. -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+    <ImageView android:id="@+id/wgFill" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/wg_fill_r1" android:importantForAccessibility="no" />
+    <ImageView android:id="@+id/wgWash" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/wg_wash_r1" android:importantForAccessibility="no" />
+    <ImageView android:id="@+id/wgGlow" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/wg_glow_r1" android:importantForAccessibility="no" />
+    <ImageView android:id="@+id/wgGlow2" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/wg_glow2_r1" android:importantForAccessibility="no" />
+    <ImageView android:id="@+id/wgSheen" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/wg_sheen_r1" android:importantForAccessibility="no" />
+    <ImageView android:id="@+id/wgStroke" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/wg_stroke_r1" android:importantForAccessibility="no" />
+</merge>

@@ -74,10 +74,12 @@ object PlayerHolder {
             .setHandleAudioBecomingNoisy(true)
             .build()
         player = p
+        WidgetUpdater.attach(c, p) // v2.14: Now Playing widgets follow this player
         return p
     }
 
     fun release() {
+        if (player != null) WidgetUpdater.detach()
         player?.release()
         player = null
     }

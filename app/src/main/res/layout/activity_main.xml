@@ -170,10 +170,24 @@
                     android:padding="32dp"
                     android:visibility="gone">
 
+                    <!-- v2.14: theme-tinted Vela artwork behind the empty-state orb (decorative). -->
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="132dp"
+                        android:layout_marginBottom="14dp">
+
+                    <ImageView
+                        android:id="@+id/emptyArt"
+                        android:layout_width="280dp"
+                        android:layout_height="132dp"
+                        android:layout_gravity="center"
+                        android:alpha="0.7"
+                        android:importantForAccessibility="no" />
+
                     <FrameLayout
                         android:layout_width="88dp"
                         android:layout_height="88dp"
-                        android:layout_marginBottom="18dp"
+                        android:layout_gravity="center"
                         android:background="@drawable/bg_empty_orb">
 
                         <ImageView
@@ -184,6 +198,7 @@
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_video_library"
                             app:tint="?attr/colorPrimary" />
+                    </FrameLayout>
                     </FrameLayout>
 
                     <TextView

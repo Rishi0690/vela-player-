@@ -1,0 +1,6 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+    <!-- v2.14 widgets: two glass tiles and a play card -->
+    <path android:fillColor="@android:color/white" android:pathData="M5,3h4c1.1,0 2,0.9 2,2v4c0,1.1 -0.9,2 -2,2H5c-1.1,0 -2,-0.9 -2,-2V5C3,3.9 3.9,3 5,3zM5,5v4h4V5H5zM15,3h4c1.1,0 2,0.9 2,2v4c0,1.1 -0.9,2 -2,2h-4c-1.1,0 -2,-0.9 -2,-2V5C13,3.9 13.9,3 15,3zM15,5v4h4V5h-4zM5,13h14c1.1,0 2,0.9 2,2v4c0,1.1 -0.9,2 -2,2H5c-1.1,0 -2,-0.9 -2,-2v-4C3,13.9 3.9,13 5,13zM5,15v4h14v-4H5zM10.5,15.6v2.8l2.6,-1.4z"/>
+</vector>

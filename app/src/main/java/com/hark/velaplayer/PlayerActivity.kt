@@ -113,12 +113,14 @@ class PlayerActivity : AppCompatActivity() {
         private const val SPEED_MIN = 0.25f
         private const val SPEED_MAX = 4f
         private const val SPEED_STEP = 0.05f
-        private const val ACTION_PIP = "com.hark.velaplayer.PIP_CONTROL"
-        private const val EXTRA_CONTROL = "control"
-        private const val CTRL_PLAY = 1
-        private const val CTRL_PAUSE = 2
-        private const val CTRL_PREV = 3
-        private const val CTRL_NEXT = 4
+        const val ACTION_PIP = "com.hark.velaplayer.PIP_CONTROL"
+        const val EXTRA_CONTROL = "control"
+        /** v2.14: widget Play brought the paused player to the front; start playing. */
+        const val EXTRA_WIDGET_PLAY = "vela_widget_play"
+        const val CTRL_PLAY = 1
+        const val CTRL_PAUSE = 2
+        const val CTRL_PREV = 3
+        const val CTRL_NEXT = 4
         private const val CTRL_REWIND = 5
         private const val CTRL_FORWARD = 6
         private const val PRIVATE_TITLE = FocusTracker.PRIVATE_TITLE
@@ -394,6 +396,13 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // v2.14: an intent with nothing to play (widget / notification "open the player") only brings it to the front;
+        // it must not reset the queue, vault mode or badges.
+        if (intent.getStringArrayListExtra(EXTRA_URIS).isNullOrEmpty() && intent.data == null) {
+            // Widget Play while the player sat paused in the background: continue playing once it is in front.
+            if (intent.getBooleanExtra(EXTRA_WIDGET_PLAY, false) && playerReady && !vaultMode) handler.post { if (!isFinishing && playerReady) togglePlayPauseTo(true) }
+            return
+        }
         setIntent(intent)
         savePosition()
         userRotated = false
@@ -420,6 +429,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onStart()
         openedInAppScreen = false
         activityStarted = true
+        WidgetUpdater.playerVisible = true // v2.14: widget Play may resume in place while the player is visible
         updateFocusCounting()
         if (Prefs.backgroundAudio(this)) connectSession()
     }
@@ -427,6 +437,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         activityStarted = false
+        WidgetUpdater.playerVisible = false
         updateFocusCounting()
         if (!playerReady) return
         savePosition()

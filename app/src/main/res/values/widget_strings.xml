@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v2.14 home-screen widgets (widget picker labels and descriptions). -->
+    <string name="wg_label_now_playing">Now Playing</string>
+    <string name="wg_label_continue">Continue Watching</string>
+    <string name="wg_label_quick">Quick Access</string>
+    <string name="wg_label_library">Recently Added</string>
+    <string name="wg_label_collection">Playlist &amp; Favorites</string>
+    <string name="wg_desc_now_playing">Artwork, live time and real play controls</string>
+    <string name="wg_desc_continue">Pick up unfinished videos where you left off</string>
+    <string name="wg_desc_quick">Four shortcuts you choose</string>
+    <string name="wg_desc_library">Newest videos as a thumbnail grid</string>
+    <string name="wg_desc_collection">A playlist or your favorites, with Play all</string>
+</resources>

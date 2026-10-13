@@ -79,6 +79,45 @@
         <!-- v2.3: vault settings, opened only from inside an unlocked vault. -->
         <activity android:name=".VaultSettingsActivity" android:exported="false" android:label="Vault settings" />
 
+        <!-- v2.14 Widgets: in-app gallery + detail/configure screen (exported for the launcher's configure flow). -->
+        <activity android:name=".WidgetsActivity" android:exported="false" android:label="Widgets" />
+        <activity android:name=".WidgetDetailActivity" android:exported="true" android:label="Widget">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <!-- No-UI trampoline for widget taps (builds the real queue at tap time). -->
+        <activity android:name=".WidgetLaunchActivity" android:exported="false" android:excludeFromRecents="true"
+            android:noHistory="true" android:taskAffinity="" android:launchMode="singleInstance"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <service android:name=".WidgetListService" android:exported="false" android:permission="android.permission.BIND_REMOTEVIEWS" />
+        <receiver android:name=".WidgetActionReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".NowPlayingWidget" android:exported="true" android:label="@string/wg_label_now_playing">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_now_playing" />
+        </receiver>
+        <receiver android:name=".ContinueWidget" android:exported="true" android:label="@string/wg_label_continue">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_continue" />
+        </receiver>
+        <receiver android:name=".QuickAccessWidget" android:exported="true" android:label="@string/wg_label_quick">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_quick" />
+        </receiver>
+        <receiver android:name=".LibraryWidget" android:exported="true" android:label="@string/wg_label_library">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_library" />
+        </receiver>
+        <receiver android:name=".CollectionWidget" android:exported="true" android:label="@string/wg_label_collection">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_collection" />
+        </receiver>
+
         <service
             android:name=".PlaybackService"
             android:exported="true"

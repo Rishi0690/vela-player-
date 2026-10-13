@@ -231,6 +231,8 @@ class SettingsActivity : ThemedActivity() {
             listOf("appearance", "library", "gestures", "playback", "playlists", "focus").forEach { s ->
                 findPreference<Preference>("sec_$s")?.setOnPreferenceClickListener { (activity as SettingsActivity).open(s); true }
             }
+            // v2.14: the Widgets gallery (its own screen, like the theme editor).
+            findPreference<Preference>("open_widgets")?.setOnPreferenceClickListener { startActivity(Intent(requireContext(), WidgetsActivity::class.java)); true }
             findPreference<Preference>("reset_all")?.setOnPreferenceClickListener {
                 VelaDialogBuilder(requireContext())
                     .setTitle("Reset all settings?")

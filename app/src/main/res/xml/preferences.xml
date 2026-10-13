@@ -6,6 +6,7 @@
     <Preference app:key="sec_gestures" app:title="Gestures" app:summary="Brightness and volume sides, double-tap, swipe to seek, pinch" app:icon="@drawable/ic_brightness" />
     <Preference app:key="sec_playback" app:title="Playback" app:summary="Speed, aspect ratio, subtitles, audio, picture-in-picture" app:icon="@drawable/ic_play" />
     <Preference app:key="sec_playlists" app:title="Playlists &amp; selection" app:summary="Long-press, adding videos, playlist covers" app:icon="@drawable/ic_playlist" />
+    <Preference app:key="open_widgets" app:title="Widgets" app:summary="Glass home-screen widgets that play, resume and follow your theme" app:icon="@drawable/ic_widgets" />
     <Preference app:key="sec_focus" app:title="Focus Mode" app:summary="Timer, goals, break reminders, Do Not Disturb, history" app:icon="@drawable/ic_focus" />
     <!-- v2.3: only the entry instructions live here; every vault setting is inside the vault itself. Removed at runtime
          when "Hide Hidden Vault instructions from main Settings" is on (VaultAuth.hideInstructions). -->
