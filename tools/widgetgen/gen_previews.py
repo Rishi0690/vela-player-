@@ -41,8 +41,10 @@ def rr_mask(w, h, r):
 
 CONTENT = False  # True: draw only the widget's content on a transparent canvas (for the Android 12+ previewLayout)
 OPACITY = 0.88
+RADIUS = 24
 
-def glass(w, h, r=24, opacity=None):
+def glass(w, h, r=None, opacity=None):
+    if r is None: r = RADIUS
     W, H, R = w * S, h * S, r * S
     if CONTENT: return Image.new("RGBA", (W, H), (0, 0, 0, 0))
     if opacity is None: opacity = OPACITY
@@ -258,15 +260,28 @@ def build_all():
     g["lib"] = grid_widget(300, 260); g["q"] = quick(300, 76, False); g["qg"] = quick(160, 160, True)
     return g
 
-# Picker previews (v2.16.2). The launcher fits previewImage into a box sized from targetCellWidth/Height; the old
-# images were opaque rectangles (widget on a wallpaper) whose aspect didn't match that box, so the picker showed
-# blank/white strips beside them. Now:
-#  * previewImage  = ONLY the widget card (transparent corners, no wallpaper), on a canvas at the target-cell aspect.
-#  * previewLayout (Android 12+, wg_pvl_*) = a glass background drawable that fills ANY box the launcher gives,
-#    with the widget's content image (wg_pv_*, transparent) fitted on top, so there is never an empty strip.
-# name: (key in build_all, card w, card h in dp; content is centred inside the card)
-PICKER = {"now_playing": ("np", 300, 176), "continue": ("cont", 300, 180), "collection": ("col", 300, 180),
-          "library": ("lib", 300, 280), "quick": ("q", 300, 84)}
+# Picker previews (v2.16.3).
+# ROOT CAUSE of the white strips: launchers put previewImage in their own (often white) preview box with FIT_CENTER.
+# Xiaomi HyperOS (com.mi.globalminusscreen picker) ignores previewLayout and sizes that box to ITS widget sizes, not
+# ours: 4x1 and 4x2 widgets get a 4x2 box (~2.16:1), 4x3 gets a 4x4 box (~1.03:1). Our images were 1.6-3.6:1, so the
+# box's white background showed around them (and v2.16.2's transparent corners/margins made it worse).
+# Fix: previewImage is now an OPAQUE glass card that fills the whole image, drawn natively at the box aspect (no
+# letterboxing, no distortion, no cropping), with small corners matching the picker card. Android 12+ launchers that
+# honour previewLayout (Pixel etc.) still use wg_pvl_* (glass bg fills any box + content image wg_pv_*).
+# name: (builder for the picker card at w x h dp)
+PW = 300
+ASPECT_4x2, ASPECT_4x4 = 2.164, 1.026
+H2, H4 = round(PW / ASPECT_4x2), round(PW / ASPECT_4x4)
+PICKER_CARD = {
+    "now_playing": lambda: now_medium(PW, H2),
+    "continue": lambda: list_widget(PW, H2, "Continue watching", "3 unfinished videos", "continue",
+        [("Weekend in the mountains", "18 min left · 31:05", 0.41), ("Lecture 04 — Signals", "33 min left · 48:30", 0.32)]),
+    "collection": lambda: list_widget(PW, H2, "Favorites", "12 videos · 2:41:08", "star",
+        [("Beach sunset", "4:12", None), ("Family dinner", "12:05 · resume 3:10", 0.26)], action="play", shuffle=True),
+    "quick": lambda: quick(PW, H2, False),
+    "library": lambda: grid_widget(PW, H4),
+}
+PICKER_CONTENT = {"now_playing": "np", "continue": "cont", "collection": "col", "library": "lib", "quick": "q"}
 
 def save_img(img, fname):
     final = img.resize((img.size[0] * 2 // S, img.size[1] * 2 // S), Image.LANCZOS)
@@ -274,17 +289,21 @@ def save_img(img, fname):
 
 g = build_all()
 if not THEME:
-    OPACITY = 1.0
-    full = build_all()
+    OPACITY = 1.0; RADIUS = 16  # ~ the HyperOS picker card's own corner (40 px of 790)
+    for name, fn in PICKER_CARD.items():
+        card = fn()
+        # Direct draws with alpha (hairline, chips, tracks) REPLACE pixels and leave see-through spots, where the
+        # picker's white box showed through. Flatten onto an opaque glass base so the card is solid everywhere.
+        base = glass(card.size[0] // S, card.size[1] // S); base.alpha_composite(card)
+        final = base.resize((base.size[0] * 2 // S, base.size[1] * 2 // S), Image.LANCZOS)
+        final.putalpha(rr_mask(final.size[0], final.size[1], 16 * 2))  # straight, fully opaque edges (no AA hairline)
+        pth = os.path.join(out_dir, f"wg_preview_{name}.webp"); final.save(pth, "WEBP", quality=90, method=6); print(pth, final.size)
+    RADIUS = 24
     CONTENT = True
     content = build_all()
     CONTENT = False; OPACITY = 0.88
-    for name, (key, cw, ch) in PICKER.items():
-        c_img = content[key]; w0, h0 = c_img.size[0] // S, c_img.size[1] // S
-        card_img = glass(cw, ch, opacity=1.0)
-        card_img.alpha_composite(c_img, ((cw - w0) // 2 * S, (ch - h0) // 2 * S))
-        save_img(card_img, f"wg_preview_{name}.webp")
-        save_img(c_img, f"wg_pv_{name}.webp")
+    for name, key in PICKER_CONTENT.items():
+        save_img(content[key], f"wg_pv_{name}.webp")
 w_np, w_bar, w_sq, w_cont, w_col, w_lib, w_q, w_qg = g["np"], g["bar"], g["sq"], g["cont"], g["col"], g["lib"], g["q"], g["qg"]
 
 if len(sys.argv) > 2:

@@ -18,5 +18,7 @@ for d,s in dict(mdpi=48,hdpi=72,xhdpi=96,xxhdpi=144,xxxhdpi=192).items():
         big=s*4; c=Image.new('RGBA',(big,big),(0,0,0,0)); mask=Image.new('L',(big,big),0); dr=ImageDraw.Draw(mask)
         if round_: dr.ellipse((0,0,big-1,big-1),fill=255)
         else: dr.rounded_rectangle((0,0,big-1,big-1),radius=big*0.22,fill=255)
-        c.alpha_composite(place(big,0.92))  # transparent: logo only, no plate
+        # v2.16.3: white plate (launchers drew the transparent adaptive background as black)
+        plate=Image.new('RGBA',(big,big),(255,255,255,255)); c.paste(plate,(0,0),mask)
+        c.alpha_composite(place(big,0.72))
         c.resize((s,s),Image.LANCZOS).save(R+f'mipmap-{d}/ic_launcher{"_round" if round_ else ""}.png')
