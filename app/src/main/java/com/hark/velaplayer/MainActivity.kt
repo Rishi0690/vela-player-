@@ -964,28 +964,50 @@ class MainActivity : ThemedActivity() {
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean { mode.menuInflater.inflate(R.menu.selection_menu, menu); return true }
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            val pl = selectingPlaylists()
-            val vids = if (pl) emptyList() else selectedVideos()
             val any = selected.isNotEmpty()
             val allSelected = selected.size >= selectableRows().size && any
             menu.findItem(R.id.sel_all).apply { title = if (allSelected) "Deselect all" else "Select all" }
-            fun vis(id: Int, v: Boolean) { menu.findItem(id).isVisible = v }
-            vis(R.id.sel_playlist, !pl && any)
-            vis(R.id.sel_play, any)
-            vis(R.id.sel_share, !pl && vids.any { it.entry.uri.startsWith("content") || it.entry.uri.startsWith("file") })
-            vis(R.id.sel_fav, !pl && vids.any { !it.favorite })
-            vis(R.id.sel_unfav, !pl && vids.any { it.favorite })
-            vis(R.id.sel_watched, !pl && vids.any { !it.watched })
-            vis(R.id.sel_unwatched, !pl && vids.any { it.watched })
-            vis(R.id.sel_remove, !pl && any && openPlaylist != null)
-            vis(R.id.sel_delete, !pl && vids.any { it.item != null })
-            vis(R.id.sel_delete_playlists, pl && any)
-            vis(R.id.sel_clear, any)
+            for (id in SEL_IDS) menu.findItem(id).isVisible = selActionVisible(id)
             return true
         }
-        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean { runSelAction(item.itemId); return true }
+        override fun onDestroyActionMode(mode: ActionMode) {
+            actionMode = null
+            selected.clear()
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL)
+            if (tab == Tab.PLAYLISTS && openPlaylist == null) b.fab.show()
+        }
+    }
+
+    private val SEL_IDS = intArrayOf(R.id.sel_playlist, R.id.sel_play, R.id.sel_share, R.id.sel_fav, R.id.sel_unfav, R.id.sel_watched,
+        R.id.sel_unwatched, R.id.sel_remove, R.id.sel_delete, R.id.sel_delete_playlists, R.id.sel_clear)
+
+    /** v2.17.1: single source of truth for which bulk actions apply to the CURRENT selection (action bar + long-press sheet). */
+    private fun selActionVisible(id: Int): Boolean {
+        val pl = selectingPlaylists()
+        val vids = if (pl) emptyList() else selectedVideos()
+        val any = selected.isNotEmpty()
+        return when (id) {
+            R.id.sel_playlist -> !pl && any
+            R.id.sel_play -> any
+            R.id.sel_share -> !pl && vids.any { !it.unavailable && (it.entry.uri.startsWith("content") || it.entry.uri.startsWith("file")) }
+            R.id.sel_fav -> !pl && vids.any { !it.favorite }
+            R.id.sel_unfav -> !pl && vids.any { it.favorite }
+            R.id.sel_watched -> !pl && vids.any { !it.watched }
+            R.id.sel_unwatched -> !pl && vids.any { it.watched }
+            R.id.sel_remove -> !pl && any && openPlaylist != null
+            R.id.sel_delete -> !pl && vids.any { it.item != null }
+            R.id.sel_delete_playlists -> pl && any
+            R.id.sel_clear -> any
+            else -> false
+        }
+    }
+
+    /** v2.17.1: runs a bulk action on EVERY selected item. Used by the selection action bar and the long-press options sheet. */
+    private fun runSelAction(id: Int) {
+            val mode = actionMode ?: return
             val vids = selectedVideos()
-            when (item.itemId) {
+            when (id) {
                 R.id.sel_all -> {
                     val keys = selectableRows().mapNotNull { selKey(it) }
                     if (selected.containsAll(keys)) selected.clear() else selected.addAll(keys)
@@ -1007,7 +1029,7 @@ class MainActivity : ThemedActivity() {
                 R.id.sel_watched -> { Store.setWatchedMany(this@MainActivity, vids.map { it.entry.uri }, true); refresh() }
                 R.id.sel_unwatched -> { Store.setWatchedMany(this@MainActivity, vids.map { it.entry.uri }, false); refresh() }
                 R.id.sel_remove -> {
-                    val pl = openPlaylist ?: return true
+                    val pl = openPlaylist ?: return
                     VelaDialogBuilder(this@MainActivity).setTitle("Remove ${vids.size} from \"$pl\"?")
                         .setMessage("They're only taken out of this playlist. The video files stay on your phone.")
                         .setPositiveButton("Remove") { _, _ ->
@@ -1030,14 +1052,58 @@ class MainActivity : ThemedActivity() {
                         .setNegativeButton("Cancel", null).show()
                 }
             }
-            return true
+    }
+
+    /** v2.17.1: options sheet for long-press on an already-selected video while 2+ videos are selected.
+     *  Every action targets the whole selection; single-video-only actions (Rename) are left out and named in the header. */
+    private fun onSelectionOptions() {
+        val vids = selectedVideos()
+        if (vids.size < 2) { vids.firstOrNull()?.let { onVideoOptions(it) }; return }
+        val a = ArrayList<Action>()
+        fun add(id: Int, label: String, icon: Int, danger: Boolean = false) { if (selActionVisible(id)) a += Action(label, icon, danger) { runSelAction(id) } }
+        val playable = vids.filter { !it.unavailable }
+        add(R.id.sel_play, "Play ${playable.size} selected", R.drawable.ic_play)
+        if (playable.any { it.progress > 0f }) a += Action("Play selected from start", R.drawable.ic_replay) {
+            playable.forEach { Store.clearPosition(this, it.entry.uri) }; play(playable.map { it.entry }, 0)
         }
-        override fun onDestroyActionMode(mode: ActionMode) {
-            actionMode = null
-            selected.clear()
-            adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL)
-            if (tab == Tab.PLAYLISTS && openPlaylist == null) b.fab.show()
+        a += GROUP
+        add(R.id.sel_fav, "Add to favorites", R.drawable.ic_star)
+        add(R.id.sel_unfav, "Remove from favorites", R.drawable.ic_star)
+        add(R.id.sel_playlist, "Add to playlist", R.drawable.ic_playlist_add)
+        add(R.id.sel_remove, "Remove from this playlist", R.drawable.ic_close)
+        add(R.id.sel_watched, "Mark as watched", R.drawable.ic_check_circle)
+        add(R.id.sel_unwatched, "Mark as unwatched", R.drawable.ic_check_circle)
+        val inProgress = vids.filter { it.progress > 0f }
+        if (inProgress.isNotEmpty()) a += Action("Remove from Continue watching", R.drawable.ic_close) {
+            inProgress.forEach { Store.clearPosition(this, it.entry.uri) }
+            toast("Removed ${inProgress.size} from Continue watching"); refresh()
         }
+        a += GROUP
+        add(R.id.sel_share, "Share", R.drawable.ic_share)
+        a += Action("Properties", R.drawable.ic_info) { selectionDetailsDialog(vids) }
+        a += Action("Select all", R.drawable.ic_select_all) { val keys = selectableRows().mapNotNull { selKey(it) }; selected.addAll(keys)
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL); updateActionMode() }
+        a += Action("Clear selection", R.drawable.ic_close) { actionMode?.finish() }
+        if (selActionVisible(R.id.sel_delete)) { a += GROUP; add(R.id.sel_delete, "Delete ${vids.count { it.item != null }} videos", R.drawable.ic_delete, danger = true) }
+        val bytes = vids.sumOf { it.item?.size ?: 0L }
+        val sub = listOfNotNull(bytes.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(this, it) }, "Rename works on one video at a time").joinToString(" · ")
+        showSheet(ItemSheet.Header("${vids.size} videos selected", sub, R.drawable.ic_select_all), a)
+    }
+
+    private fun selectionDetailsDialog(vids: List<Row.Video>) {
+        val items = vids.mapNotNull { it.item }
+        val sb = StringBuilder()
+        sb.append("Videos: ").append(vids.size).append('\n')
+        val dur = items.sumOf { it.durationMs.coerceAtLeast(0L) }
+        if (dur > 0) sb.append("Total length: ").append(Fmt.time(dur)).append('\n')
+        val size = items.sumOf { it.size.coerceAtLeast(0L) }
+        if (size > 0) sb.append("Total size: ").append(Formatter.formatFileSize(this, size)).append('\n')
+        sb.append("Watched: ").append(vids.count { it.watched }).append(" of ").append(vids.size).append('\n')
+        val missing = vids.count { it.unavailable }
+        if (missing > 0) sb.append("Unavailable: ").append(missing).append('\n')
+        sb.append('\n').append(vids.take(8).joinToString("\n") { "• " + it.entry.title })
+        if (vids.size > 8) sb.append("\n…and ").append(vids.size - 8).append(" more")
+        VelaDialogBuilder(this).setTitle("Properties").setMessage(sb.toString()).setPositiveButton("Close", null).show()
     }
 
     // ------------------------------------------------------------------ option sheets
@@ -1062,7 +1128,7 @@ class MainActivity : ThemedActivity() {
         // The ⋮ button still opens options directly; tap still toggles while selecting.
         if (selecting) {
             val k = selKey(row)
-            if (k != null && selected.contains(k)) onVideoOptions(row) else toggleSelection(position)
+            if (k != null && selected.contains(k)) { if (selectedVideos().size > 1) onSelectionOptions() else onVideoOptions(row) } else toggleSelection(position)
             return
         }
         startSelection(row)

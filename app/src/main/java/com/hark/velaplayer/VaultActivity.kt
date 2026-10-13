@@ -709,8 +709,18 @@ class VaultActivity : ThemedActivity() {
             menu.findItem(R.id.vsel_restart).isVisible = sel.any { Vault.position(this@VaultActivity, it) > 0 }
             return true
         }
-        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-            when (item.itemId) {
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean { runSelAction(item.itemId); return true }
+        override fun onDestroyActionMode(mode: ActionMode) {
+            actionMode = null; selected.clear()
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel")
+            if (Vault.isUnlocked()) addFab.show()
+        }
+    }
+
+    /** v2.17.1: bulk action on EVERY selected video (action bar + long-press sheet). */
+    private fun runSelAction(id: Int) {
+            val mode = actionMode ?: return
+            when (id) {
                 R.id.vsel_all -> {
                     val all = shown.map { it.item.uri }
                     if (selected.containsAll(all)) selected.clear() else selected.addAll(all)
@@ -727,7 +737,7 @@ class VaultActivity : ThemedActivity() {
                     if (sel.isNotEmpty()) play(sel, 0, true)
                 }
                 R.id.vsel_watched, R.id.vsel_unwatched -> {
-                    val on = item.itemId == R.id.vsel_watched
+                    val on = id == R.id.vsel_watched
                     val n = selected.size
                     Vault.setWatched(this@VaultActivity, selected.toList(), on)
                     toast(if (on) "Marked $n as watched" else "Marked $n as unwatched")
@@ -738,13 +748,45 @@ class VaultActivity : ThemedActivity() {
                     toast("Resume points cleared"); mode.finish(); load()
                 }
             }
-            return true
+    }
+
+    /** v2.17.1: long-press on an already-selected video while 2+ are selected → options for the whole selection. */
+    private fun selectionOptions() {
+        val sel = selected.mapNotNull { u -> shown.firstOrNull { it.item.uri == u } }
+        if (sel.size < 2) { sel.firstOrNull()?.let { options(it) }; return }
+        val uris = sel.map { it.item.uri }
+        val play = ArrayList<ItemSheet.Action>(); val manage = ArrayList<ItemSheet.Action>(); val storage = ArrayList<ItemSheet.Action>()
+        val playable = sel.count { !it.unavailable }
+        if (playable > 0) play += ItemSheet.Action("Play $playable selected", R.drawable.ic_play) { runSelAction(R.id.vsel_play) }
+        if (playable > 1) play += ItemSheet.Action("Shuffle selected", R.drawable.ic_shuffle) { runSelAction(R.id.vsel_shuffle) }
+        if (uris.any { Vault.position(this, it) > 0 }) play += ItemSheet.Action("Play selected from start", R.drawable.ic_replay) {
+            uris.forEach { Vault.clearPosition(this, it) }
+            play(sel, 0)
         }
-        override fun onDestroyActionMode(mode: ActionMode) {
-            actionMode = null; selected.clear()
-            adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel")
-            if (Vault.isUnlocked()) addFab.show()
-        }
+        if (uris.any { !Vault.isWatched(this, it) }) manage += ItemSheet.Action("Mark as watched", R.drawable.ic_check_circle) { runSelAction(R.id.vsel_watched) }
+        if (uris.any { Vault.isWatched(this, it) }) manage += ItemSheet.Action("Mark as unwatched", R.drawable.ic_check_circle) { runSelAction(R.id.vsel_unwatched) }
+        if (uris.any { Vault.position(this, it) > 0 }) manage += ItemSheet.Action("Clear resume points", R.drawable.ic_replay) { runSelAction(R.id.vsel_restart) }
+        manage += ItemSheet.Action("Select all", R.drawable.ic_select_all) { val all = shown.map { it.item.uri }; selected.addAll(all)
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel"); updateActionMode() }
+        manage += ItemSheet.Action("Clear selection", R.drawable.ic_close) { actionMode?.finish() }
+        if (sel.any { !it.item.isPrivate && !it.unavailable }) storage += ItemSheet.Action("Move to private storage (hide from Gallery)", R.drawable.ic_lock) { runSelAction(R.id.vsel_private) }
+        storage += ItemSheet.Action("Unhide ${sel.size} videos", R.drawable.vault_ic_unhide) { runSelAction(R.id.vsel_unhide) }
+        storage += ItemSheet.Action("Details", R.drawable.ic_info) { selectionDetails(sel) }
+        ItemSheet(this).show(ItemSheet.Header("${sel.size} videos selected", null, R.drawable.ic_select_all, null), listOf(play, manage, storage).filter { it.isNotEmpty() })
+    }
+
+    private fun selectionDetails(sel: List<VRow>) {
+        val sb = StringBuilder()
+        sb.append("Videos: ").append(sel.size).append('\n')
+        val dur = sel.sumOf { (it.video?.durationMs ?: it.item.dur).coerceAtLeast(0L) }
+        if (dur > 0) sb.append("Total length: ").append(Fmt.time(dur)).append('\n')
+        val size = sel.sumOf { (it.video?.size ?: 0L).coerceAtLeast(0L) }
+        if (size > 0) sb.append("Total size: ").append(Formatter.formatFileSize(this, size)).append('\n')
+        sb.append("In private storage: ").append(sel.count { it.item.isPrivate }).append('\n')
+        sb.append("Watched: ").append(sel.count { Vault.isWatched(this, it.item.uri) }).append(" of ").append(sel.size).append('\n')
+        sb.append('\n').append(sel.take(8).joinToString("\n") { "• " + it.item.title })
+        if (sel.size > 8) sb.append("\n…and ").append(sel.size - 8).append(" more")
+        VelaDialogBuilder(this).setTitle("Details").setMessage(sb.toString()).setPositiveButton("Close", null).show()
     }
 
     // ------------------------------------------------------------------ adapter
@@ -780,7 +822,7 @@ class VaultActivity : ThemedActivity() {
                 if (reorderMode != null) { touchHelper.startDrag(this); return@setOnLongClickListener true }
                 // v2.17: long-press selects; long-press on an already-selected video opens its options (⋮ still opens them directly).
                 val r = shown[p]
-                if (actionMode == null) startSelection(r) else if (selected.contains(r.item.uri)) options(r) else toggle(p)
+                if (actionMode == null) startSelection(r) else if (selected.contains(r.item.uri)) { if (selected.size > 1) selectionOptions() else options(r) } else toggle(p)
                 true
             }
             v.more.setOnClickListener { row?.let { options(it) } }
