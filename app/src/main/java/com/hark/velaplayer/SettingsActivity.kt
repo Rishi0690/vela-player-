@@ -57,6 +57,16 @@ class SettingsActivity : ThemedActivity() {
         onBackPressedDispatcher.addCallback(this, clearSearchOnBack)
         b.searchResults.layoutManager = LinearLayoutManager(this)
         b.searchResults.adapter = results
+        VelaScroller.attach(b.searchResults)
+        // v2.8: results and the empty message sit below the overlaid search field.
+        b.searchBox.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) {
+                val h = bottom - top
+                b.searchResults.setPadding(0, h, 0, b.searchResults.paddingBottom)
+                b.searchEmpty.setPadding(b.searchEmpty.paddingLeft, h, b.searchEmpty.paddingRight, b.searchEmpty.paddingBottom)
+                (supportFragmentManager.findFragmentById(R.id.container) as? RootFragment)?.padForSearch(h)
+            }
+        }
         b.search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
@@ -81,8 +91,26 @@ class SettingsActivity : ThemedActivity() {
 
     /** Called by each fragment when its screen shows: the search field lives on the main Settings screen only. */
     fun onScreenShown(root: Boolean) {
-        b.searchBox.isVisible = root
+        // v2.8: the field is an overlay, so fading it never moves the screens below (that shift was the jump
+        // users saw when entering or leaving a category).
+        if (root) Motion.enter(b.searchBox, duration = Motion.MEDIUM, delay = 40) else Motion.exit(b.searchBox, 120)
         if (!root && b.search.text?.isNotEmpty() == true) b.search.setText("")
+    }
+
+    fun searchBoxHeight() = b.searchBox.height
+
+    /** v2.8: cross-fades the toolbar title instead of swapping it instantly. */
+    private fun setTitleAnimated(t: CharSequence) {
+        if (b.toolbar.title == t) return
+        val tv = (0 until b.toolbar.childCount).map { b.toolbar.getChildAt(it) }.filterIsInstance<android.widget.TextView>()
+            .firstOrNull { it.text == b.toolbar.title }
+        if (tv == null || !Motion.enabled(this)) { b.toolbar.title = t; return }
+        tv.animate().cancel()
+        tv.animate().alpha(0f).setDuration(90).setInterpolator(Motion.emphasizedAccel).withEndAction {
+            b.toolbar.title = t
+            tv.alpha = 0f
+            tv.animate().alpha(1f).setDuration(180).setInterpolator(Motion.emphasized).start()
+        }.start()
     }
 
     private fun runSearch(q: String) {
@@ -144,28 +172,47 @@ class SettingsActivity : ThemedActivity() {
         val fm = supportFragmentManager
         if (fm.isStateSaved || now - lastNavAt < 350 || fm.findFragmentById(R.id.container)?.tag == section) return
         lastNavAt = now
+        val frag = SectionFragment().apply { arguments = Bundle().apply { putString(EXTRA_SECTION, section); if (highlight != null) putString(EXTRA_HIGHLIGHT, highlight) } }
         val t = fm.beginTransaction().setReorderingAllowed(true)
             .setCustomAnimations(R.anim.nav_push_enter, R.anim.nav_push_exit, R.anim.nav_pop_enter, R.anim.nav_pop_exit)
-            .replace(R.id.container, SectionFragment().apply { arguments = Bundle().apply { putString(EXTRA_SECTION, section); if (highlight != null) putString(EXTRA_HIGHLIGHT, highlight) } }, section)
+        val current = fm.findFragmentById(R.id.container)
+        if (addToBack && current != null) {
+            // v2.8 root cause fix: `replace` destroyed the main screen's view and re-inflated + re-bound every row
+            // on Back, on the same frame the pop animation started (the visible hitch). Hiding keeps the screen
+            // alive, so Back only fades it in again with its scroll position intact.
+            t.hide(current).add(R.id.container, frag, section)
+        } else t.replace(R.id.container, frag, section)
         if (addToBack) t.addToBackStack(section)
         t.commit()
-        b.toolbar.title = TITLES[section]
+        TITLES[section]?.let { setTitleAnimated(it) }
     }
 
     private fun updateTitle() {
         val f = supportFragmentManager.findFragmentById(R.id.container)
-        b.toolbar.title = (f as? SectionFragment)?.arguments?.getString(EXTRA_SECTION)?.let { TITLES[it] } ?: "Settings"
+        setTitleAnimated((f as? SectionFragment)?.arguments?.getString(EXTRA_SECTION)?.let { TITLES[it] } ?: "Settings")
     }
 
     class RootFragment : PreferenceFragmentCompat() {
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
             prepareNavScreen(this, view)
-            (activity as? SettingsActivity)?.onScreenShown(true)
+            (activity as? SettingsActivity)?.let { a -> if (!isHidden) a.onScreenShown(true); padForSearch(a.searchBoxHeight()) }
+        }
+        override fun onHiddenChanged(hidden: Boolean) {
+            super.onHiddenChanged(hidden)
+            if (!hidden) (activity as? SettingsActivity)?.onScreenShown(true)
         }
         override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? =
             navAnim(this, nextAnim)
         fun reveal(key: String) = revealPreference(this, key)
+
+        /** Keeps the first row clear of the overlaid search field; rows scroll up underneath it. */
+        fun padForSearch(h: Int) {
+            val l = listView ?: return
+            if (h <= 0) return
+            l.clipToPadding = false
+            l.setPadding(l.paddingLeft, h, l.paddingRight, l.paddingBottom)
+        }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.preferences, rootKey)
@@ -433,9 +480,18 @@ object SettingsSearch {
  * of each other (and on Back the old screen was drawn under the new one). Each screen now has a solid background,
  * and the screen sliding away on Back is lifted above the one coming back (iOS-style pop).
  */
-private fun prepareNavScreen(f: androidx.fragment.app.Fragment, view: View) {
+private fun prepareNavScreen(f: PreferenceFragmentCompat, view: View) {
     val tv = android.util.TypedValue()
     if (f.requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) view.setBackgroundColor(tv.data)
+    f.listView?.let { l ->
+        // v2.8: toggling a switch or a dependency used to cross-fade the whole row (DefaultItemAnimator change
+        // animation), which read as a flicker. Rows now update in place; inserts/removals still animate.
+        (l.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
+        l.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        l.clipToPadding = false
+        l.setPadding(l.paddingLeft, l.paddingTop, l.paddingRight, (24 * l.resources.displayMetrics.density).toInt())
+        VelaScroller.attach(l)
+    }
 }
 private fun navAnimZ(view: View?, nextAnim: Int) { view?.translationZ = if (nextAnim == R.anim.nav_pop_exit) 0.5f else 0f }
 

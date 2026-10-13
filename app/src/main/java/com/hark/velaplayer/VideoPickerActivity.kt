@@ -79,6 +79,7 @@ class VideoPickerActivity : ThemedActivity() {
         lm = GridLayoutManager(this, 1)
         b.list.layoutManager = lm
         b.list.adapter = adapter
+        VelaScroller.attach(b.list)
         (b.list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
         applyMode()
         b.search.addTextChangedListener(object : TextWatcher {
@@ -135,7 +136,7 @@ class VideoPickerActivity : ThemedActivity() {
         val q = query.trim().lowercase()
         shown = library.filter { (folderId == null || it.bucketId == folderId) && (q.isEmpty() || it.name.lowercase().contains(q)) }
         adapter.notifyDataSetChanged()
-        b.empty.isVisible = shown.isEmpty()
+        Motion.reveal(b.empty, shown.isEmpty())
         b.empty.text = when {
             !hasAccess() -> "Vela can't see your videos yet. Use \"From files\" to pick videos, or allow access from the home screen."
             library.isEmpty() -> "No videos found on this device. You can still add files with \"From files\"."

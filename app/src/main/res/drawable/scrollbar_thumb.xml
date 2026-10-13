@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.8: slim accent scroll thumb for native ScrollViews (lists use VelaScroller, same look). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/primary_a60" />
+    <corners android:radius="2dp" />
+    <size android:width="4dp" />
+</shape>

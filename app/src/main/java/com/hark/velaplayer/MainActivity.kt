@@ -195,6 +195,7 @@ class MainActivity : ThemedActivity() {
         }
         b.list.layoutManager = grid
         b.list.adapter = adapter
+        VelaScroller.attach(b.list)
         b.list.layoutAnimation = android.view.animation.AnimationUtils.loadLayoutAnimation(this, R.anim.list_layout)
         touchHelper = ItemTouchHelper(reorderCallback).also { it.attachToRecyclerView(b.list) }
         setupVaultHold()
@@ -679,7 +680,7 @@ class MainActivity : ThemedActivity() {
             saveUiState()
         }
         val empty = filtered.none { it is Row.Video || it is Row.Folder || it is Row.Playlist }
-        b.emptyView.isVisible = empty && filtered.none { it is Row.Summary || it is Row.ContinueStrip }
+        Motion.reveal(b.emptyView, empty && filtered.none { it is Row.Summary || it is Row.ContinueStrip })
         b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess()
         b.emptyText.text = when {
             query.isNotBlank() -> "Nothing matches \"$query\"."

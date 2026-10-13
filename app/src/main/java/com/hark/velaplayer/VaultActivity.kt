@@ -170,6 +170,7 @@ class VaultActivity : ThemedActivity() {
         list.adapter = adapter
         (list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
         touchHelper = ItemTouchHelper(reorderCallback).also { it.attachToRecyclerView(list) }
+        VelaScroller.attach(list)
         addFab.setOnClickListener { openAddPicker() }
         render()
     }
@@ -254,6 +255,8 @@ class VaultActivity : ThemedActivity() {
 
     private fun render() {
         val unlocked = Vault.isUnlocked()
+        // v2.8: unlocking eases the library in instead of snapping it on screen.
+        if (unlocked && !content.isVisible && lockPane.isVisible) Motion.enter(content, fromY = 12 * resources.displayMetrics.density, duration = Motion.MEDIUM)
         content.isVisible = unlocked
         addFab.isVisible = unlocked
         lockPane.isVisible = !unlocked
@@ -441,7 +444,7 @@ class VaultActivity : ThemedActivity() {
         selected.retainAll(shown.map { it.item.uri }.toHashSet())
         applyMode()
         @Suppress("NotifyDataSetChanged") adapter.notifyDataSetChanged()
-        empty.isVisible = shown.isEmpty()
+        Motion.reveal(empty, shown.isEmpty())
         empty.text = when {
             rows.isEmpty() -> "The vault is empty.\n\nSelect videos in the library and choose \"Hide in vault\", or tap Add videos."
             q.isNotEmpty() -> "Nothing matches \"$query\"."

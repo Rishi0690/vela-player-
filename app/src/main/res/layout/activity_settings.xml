@@ -13,30 +13,6 @@
         app:navigationIcon="@drawable/ic_arrow_back"
         app:title="Settings" />
 
-    <!-- Search across every settings category (shown on the main Settings screen). -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/searchBox"
-        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="6dp"
-        android:hint="Search settings"
-        app:boxCornerRadiusBottomEnd="16dp"
-        app:boxCornerRadiusBottomStart="16dp"
-        app:boxCornerRadiusTopEnd="16dp"
-        app:boxCornerRadiusTopStart="16dp"
-        app:endIconMode="clear_text"
-        app:startIconDrawable="@drawable/ic_search">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/search"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLines="1" />
-    </com.google.android.material.textfield.TextInputLayout>
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -46,6 +22,7 @@
             android:id="@+id/container"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
+
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/searchResults"
@@ -67,5 +44,32 @@
             android:text="No settings match"
             android:textAppearance="?attr/textAppearanceBodyLarge"
             android:visibility="gone" />
+        <!-- v2.8: search overlays the top of the main screen (the root list is padded below it), so showing or
+             hiding it never shifts the screens underneath mid-animation. -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/searchBox"
+            android:elevation="0dp"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="6dp"
+            android:background="?attr/colorSurface"
+            android:hint="Search settings"
+            app:boxCornerRadiusBottomEnd="16dp"
+            app:boxCornerRadiusBottomStart="16dp"
+            app:boxCornerRadiusTopEnd="16dp"
+            app:boxCornerRadiusTopStart="16dp"
+            app:endIconMode="clear_text"
+            app:startIconDrawable="@drawable/ic_search">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/search"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1" />
+        </com.google.android.material.textfield.TextInputLayout>
     </FrameLayout>
 </LinearLayout>

@@ -23,7 +23,9 @@ import com.google.android.material.materialswitch.MaterialSwitch
  *   existing PIN/pattern is verified first (same counter + lockout as the lock screen). Going from no password to a
  *   PIN/pattern needs no verification. Hidden videos are never touched by any of this.
  * - Lock after inactivity (only with security), hide the main-Settings instructions, appearance, data, and the
- *   honest note that hiding isn't encryption.
+ *   honest note that hiding isn't encryption. v2.8: the "Storage & uninstalling" and "About hiding" info sections
+ *   were removed from this page on request; storage modes and their warnings still show where the user chooses
+ *   them (VaultStorage) and in the vault's own note.
  * Leaving the app from here locks a secured vault and closes this screen; a recreated screen whose vault is
  * locked closes at once, so it can't be used to bypass the lock.
  */
@@ -83,6 +85,8 @@ class VaultSettingsActivity : ThemedActivity() {
         host.removeAllViews()
         host.addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         host.scrollTo(0, 0)
+        // v2.8: page swaps (main ↔ security steps) ease in; the lock panel animates itself.
+        if (v !is VaultLockPanel) Motion.enter(v, fromY = 8 * dp, duration = Motion.MEDIUM)
     }
 
     private fun sub(v: View) = setPanel(v, true, "Vault security")
@@ -193,19 +197,6 @@ class VaultSettingsActivity : ThemedActivity() {
             toast(if (on) "Vault hidden from Settings" else "Vault shown in Settings again")
         }
 
-        val n = Vault.count(this)
-        header(c, "Storage & uninstalling")
-        val priv = VaultStorage.privateItems(this)
-        val appN = n - priv.size
-        note(c, "Hidden in Vela only: $appN video${if (appN == 1) "" else "s"}. Files stay where they are and are still visible in " +
-            "Gallery, file managers and other apps. Uninstalling Vela deletes nothing; they simply show up normally.")
-        note(c, "In Vela's private storage: ${priv.size} video${if (priv.size == 1) "" else "s"}" +
-            (if (priv.isEmpty()) "" else " (${android.text.format.Formatter.formatShortFileSize(this, VaultStorage.privateBytes(this))})") +
-            ". Other apps can't see these. Uninstalling Vela or clearing its storage deletes them permanently. " +
-            "Restore them with Unhide before uninstalling, changing phones or resetting.")
-        header(c, "About hiding")
-        note(c, "Nothing in the vault is encrypted. The vault lock protects Vela's screens, not the files themselves; " +
-            "anyone with root access or a computer backup tool may still reach them.")
         setPanel(c, false)
     }
 

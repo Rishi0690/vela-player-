@@ -190,6 +190,12 @@ class VaultLockPanel(context: Context) : LinearLayout(context) {
         gravity = Gravity.CENTER_HORIZONTAL
         val pad = context.dp(24f).toInt()
         setPadding(pad, pad, pad, pad)
+        // v2.8: the lock content used to hug the top of the screen. Weighted spacers above and below share the
+        // free height (40 % above, 60 % below), so the PIN pad / pattern sits a little lower and optically centred
+        // on every screen size. The host ScrollView uses fillViewport, so this only applies when there is spare
+        // room; on short screens or with the keyboard up the spacers collapse to 0 and the content scrolls.
+        // Same panel for unlock, setup, confirm and change, so the position is identical everywhere.
+        addView(android.widget.Space(context), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.4f))
         icon.setImageResource(R.drawable.ic_lock)
         icon.imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(context))
         addView(icon, LayoutParams(context.dp(40f).toInt(), context.dp(40f).toInt()))
@@ -210,6 +216,14 @@ class VaultLockPanel(context: Context) : LinearLayout(context) {
         addView(bioButton, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(12f).toInt() })
         secondary.isVisible = false
         addView(secondary, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(4f).toInt() })
+        addView(android.widget.Space(context), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.6f))
+    }
+
+    private var entered = false
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // v2.8: each step (unlock, new, confirm, verify) eases in, so moving between steps reads as one flow.
+        if (!entered) { entered = true; Motion.enter(this, fromY = context.dp(16f), duration = Motion.MEDIUM) }
     }
 
     fun setTexts(t: String, m: String?) { title.text = t; message.text = m ?: ""; message.isVisible = !m.isNullOrBlank() }

@@ -24,7 +24,8 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:fillViewport="true" />
+            android:fillViewport="true"
+            android:scrollbars="vertical" />
     </LinearLayout>
 
     <!-- Vault library: only populated while unlocked. -->

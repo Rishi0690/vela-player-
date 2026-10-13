@@ -2257,6 +2257,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupBrowser() {
         b.browserList.layoutManager = LinearLayoutManager(this)
         b.browserList.adapter = browserAdapter
+        VelaScroller.attach(b.browserList)
         b.browserClose.setOnClickListener { closeBrowser() }
         b.browserScrim.setOnClickListener { closeBrowser() }
         b.browserScope.setOnCheckedStateChangeListener { _, ids ->

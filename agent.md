@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.0`, `versionCode 7`
+- Current version: `versionName 2.8`, `versionCode 19`
 
 ## Golden rules
 1. **Never break existing playback.** Every change must keep the player, gestures, aspect modes, subtitles, audio tracks and queue working.
@@ -54,6 +54,7 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 | `PlaybackChip.kt` | v2.3 bottom chip for all player messages (skip chips stay at the sides) |
 | `TabSwipeLayout.kt` / `LibraryNavigator.kt` | Swipe between library tabs; library navigation helpers |
 | `PlayerSession.kt` / `FrameCapture.kt` / `VolumeBoost.kt` | Player session state, frame preview capture, volume boost |
+| `VelaScroller.kt` | v2.8 slim draggable scroll indicator for every RecyclerView (`VelaScroller.attach(rv)`): reads the list's real scroll offset/range, fades after 1.2 s, hidden when content fits, RTL aware, accent colour. Native ScrollViews use the theme's `scrollbar_thumb` |
 | `HoldTitleView.kt` | v2.3 Home "Vela Player" title: 5 s continuous hold opens the Hidden Vault |
 
 ## Resources
@@ -83,6 +84,7 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 - v2.5 Vault private storage · v2.5.1 single-thumbnail covers · v2.5.2 slimmer Vault settings
 - v2.6 settings transition fix + new motion · v2.6.1 calmer fade-through, lighter dialogs/blur
 - v2.7 Settings navigation root-cause fixes (rapid taps, GPU layer, reduced motion)
+- v2.8 Settings: categories open with hide/add (main screen no longer re-inflated on Back), search field is an overlay (no layout jump), no row cross-fade on toggles, title cross-fade. VelaScroller everywhere, themed native scrollbars, Motion.enabled/exit/reveal (reduced motion), animated empty states, Vault lock panel lowered via 40/60 spacers + ease-in, Vault settings: removed "Storage & uninstalling" and "About hiding" sections
 
-## Pending (requested 2026-10-13)
+## Pending (requested 2026-10-13, partly done in v2.8)
 Full UI/UX + motion polish across the app: consistent motion system, design tokens (spacing, radii, type), light/dark/accent consistency, clearer empty/error/loading states, scroll/thumbnail performance. Keep every feature working.
