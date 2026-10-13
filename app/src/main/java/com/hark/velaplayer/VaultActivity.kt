@@ -771,14 +771,16 @@ class VaultActivity : ThemedActivity() {
                 if (reorderMode != null) return@setOnClickListener
                 if (actionMode != null) { toggle(p); return@setOnClickListener }
                 val r = shown[p]
-                if (r.unavailable) { toast("This video was moved or deleted. Long-press to unhide it.") ; return@setOnClickListener }
+                if (r.unavailable) { toast("This video was moved or deleted. Tap ⋮ to unhide it.") ; return@setOnClickListener }
                 play(shown, p)
             }
             v.root.setOnLongClickListener {
                 val p = bindingAdapterPosition; if (p == RecyclerView.NO_POSITION) return@setOnLongClickListener true
                 Motion.haptic(it, true)
                 if (reorderMode != null) { touchHelper.startDrag(this); return@setOnLongClickListener true }
-                if (actionMode != null) toggle(p) else if (Prefs.longPressAction(this@VaultActivity) == "select") startSelection(shown[p]) else options(shown[p])
+                // v2.17: long-press selects; long-press on an already-selected video opens its options (⋮ still opens them directly).
+                val r = shown[p]
+                if (actionMode == null) startSelection(r) else if (selected.contains(r.item.uri)) options(r) else toggle(p)
                 true
             }
             v.more.setOnClickListener { row?.let { options(it) } }

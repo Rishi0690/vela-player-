@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.16.3`, `versionCode 34` (last updated 2026-10-14)
+- Current version: `versionName 2.17`, `versionCode 35` (last updated 2026-10-14)
 - Repo: `Rishi0690/vela-player-` (private, branch `main`). Owner works from an Android phone only (no PC); keep instructions simple.
 
 ## Golden rules
@@ -198,6 +198,9 @@ Original 2026-10-13 ask, mostly delivered: full UI/UX + motion polish across the
 ## v2.16.3 (versionCode 34)
 - Widget picker white strips (HyperOS screenshot): previewImage now opaque, at the picker's 2.16:1 / 1.03:1 box aspect, flattened (no semi-transparent hairline/chips).
 - Launcher icon background white (adaptive bg #FFFFFF, legacy PNGs on a white plate); transparent bg rendered black on launchers.
+
+## v2.17 (versionCode 35)
+- Video long-press (all library tabs, folders, playlists, favorites, Vault): long-press = select (starts selection or adds); long-press on an already-selected video = its options sheet; ⋮ still opens options directly; tap toggles while selecting; reorder drag unchanged. Settings `long_press_action` choice replaced by an info row (pref still read for playlist long-press). Continue-watching strip has no selection mode, so its long-press still opens options.
 
 ## Open work (not done yet)
 - Search redesign remainder (asked 2026-10-13): dedicated results layout with richer thumbnails/metadata, initial (no-query) state, richer empty state, recent searches only if backed by real data, fuller open/close choreography beyond the circular reveal.

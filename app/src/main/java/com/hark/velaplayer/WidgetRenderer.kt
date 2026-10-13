@@ -343,7 +343,7 @@ object WidgetRenderer {
             WidgetKind.CONTINUE -> "Nothing half-watched. Videos you stop partway through appear here."
             WidgetKind.LIBRARY -> if (!perm) "Open Vela and allow video access to see your newest videos." else "No videos on this phone yet."
             else -> if (WidgetData.collection(c, s.cfg.source).second == null) "This playlist was deleted. Tap to choose another." else
-                if (s.cfg.source.startsWith("playlist:")) "This playlist is empty." else "Long-press any video in Vela and choose Add to favorites."
+                if (s.cfg.source.startsWith("playlist:")) "This playlist is empty." else "Tap ⋮ on any video in Vela and choose Add to favorites."
         }
         rv.setTextViewText(R.id.wgEmptyText, emptyText)
         rv.text(s, R.id.wgEmptyText) { it.textDim }

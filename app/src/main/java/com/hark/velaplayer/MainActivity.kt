@@ -709,7 +709,7 @@ class MainActivity : ThemedActivity() {
             (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess() -> "Allow access so Vela can show the videos on your phone."
             tab == Tab.FOLDERS && openFolder == null -> "No folders with videos found yet."
             tab == Tab.ALL || tab == Tab.FOLDERS -> "No videos found on this device yet."
-            tab == Tab.FAVORITES -> "Long-press any video and choose Add to favorites."
+            tab == Tab.FAVORITES -> "Tap ⋮ on any video and choose Add to favorites."
             openPlaylist != null -> "This playlist is empty. Tap + above to add videos."
             else -> "No playlists yet. Tap + to create one."
         }
@@ -897,7 +897,7 @@ class MainActivity : ThemedActivity() {
         val row = adapter.rows.getOrNull(position) as? Row.Video ?: return
         if (reordering) return
         if (selecting) { toggleSelection(position); return }
-        if (row.unavailable) { toast("This video was moved or deleted. Long-press to remove it."); return }
+        if (row.unavailable) { toast("This video was moved or deleted. Tap ⋮ to remove it."); return }
         val videos = adapter.rows.filterIsInstance<Row.Video>().filter { !it.unavailable }
         launchFrom = b.list.findViewHolderForAdapterPosition(position)?.itemView?.let { it.findViewById<View>(R.id.thumb) ?: it }
         play(videos.map { it.entry }, videos.indexOf(row).coerceAtLeast(0))
@@ -1058,8 +1058,14 @@ class MainActivity : ThemedActivity() {
 
     private fun onVideoLongPress(row: Row.Video, position: Int) {
         if (reordering) return
-        if (selecting) { toggleSelection(position); return }
-        if (Prefs.longPressAction(this) == "select") startSelection(row) else onVideoOptions(row)
+        // v2.17: long-press SELECTS a video; long-pressing a video that is already selected opens its options.
+        // The ⋮ button still opens options directly; tap still toggles while selecting.
+        if (selecting) {
+            val k = selKey(row)
+            if (k != null && selected.contains(k)) onVideoOptions(row) else toggleSelection(position)
+            return
+        }
+        startSelection(row)
     }
 
     private fun onVideoOptions(row: Row.Video) {
