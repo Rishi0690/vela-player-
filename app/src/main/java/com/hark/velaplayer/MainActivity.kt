@@ -980,7 +980,6 @@ class MainActivity : ThemedActivity() {
             vis(R.id.sel_remove, !pl && any && openPlaylist != null)
             vis(R.id.sel_delete, !pl && vids.any { it.item != null })
             vis(R.id.sel_delete_playlists, pl && any)
-            vis(R.id.sel_hide, !pl && any)
             vis(R.id.sel_clear, any)
             return true
         }
@@ -1002,7 +1001,6 @@ class MainActivity : ThemedActivity() {
                     } else play(vids.filter { !it.unavailable }.map { it.entry }, 0)
                 }
                 R.id.sel_playlist -> addManyToPlaylistDialog(vids.map { it.entry })
-                R.id.sel_hide -> confirmHide(vids.map { it.entry })
                 R.id.sel_share -> share(vids.mapNotNull { Uri.parse(it.entry.uri).takeIf { u -> u.scheme == "content" || u.scheme == "file" } })
                 R.id.sel_fav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, true); toast("Added ${vids.size} to favorites"); refresh() }
                 R.id.sel_unfav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, false); toast("Removed ${vids.size} from favorites"); refresh() }
@@ -1119,7 +1117,6 @@ class MainActivity : ThemedActivity() {
             Store.setWatchedMany(this, f.videos.map { it.uri.toString() }, !allWatched); refresh()
         }
         a += Action("Share all", R.drawable.ic_share) { share(f.videos.map { it.uri }) }
-        a += Action("Hide all in vault", R.drawable.vault_ic_hide) { confirmHide(sortedEntries()) }
         a += GROUP
         a += Action("Rename folder", R.drawable.ic_edit) { renameFolderDialog(f) }
         a += Action("Properties", R.drawable.ic_info) {
@@ -1351,6 +1348,8 @@ class MainActivity : ThemedActivity() {
     /** v2.5: hide videos — choose "Hide in Vela only" or "Move to Vela's private storage" (see [VaultStorage]). */
     private val vaultReq = VaultStorage.Requester(this)
 
+    // v2.15: "Hide in vault" is offered only inside the Vault (Vault › Add videos); kept for that architecture.
+    @Suppress("unused")
     private fun confirmHide(entries: List<Entry>) {
         val list = entries.distinctBy { it.uri }
         if (list.isEmpty()) return

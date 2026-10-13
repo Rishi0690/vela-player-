@@ -179,16 +179,17 @@
 
         <View
             android:layout_width="match_parent"
-            android:layout_height="110dp"
+            android:layout_height="130dp"
             android:layout_gravity="top"
             android:background="@drawable/scrim_top" />
 
         <View
             android:layout_width="match_parent"
-            android:layout_height="150dp"
+            android:layout_height="190dp"
             android:layout_gravity="bottom"
             android:background="@drawable/scrim_bottom" />
 
+        <!-- v2.15: the big glass boxes behind the top bar and bottom dock were removed; the scrims keep icons readable. -->
         <LinearLayout
             android:id="@+id/topBar"
             android:layout_width="match_parent"
@@ -196,7 +197,6 @@
             android:layout_gravity="top"
             android:layout_marginHorizontal="10dp"
             android:layout_marginTop="8dp"
-            android:background="@drawable/bg_player_cluster"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingHorizontal="4dp">
@@ -264,7 +264,6 @@
             android:layout_gravity="bottom"
             android:layout_marginHorizontal="10dp"
             android:layout_marginBottom="8dp"
-            android:background="@drawable/bg_player_dock"
             android:orientation="vertical"
             android:paddingHorizontal="6dp"
             android:paddingTop="2dp"

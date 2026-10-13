@@ -201,6 +201,8 @@ class SettingsActivity : ThemedActivity() {
             super.onViewCreated(view, savedInstanceState)
             prepareNavScreen(this, view)
             (activity as? SettingsActivity)?.let { a -> if (!isHidden) a.onScreenShown(true); padForSearch(a.searchBoxHeight()) }
+            // v2.15: a fresh opening of Settings always starts at its first row (state restore keeps its own spot).
+            if (savedInstanceState == null) listView?.post { listView?.scrollToPosition(0) }
         }
         override fun onHiddenChanged(hidden: Boolean) {
             super.onHiddenChanged(hidden)
@@ -220,7 +222,14 @@ class SettingsActivity : ThemedActivity() {
             val l = listView ?: return
             if (h <= 0) return
             l.clipToPadding = false
+            if (l.paddingTop == h) return
+            // v2.15 fix: this padding arrives after the list's first layout (the search field is measured later).
+            // LinearLayoutManager kept the first row anchored at y=0, so Settings opened looking scrolled down with
+            // its first rows tucked under the search field. When the user hasn't scrolled yet, re-anchor to the top.
+            val lm = l.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+            val atTop = lm == null || lm.findFirstVisibleItemPosition() <= 0
             l.setPadding(l.paddingLeft, h, l.paddingRight, l.paddingBottom)
+            if (atTop) { l.stopScroll(); lm?.scrollToPositionWithOffset(0, 0) ?: l.scrollToPosition(0) }
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
