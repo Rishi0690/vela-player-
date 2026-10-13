@@ -231,33 +231,64 @@ object Motion {
             .withEndAction { v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(LONG + 120).setInterpolator(springSoft).start() }.start()
     }
 
-    /** A brief diagonal accent light sweeping across [v] (drawn on its overlay, nothing is laid out). */
-    fun lightSweep(v: View, color: Int, duration: Long = 640L, delay: Long = 0L) {
+    /**
+     * A brief accent light sweeping across [v] (drawn on its overlay, nothing is laid out).
+     * v2.16 fix: the old sweep drew an unclipped rotated rectangle, so the light spilled past the pill's rounded ends
+     * as a square block, rotated around (0,0) so its height drifted, and a second sweep started on top of a running one
+     * (rapid open/close) doubled the brightness. Now: clipped to the view's rounded shape, one sweep per view at a time,
+     * soft fade in/out, bounds follow size changes.
+     */
+    fun lightSweep(v: View, color: Int, duration: Long = 640L, delay: Long = 0L, radius: Float = -1f) {
         if (!enabled(v.context) || v.width == 0) return
-        val d = SweepDrawable(color)
+        (v.getTag(R.id.tag_light_sweep) as? ValueAnimator)?.cancel()
+        val d = SweepDrawable(color, radius)
         d.setBounds(0, 0, v.width, v.height)
         v.overlay.add(d)
-        ValueAnimator.ofFloat(-0.4f, 1.4f).apply {
+        val sizeL = View.OnLayoutChangeListener { _, l, t, r, b, _, _, _, _ -> d.setBounds(0, 0, r - l, b - t) }
+        v.addOnLayoutChangeListener(sizeL)
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
             this.duration = duration; startDelay = delay; interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
             addUpdateListener { d.pos = it.animatedValue as Float; d.invalidateSelf() }
-            addListener(object : AnimatorListenerAdapter() { override fun onAnimationEnd(animation: Animator) { v.overlay.remove(d) } })
-            start()
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    v.overlay.remove(d); v.removeOnLayoutChangeListener(sizeL)
+                    if (v.getTag(R.id.tag_light_sweep) === animation) v.setTag(R.id.tag_light_sweep, null)
+                }
+            })
         }
+        v.setTag(R.id.tag_light_sweep, anim)
+        anim.start()
     }
 
-    private class SweepDrawable(private val color: Int) : Drawable() {
+    private class SweepDrawable(private val color: Int, private val radius: Float) : Drawable() {
         var pos = 0f
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
         private val m = Matrix()
+        private val clip = android.graphics.Path()
+        private val rect = android.graphics.RectF()
         private var shader: LinearGradient? = null
+        private var band = 0f
+        override fun onBoundsChange(b: android.graphics.Rect) {
+            rect.set(b); val r = if (radius >= 0) radius else b.height() / 2f
+            clip.reset(); clip.addRoundRect(rect, r, r, android.graphics.Path.Direction.CW)
+            band = b.width() * 0.45f
+            val c0 = color and 0x00FFFFFF
+            shader = LinearGradient(0f, 0f, band, 0f, intArrayOf(c0, c0 or 0x26000000, 0x40FFFFFF, c0 or 0x26000000, c0),
+                floatArrayOf(0f, 0.35f, 0.5f, 0.65f, 1f), Shader.TileMode.CLAMP)
+        }
         override fun draw(c: Canvas) {
-            val b = bounds; if (b.width() <= 0) return
-            val band = b.width() * 0.35f
-            val sh = shader ?: LinearGradient(0f, 0f, band, 0f,
-                intArrayOf(color and 0x00FFFFFF, (color and 0x00FFFFFF) or 0x55000000, color and 0x00FFFFFF), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP).also { shader = it }
-            m.reset(); m.setRotate(-18f); m.postTranslate(b.left + (b.width() + band) * pos - band, 0f)
-            sh.setLocalMatrix(m); p.shader = sh
-            c.drawRect(b, p)
+            val b = bounds; val sh = shader ?: return; if (b.width() <= 0) return
+            // Fade in over the first fifth and out over the last fifth: no hard start/stop.
+            val fade = (minOf(pos, 1f - pos) * 5f).coerceIn(0f, 1f)
+            val x = b.left - band + (b.width() + band) * pos
+            m.reset(); m.setSkew(-0.35f, 0f); m.postTranslate(x + b.height() * 0.35f * 0.5f, b.top.toFloat())
+            sh.setLocalMatrix(m); p.shader = sh; p.alpha = (255 * fade).toInt()
+            val save = c.save(); c.clipPath(clip); c.drawRect(b, p)
+            // Edge light: the rim of the glass catches the sweep.
+            edge.shader = sh; edge.alpha = (200 * fade).toInt(); edge.strokeWidth = b.height() * 0.04f
+            c.drawPath(clip, edge)
+            c.restoreToCount(save)
         }
         override fun setAlpha(alpha: Int) { p.alpha = alpha }
         override fun setColorFilter(cf: android.graphics.ColorFilter?) { p.colorFilter = cf }

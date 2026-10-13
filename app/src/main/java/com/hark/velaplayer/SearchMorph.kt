@@ -28,8 +28,11 @@ import kotlin.math.max
  * Only visuals: the SearchView, its query listener and the toolbar item order are unchanged. Reduced motion → instant.
  */
 object SearchMorph {
+    private var openedAt = 0L
+
     fun install(a: Activity, toolbar: Toolbar, item: MenuItem, sv: SearchView, depth: List<View>, dim: List<View>) {
         style(a, sv)
+        alive(a, sv)
         val iconCenter = FloatArray(2) { -1f }
         var closing = false
         val dp = a.resources.displayMetrics.density
@@ -53,9 +56,12 @@ object SearchMorph {
                             duration = Motion.LONG + 60; interpolator = Motion.decelerate; start()
                         }
                     }
-                    sv.scaleX = 0.96f
-                    sv.animate().scaleX(1f).setDuration(Motion.XLONG).setInterpolator(Motion.springSoft).start()
+                    sv.scaleX = 0.96f; sv.translationY = -4 * dp
+                    sv.animate().scaleX(1f).translationY(0f).setDuration(Motion.XLONG).setInterpolator(Motion.springSoft).start()
                     Motion.lightSweep(sv, ThemeManager.primary(a), 720L, 140L)
+                    openedAt = android.os.SystemClock.uptimeMillis()
+                    // Field contents (icon, text) settle in just after the surface: a two-step reveal with depth.
+                    sv.findViewById<View>(androidx.appcompat.R.id.search_mag_icon)?.let { Motion.stagger(listOf(it), 4f) }
                     collapseButton(toolbar)?.let { b ->
                         b.rotation = -180f; b.alpha = 0f
                         b.animate().rotation(0f).alpha(1f).setDuration(Motion.LONG + 120).setInterpolator(Motion.spring).start()
@@ -122,6 +128,39 @@ object SearchMorph {
         return (0 until menuView.childCount).map { menuView.getChildAt(it) }.lastOrNull { it is ImageView }
     }
 
+    /**
+     * v2.16 micro-interactions. Focus: the rim catches a soft light (once per focus, never per keystroke; skipped
+     * right after opening, which already swept) and the search glyph lifts. Typing: the clear button pops in when the
+     * first character arrives and shrinks away when the field empties — no replaying of the opening animation.
+     */
+    private fun alive(a: Activity, sv: SearchView) {
+        val e = sv.findViewById<EditText>(androidx.appcompat.R.id.search_src_text) ?: return
+        val mag = sv.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)
+        val close = sv.findViewById<ImageView>(androidx.appcompat.R.id.search_close_btn)
+        close?.imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.attr(a, com.google.android.material.R.attr.colorOnSurfaceVariant))
+        e.highlightColor = Atmosphere.alpha(ThemeManager.primary(a), 0x55)
+        e.setOnFocusChangeListener { _, has ->
+            if (!Motion.enabled(a)) return@setOnFocusChangeListener
+            mag?.animate()?.scaleX(if (has) 1.12f else 1f)?.scaleY(if (has) 1.12f else 1f)?.setDuration(Motion.MEDIUM)?.setInterpolator(Motion.spring)?.start()
+            if (has && android.os.SystemClock.uptimeMillis() - openedAt > 1200) Motion.lightSweep(sv, ThemeManager.primary(a), 620L)
+        }
+        var hadText = false
+        e.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, af: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val has = !s.isNullOrEmpty()
+                if (has == hadText) return
+                hadText = has
+                if (!Motion.enabled(a) || close == null) return
+                close.post {
+                    if (has) { close.scaleX = 0.4f; close.scaleY = 0.4f; close.rotation = -90f
+                        close.animate().scaleX(1f).scaleY(1f).rotation(0f).setDuration(Motion.MEDIUM).setInterpolator(Motion.spring).start() }
+                }
+            }
+        })
+    }
+
     /** Glass pill field: transparent plates, the pill drawable behind, readable text/hint, accent cursor handles. */
     private fun style(a: Activity, sv: SearchView) {
         sv.maxWidth = Int.MAX_VALUE
@@ -131,7 +170,8 @@ object SearchMorph {
         sv.findViewById<EditText>(androidx.appcompat.R.id.search_src_text)?.let { e ->
             e.setTextColor(ThemeManager.attr(a, com.google.android.material.R.attr.colorOnSurface))
             e.setHintTextColor(ThemeManager.attr(a, com.google.android.material.R.attr.colorOnSurfaceVariant))
-            e.textSize = 15f
+            e.textSize = 15.5f
+            e.letterSpacing = 0.01f
         }
         sv.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)?.let {
             it.imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(a))

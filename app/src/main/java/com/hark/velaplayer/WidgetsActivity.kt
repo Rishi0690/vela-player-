@@ -88,7 +88,7 @@ class WidgetsActivity : ThemedActivity() {
         if (Motion.enabled(this)) {
             art.scaleX = 1.08f; art.scaleY = 1.08f
             art.animate().scaleX(1f).scaleY(1f).setDuration(900).setInterpolator(Motion.emphasized).start()
-            hero.post { Motion.lightSweep(hero, Atmosphere.alpha(ThemeManager.primary(this), 0x40), 900L, 180L) }
+            hero.post { Motion.lightSweep(hero, Atmosphere.alpha(ThemeManager.primary(this), 0x40), 900L, 180L, radius = 28 * resources.displayMetrics.density) }
             Motion.stagger((0 until cards.childCount).map { cards.getChildAt(it) }, 16f, 120L, 0.96f)
         }
     }
