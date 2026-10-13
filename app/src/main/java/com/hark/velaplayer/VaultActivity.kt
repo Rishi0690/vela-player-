@@ -606,21 +606,34 @@ class VaultActivity : ThemedActivity() {
             onAppHide = { }, onPrivateDone = { actionMode?.finish(); load() })
     }
 
+    /** v2.13: Midnight Glass options sheet (same actions and behaviour as the old list dialog). */
     private fun options(row: VRow) {
-        val labels = ArrayList<String>(); val acts = ArrayList<() -> Unit>()
+        val play = ArrayList<ItemSheet.Action>(); val manage = ArrayList<ItemSheet.Action>(); val storage = ArrayList<ItemSheet.Action>()
         if (!row.unavailable) {
-            labels += "Play"; acts += { play(shown, shown.indexOf(row)) }
-            if (row.progress > 0f) { labels += "Play from start"; acts += { Vault.clearPosition(this, row.item.uri); play(shown, shown.indexOf(row)) } }
+            play += ItemSheet.Action("Play", R.drawable.ic_play) { play(shown, shown.indexOf(row)) }
+            if (row.progress > 0f) play += ItemSheet.Action("Play from start", R.drawable.ic_replay) { Vault.clearPosition(this, row.item.uri); play(shown, shown.indexOf(row)) }
         }
-        labels += "Select"; acts += { startSelection(row) }
+        manage += ItemSheet.Action("Select", R.drawable.ic_select) { startSelection(row) }
         val w = Vault.isWatched(this, row.item.uri)
-        labels += if (w) "Mark as unwatched" else "Mark as watched"; acts += { Vault.setWatched(this, listOf(row.item.uri), !w); load() }
-        if (rows.size > 1) { labels += "Edit order"; acts += { startReorder() } }
-        if (!row.item.isPrivate && !row.unavailable) { labels += "Move to private storage (hide from Gallery)"; acts += { moveToPrivate(listOf(row.item.uri)) } }
-        labels += if (row.item.isPrivate) "Unhide (restore to phone storage)" else "Unhide (remove from vault)"; acts += { unhide(listOf(row.item.uri)) }
-        labels += "Details"; acts += { details(row) }
-        VelaDialogBuilder(this).setTitle(row.item.title)
-            .setItems(labels.toTypedArray()) { _, i -> acts[i]() }.show()
+        manage += ItemSheet.Action(if (w) "Mark as unwatched" else "Mark as watched", R.drawable.ic_check_circle) { Vault.setWatched(this, listOf(row.item.uri), !w); load() }
+        if (rows.size > 1) manage += ItemSheet.Action("Edit order", R.drawable.l23_ic_drag_handle) { startReorder() }
+        if (!row.item.isPrivate && !row.unavailable) storage += ItemSheet.Action("Move to private storage (hide from Gallery)", R.drawable.ic_lock) { moveToPrivate(listOf(row.item.uri)) }
+        storage += ItemSheet.Action(if (row.item.isPrivate) "Unhide (restore to phone storage)" else "Unhide (remove from vault)", R.drawable.vault_ic_unhide) { unhide(listOf(row.item.uri)) }
+        storage += ItemSheet.Action("Details", R.drawable.ic_info) { details(row) }
+        val v = row.video
+        val sub = when {
+            row.unavailable -> if (row.item.isPrivate) "Private copy missing" else "Unavailable · moved or deleted"
+            else -> listOfNotNull(
+                (v?.durationMs ?: row.item.dur).takeIf { it > 0 }?.let { Fmt.time(it) },
+                v?.size?.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(this, it) },
+                if (row.item.isPrivate) "Private storage" else null).joinToString(" · ")
+        }
+        val loadThumb = { iv: android.widget.ImageView ->
+            if (thumbs) ThumbLoader.load(iv, v?.uri ?: Uri.parse(row.item.uri), v?.id ?: -1L, v?.durationMs ?: 0L)
+            else ThumbLoader.load(iv, null as Uri?)
+        }
+        val bind: ((android.widget.ImageView) -> Unit)? = if (row.unavailable) null else loadThumb
+        ItemSheet(this).show(ItemSheet.Header(row.item.title, sub.takeIf { it.isNotEmpty() }, R.drawable.ic_movie, bind), listOf(play, manage, storage))
     }
 
     private fun details(row: VRow) {

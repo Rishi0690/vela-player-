@@ -8,6 +8,9 @@
         <item name="colorAccentSeed">@color/accent</item>
         <item name="windowActionModeOverlay">true</item>
         <item name="actionModeCloseDrawable">@drawable/ic_close</item>
+        <!-- v2.13: glass multi-select bar (was the default flat M3 bar). -->
+        <item name="actionModeBackground">@drawable/bg_action_mode</item>
+        <item name="actionModeStyle">@style/Widget.Vela.ActionMode</item>
         <item name="android:windowAnimationStyle">@style/VelaWindowAnim</item>
         <item name="chipStyle">@style/VelaChip</item>
         <item name="bottomSheetDialogTheme">@style/VelaBottomSheet</item>
@@ -86,6 +89,33 @@
         <item name="shapeAppearance">@style/SheetShape</item>
         <!-- v2.11: glass sheet (near-opaque tinted; Android 12+ blurs the screen behind it). -->
         <item name="backgroundTint">?attr/glassSurfaceStrong</item>
+    </style>
+
+    <!-- v2.13 item options sheet (ItemSheet.kt): transparent sheet container, the floating glass card is drawn in code. -->
+    <style name="VelaFloatingSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/VelaFloatingSheetStyle</item>
+        <item name="android:windowAnimationStyle">@style/VelaFloatingSheetAnim</item>
+        <item name="android:backgroundDimAmount">0.42</item>
+    </style>
+    <style name="VelaFloatingSheetStyle" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">@android:color/transparent</item>
+        <item name="android:elevation">0dp</item>
+        <item name="elevation">0dp</item>
+        <item name="shapeAppearance">@style/SheetShape</item>
+    </style>
+    <!-- Only the dim fades; the card itself floats in on a spring (ItemSheet). -->
+    <style name="VelaFloatingSheetAnim">
+        <item name="android:windowEnterAnimation">@anim/sheet_fade_in</item>
+        <item name="android:windowExitAnimation">@anim/sheet_fade_out</item>
+    </style>
+
+    <style name="Widget.Vela.ActionMode" parent="Widget.Material3.ActionMode">
+        <item name="background">@drawable/bg_action_mode</item>
+        <item name="backgroundSplit">@drawable/bg_action_mode</item>
+        <item name="titleTextStyle">@style/TextAppearance.Vela.ActionModeTitle</item>
+    </style>
+    <style name="TextAppearance.Vela.ActionModeTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
     <style name="SheetShape">

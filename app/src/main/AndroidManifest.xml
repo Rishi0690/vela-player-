@@ -17,7 +17,7 @@
     <application
         android:name=".VelaApp"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Vela Player"
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"

@@ -14,4 +14,12 @@
         <item name="android:windowBlurBehindRadius">20dp</item>
         <item name="android:backgroundDimAmount">0.28</item>
     </style>
+
+    <style name="VelaFloatingSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/VelaFloatingSheetStyle</item>
+        <item name="android:windowAnimationStyle">@style/VelaFloatingSheetAnim</item>
+        <item name="android:windowBlurBehindEnabled">true</item>
+        <item name="android:windowBlurBehindRadius">20dp</item>
+        <item name="android:backgroundDimAmount">0.30</item>
+    </style>
 </resources>

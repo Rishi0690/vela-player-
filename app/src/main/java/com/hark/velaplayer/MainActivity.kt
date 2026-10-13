@@ -1043,46 +1043,15 @@ class MainActivity : ThemedActivity() {
 
     private class Action(val label: String, val icon: Int, val danger: Boolean = false, val run: () -> Unit)
 
-    /** XPlayer-style options sheet used by long-press and the ⋮ button. */
-    private fun showSheet(title: String, subtitle: String?, actions: List<Action>) {
-        val d = BottomSheetDialog(this)
-        val dp = resources.displayMetrics.density
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, (16 * dp).toInt()) }
-        root.addView(com.google.android.material.bottomsheet.BottomSheetDragHandleView(this))
-        root.addView(TextView(this).apply {
-            text = title; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-            TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-            setPadding((20 * dp).toInt(), (4 * dp).toInt(), (20 * dp).toInt(), if (subtitle == null) (10 * dp).toInt() else 0)
-        })
-        if (subtitle != null) root.addView(TextView(this).apply {
-            text = subtitle; alpha = 0.65f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-            TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-            setPadding((20 * dp).toInt(), (2 * dp).toInt(), (20 * dp).toInt(), (10 * dp).toInt())
-        })
-        val tv = android.util.TypedValue()
-        theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
-        actions.forEach { a ->
-            root.addView(TextView(this).apply {
-                text = a.label
-                TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
-                gravity = Gravity.CENTER_VERTICAL
-                minHeight = (52 * dp).toInt()
-                setPadding((20 * dp).toInt(), 0, (20 * dp).toInt(), 0)
-                compoundDrawablePadding = (20 * dp).toInt()
-                setCompoundDrawablesRelativeWithIntrinsicBounds(a.icon, 0, 0, 0)
-                if (a.danger) setTextColor(0xFFE5534B.toInt())
-                TextViewCompat.setCompoundDrawableTintList(this, textColors)
-                setBackgroundResource(tv.resourceId)
-                setOnClickListener { d.dismiss(); a.run() }
-            })
-        }
-        // Rows slide in one after another as the sheet opens.
-        for (i in 0 until root.childCount) root.getChildAt(i).let { c ->
-            c.alpha = 0f; c.translationY = 16 * dp
-            c.animate().alpha(1f).translationY(0f).setStartDelay(40L + i * 22L).setDuration(260).setInterpolator(Motion.emphasized).start()
-        }
-        d.setContentView(android.widget.ScrollView(this).apply { addView(root) })
-        d.show()
+    /** v2.13: marks the start of a new group in an options list (groups are separated by spacing in [ItemSheet]). */
+    private val GROUP = Action("", 0) { }
+
+    /** Options sheet used by long-press and the ⋮ button (v2.13: Midnight Glass [ItemSheet]). */
+    private fun showSheet(header: ItemSheet.Header, actions: List<Action>) {
+        val groups = ArrayList<ArrayList<ItemSheet.Action>>()
+        groups.add(ArrayList())
+        actions.forEach { a -> if (a === GROUP) groups.add(ArrayList()) else groups.last().add(ItemSheet.Action(a.label, a.icon, a.danger, a.run)) }
+        ItemSheet(this).show(header, groups.filter { it.isNotEmpty() })
     }
 
 
@@ -1101,6 +1070,7 @@ class MainActivity : ThemedActivity() {
                 Store.clearPosition(this, row.entry.uri); play(listOf(row.entry), 0)
             }
         }
+        a += GROUP
         a += Action("Select", R.drawable.ic_select) { startSelection(row) }
         a += Action(if (row.favorite) "Remove from favorites" else "Add to favorites", R.drawable.ic_star) {
             val added = Store.toggleFavorite(this, row.entry)
@@ -1118,14 +1088,18 @@ class MainActivity : ThemedActivity() {
         }
         if (row.progress > 0f) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
         val shareable = !row.unavailable && Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
+        a += GROUP
         if (shareable) a += Action("Share", R.drawable.ic_share) { share(listOf(Uri.parse(row.entry.uri))) }
+        if (item != null) a += Action("Rename", R.drawable.ic_edit) { renameVideoDialog(item) }
+        a += Action("Properties", R.drawable.ic_info) { detailsDialog(row) }
         if (item != null) {
-            a += Action("Rename", R.drawable.ic_edit) { renameVideoDialog(item) }
+            a += GROUP
             a += Action("Delete", R.drawable.ic_delete, danger = true) { confirmDelete(listOf(item), "Delete \"${item.name}\"?") }
         }
-        a += Action("Properties", R.drawable.ic_info) { detailsDialog(row) }
         val sub = if (row.unavailable) "Unavailable — moved or deleted" else item?.let { listOfNotNull(it.durationMs.takeIf { d -> d > 0 }?.let { d -> Fmt.time(d) }, it.size.takeIf { z -> z > 0 }?.let { z -> Formatter.formatShortFileSize(this, z) }).joinToString(" · ") }
-        showSheet(row.entry.title, sub?.takeIf { it.isNotEmpty() }, a)
+        val thumbUri = if (row.unavailable) null else item?.uri ?: Uri.parse(row.entry.uri).takeIf { it.scheme == "content" || it.scheme == "file" }
+        showSheet(ItemSheet.Header(row.entry.title, sub?.takeIf { it.isNotEmpty() }, R.drawable.ic_movie,
+            thumbUri?.let { u -> { iv: ImageView -> ThumbLoader.load(iv, u, item?.id ?: -1L, item?.durationMs ?: 0L) } }), a)
     }
 
     private fun onFolderLongClick(row: Row.Folder) {
@@ -1136,16 +1110,15 @@ class MainActivity : ThemedActivity() {
         a += Action("Play all", R.drawable.ic_play) { play(sortedEntries(), 0, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
         a += Action("Shuffle play", R.drawable.ic_shuffle) { play(sortedEntries(), 0, shuffled = true, source = PlayerSession.SOURCE_FOLDER, sourceId = f.id) }
         a += Action("Open", R.drawable.ic_folder) { openFolder = f.id; filter = "all"; refresh() }
+        a += GROUP
         a += Action("Add all to playlist", R.drawable.ic_playlist_add) { addManyToPlaylistDialog(sortedEntries()) }
         a += Action(if (allWatched) "Mark all as unwatched" else "Mark all as watched", R.drawable.ic_check_circle) {
             Store.setWatchedMany(this, f.videos.map { it.uri.toString() }, !allWatched); refresh()
         }
         a += Action("Share all", R.drawable.ic_share) { share(f.videos.map { it.uri }) }
         a += Action("Hide all in vault", R.drawable.vault_ic_hide) { confirmHide(sortedEntries()) }
+        a += GROUP
         a += Action("Rename folder", R.drawable.ic_edit) { renameFolderDialog(f) }
-        a += Action("Delete folder", R.drawable.ic_delete, danger = true) {
-            confirmDelete(f.videos, "Delete folder \"${f.name}\"?", "All ${f.videos.size} videos in this folder will be permanently deleted from your phone.")
-        }
         a += Action("Properties", R.drawable.ic_info) {
             val size = f.videos.sumOf { it.size }
             val dur = f.videos.sumOf { it.durationMs }
@@ -1154,7 +1127,12 @@ class MainActivity : ThemedActivity() {
                 (f.path?.let { "\nPath: $it" } ?: "")
             VelaDialogBuilder(this).setTitle("Folder properties").setMessage(msg).setPositiveButton("Close", null).show()
         }
-        showSheet(f.name, f.path, a)
+        a += GROUP
+        a += Action("Delete folder", R.drawable.ic_delete, danger = true) {
+            confirmDelete(f.videos, "Delete folder \"${f.name}\"?", "All ${f.videos.size} videos in this folder will be permanently deleted from your phone.")
+        }
+        val first = f.videos.firstOrNull()
+        showSheet(ItemSheet.Header(f.name, f.path, R.drawable.ic_folder, first?.let { v -> { iv: ImageView -> ThumbLoader.load(iv, v) } }), a)
     }
 
     private fun onPlaylistLongPress(row: Row.Playlist, position: Int) {
@@ -1168,19 +1146,22 @@ class MainActivity : ThemedActivity() {
         val a = ArrayList<Action>()
         a += Action("Play all", R.drawable.ic_play) { play(entries(), 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
         a += Action("Shuffle play", R.drawable.ic_shuffle) { play(entries(), 0, shuffled = true, source = PlayerSession.SOURCE_PLAYLIST, sourceId = row.name) }
+        a += GROUP
         a += Action("Add videos", R.drawable.ic_playlist_add) { openPicker(row.name) }
         if (row.count > 1) a += Action("Edit order", R.drawable.l23_ic_drag_handle) {
             openPlaylist = row.name; filter = "all"; refresh(); b.list.post { startReorder() }
         }
         a += Action("Select", R.drawable.ic_select) { startSelection(row) }
         a += Action("Rename", R.drawable.ic_edit) { newPlaylistDialog(row.name) }
+        a += GROUP
         a += Action("Delete playlist", R.drawable.ic_delete, danger = true) {
             VelaDialogBuilder(this).setTitle("Delete \"${row.name}\"?")
                 .setMessage("Only the playlist is removed. Your video files stay on the phone.")
                 .setPositiveButton("Delete") { _, _ -> Store.deletePlaylist(this, row.name); refresh() }
                 .setNegativeButton("Cancel", null).show()
         }
-        showSheet(row.name, countText(row.count) + if (row.durationMs > 0) " · " + Fmt.time(row.durationMs) else "", a)
+        showSheet(ItemSheet.Header(row.name, countText(row.count) + if (row.durationMs > 0) " · " + Fmt.time(row.durationMs) else "", R.drawable.ic_playlist,
+            row.covers.takeIf { it.isNotEmpty() }?.let { cv -> { iv: ImageView -> ThumbLoader.loadCover(iv, cv, Prefs.playlistCovers(this)) } }), a)
     }
 
     // ------------------------------------------------------------------ file actions (share / rename / delete)
@@ -1200,7 +1181,7 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun textDialog(title: String, initial: String, selectEnd: Int, onOk: (String) -> Unit) {
-        val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT; setSingleLine(); setText(initial) }
+        val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT; setSingleLine(); setText(initial); Glass.styleField(this) }
         val box = FrameLayout(this).apply {
             val pad = (20 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad / 2, pad, 0); addView(input)
@@ -1414,7 +1395,7 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun newPlaylistDialog(renameFrom: String?, thenAdd: List<Entry>? = null, openPickerAfter: Boolean = false) {
-        val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; setText(renameFrom ?: ""); hint = "Playlist name" }
+        val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; setText(renameFrom ?: ""); hint = "Playlist name"; Glass.styleField(this) }
         val box = FrameLayout(this).apply {
             val pad = (20 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad / 2, pad, 0); addView(input)

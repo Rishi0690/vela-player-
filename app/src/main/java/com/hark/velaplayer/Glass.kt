@@ -81,6 +81,14 @@ object Glass {
         return RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), content, mask)
     }
 
+    /** v2.13: glass text field for dialogs (rename, new playlist): level-2 fill, hairline, no underline. */
+    fun styleField(e: android.widget.EditText) {
+        val c = e.context
+        e.background = panel(c, Tokens.RADIUS_S, elevated(c))
+        val h = dp(c, 14f).toInt(); val v = dp(c, 12f).toInt()
+        e.setPadding(h, v, h, v)
+    }
+
     /** Fixed dark glass for player panels (always dark, never blurred: live video sits underneath). */
     fun playerPanel(c: Context, radiusDp: Float = 24f) = panel(c, radiusDp, 0xE00E1018.toInt(), 0x24FFFFFF, 0x14FFFFFF)
 
