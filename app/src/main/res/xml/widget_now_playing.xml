@@ -8,6 +8,7 @@
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/wg_initial"
     android:previewImage="@drawable/wg_preview_now_playing"
+    android:previewLayout="@layout/wg_pvl_now_playing"
     android:description="@string/wg_desc_now_playing"
     android:configure="com.hark.velaplayer.WidgetDetailActivity"
     android:widgetFeatures="reconfigurable|configuration_optional" />

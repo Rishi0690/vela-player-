@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -199,6 +200,19 @@ class WidgetsActivity : ThemedActivity() {
 
 /** Renders a widget preview off the main thread and applies it into a [WidgetPreviewFrame]. */
 object WidgetPreview {
+    /** Fallback when the live preview can't be built: the widget's own picker artwork, so the stage is never empty. */
+    fun staticPreview(c: Context, k: WidgetKind): View = ImageView(c).apply {
+        setImageResource(when (k) {
+            WidgetKind.NOW_PLAYING -> R.drawable.wg_preview_now_playing
+            WidgetKind.CONTINUE -> R.drawable.wg_preview_continue
+            WidgetKind.QUICK -> R.drawable.wg_preview_quick
+            WidgetKind.LIBRARY -> R.drawable.wg_preview_library
+            WidgetKind.COLLECTION -> R.drawable.wg_preview_collection
+        })
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
     private val exec = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -210,11 +224,14 @@ object WidgetPreview {
         exec.execute {
             val rv = try { WidgetRenderer.build(WidgetRenderer.previewSpec(app, k, cfg, wDp, hDp, night), now) } catch (_: Exception) { null }
             main.post {
-                if (rv == null || frame.tag !== token || a.isDestroyed) return@post
-                try {
-                    val v = rv.apply(a, frame)
-                    frame.show(v, animate && Motion.enabled(a))
-                } catch (_: Exception) { }
+                if (frame.tag !== token || a.isDestroyed) return@post
+                // v2.16.2: inflate with the APPLICATION context. The activity's inflater carries AppCompat's view
+                // factory, which swaps ImageView/TextView for AppCompat subclasses whose overridden setters are not
+                // @RemotableViewMethod, so RemoteViews.apply threw and the preview stayed blank.
+                val v = rv?.let {
+                    try { it.apply(app, frame) } catch (e: Exception) { Log.w("WidgetPreview", "live preview failed for ${k.key}", e); null }
+                } ?: staticPreview(a, k)
+                frame.show(v, animate && Motion.enabled(a))
             }
         }
     }

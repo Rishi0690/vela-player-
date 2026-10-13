@@ -8,6 +8,7 @@
     android:updatePeriodMillis="10800000"
     android:initialLayout="@layout/wg_initial"
     android:previewImage="@drawable/wg_preview_library"
+    android:previewLayout="@layout/wg_pvl_library"
     android:description="@string/wg_desc_library"
     android:configure="com.hark.velaplayer.WidgetDetailActivity"
     android:widgetFeatures="reconfigurable|configuration_optional" />

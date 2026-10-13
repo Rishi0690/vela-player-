@@ -39,8 +39,13 @@ def mix(a, b, t): return tuple(int(a[i] * (1 - t) + b[i] * t) for i in range(3))
 def rr_mask(w, h, r):
     m = Image.new("L", (w, h), 0); ImageDraw.Draw(m).rounded_rectangle([0, 0, w - 1, h - 1], r, fill=255); return m
 
-def glass(w, h, r=24, opacity=0.88):
+CONTENT = False  # True: draw only the widget's content on a transparent canvas (for the Android 12+ previewLayout)
+OPACITY = 0.88
+
+def glass(w, h, r=24, opacity=None):
     W, H, R = w * S, h * S, r * S
+    if CONTENT: return Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if opacity is None: opacity = OPACITY
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     t = (yy / H)[..., None]
     bottom = np.array(mix(BOT, GLOWA, 0.1), np.float32)
@@ -243,15 +248,44 @@ def save_preview(img, name):
     final = img.resize((img.size[0] * 2 // S, img.size[1] * 2 // S), Image.LANCZOS)
     p = os.path.join(out_dir, f"wg_preview_{name}.webp"); final.save(p, "WEBP", quality=90, method=6); print(name, os.path.getsize(p))
 
-w_np = now_medium(); w_bar = now_bar(); w_sq = now_square()
-w_cont = list_widget(300, 180, "Continue watching", "3 unfinished videos", "continue",
-    [("Weekend in the mountains", "18 min left · 31:05", 0.41), ("Lecture 04 — Signals", "33 min left · 48:30", 0.32), ("Concert clip", "Almost done · 2:57", 0.9)])
-w_col = list_widget(300, 180, "Favorites", "12 videos · 2:41:08", "star",
-    [("Beach sunset", "4:12", None), ("Family dinner", "12:05 · resume 3:10", 0.26), ("Drone flight over the bay", "6:40", None)], action="play", shuffle=True)
-w_lib = grid_widget(300, 260); w_q = quick(300, 76, False); w_qg = quick(160, 160, True)
+def build_all():
+    g = {}
+    g["np"] = now_medium(); g["bar"] = now_bar(); g["sq"] = now_square()
+    g["cont"] = list_widget(300, 180, "Continue watching", "3 unfinished videos", "continue",
+        [("Weekend in the mountains", "18 min left · 31:05", 0.41), ("Lecture 04 — Signals", "33 min left · 48:30", 0.32), ("Concert clip", "Almost done · 2:57", 0.9)])
+    g["col"] = list_widget(300, 180, "Favorites", "12 videos · 2:41:08", "star",
+        [("Beach sunset", "4:12", None), ("Family dinner", "12:05 · resume 3:10", 0.26), ("Drone flight over the bay", "6:40", None)], action="play", shuffle=True)
+    g["lib"] = grid_widget(300, 260); g["q"] = quick(300, 76, False); g["qg"] = quick(160, 160, True)
+    return g
+
+# Picker previews (v2.16.2). The launcher fits previewImage into a box sized from targetCellWidth/Height; the old
+# images were opaque rectangles (widget on a wallpaper) whose aspect didn't match that box, so the picker showed
+# blank/white strips beside them. Now:
+#  * previewImage  = ONLY the widget card (transparent corners, no wallpaper), on a canvas at the target-cell aspect.
+#  * previewLayout (Android 12+, wg_pvl_*) = a glass background drawable that fills ANY box the launcher gives,
+#    with the widget's content image (wg_pv_*, transparent) fitted on top, so there is never an empty strip.
+# name: (key in build_all, card w, card h in dp; content is centred inside the card)
+PICKER = {"now_playing": ("np", 300, 176), "continue": ("cont", 300, 180), "collection": ("col", 300, 180),
+          "library": ("lib", 300, 280), "quick": ("q", 300, 84)}
+
+def save_img(img, fname):
+    final = img.resize((img.size[0] * 2 // S, img.size[1] * 2 // S), Image.LANCZOS)
+    p = os.path.join(out_dir, fname); final.save(p, "WEBP", quality=90, method=6); print(fname, final.size, os.path.getsize(p))
+
+g = build_all()
 if not THEME:
-    save_preview(on_wall(w_np), "now_playing"); save_preview(on_wall(w_cont), "continue"); save_preview(on_wall(w_q), "quick")
-    save_preview(on_wall(w_lib), "library"); save_preview(on_wall(w_col), "collection")
+    OPACITY = 1.0
+    full = build_all()
+    CONTENT = True
+    content = build_all()
+    CONTENT = False; OPACITY = 0.88
+    for name, (key, cw, ch) in PICKER.items():
+        c_img = content[key]; w0, h0 = c_img.size[0] // S, c_img.size[1] // S
+        card_img = glass(cw, ch, opacity=1.0)
+        card_img.alpha_composite(c_img, ((cw - w0) // 2 * S, (ch - h0) // 2 * S))
+        save_img(card_img, f"wg_preview_{name}.webp")
+        save_img(c_img, f"wg_pv_{name}.webp")
+w_np, w_bar, w_sq, w_cont, w_col, w_lib, w_q, w_qg = g["np"], g["bar"], g["sq"], g["cont"], g["col"], g["lib"], g["q"], g["qg"]
 
 if len(sys.argv) > 2:
     W, H = 680, 764

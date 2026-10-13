@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.16.2: Android 12+ widget-picker preview (android:previewLayout). Glass background fills the picker's box;
+     the content image keeps its aspect (fitCenter) on top of it. RemoteViews-safe classes only. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/wg_pv_bg">
+    <ImageView android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitCenter" android:src="@drawable/wg_pv_quick" android:importantForAccessibility="no" />
+</FrameLayout>
