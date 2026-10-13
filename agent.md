@@ -7,7 +7,8 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.14`, `versionCode 29`
+- Current version: `versionName 2.16.1`, `versionCode 32` (last updated 2026-10-14)
+- Repo: `Rishi0690/vela-player-` (private, branch `main`). Owner works from an Android phone only (no PC); keep instructions simple.
 
 ## Golden rules
 1. **Never break existing playback.** Every change must keep the player, gestures, aspect modes, subtitles, audio tracks and queue working.
@@ -15,7 +16,9 @@ It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles,
 3. **Never change `applicationId` or the signing key.** Releases are signed with `signing/vela-release.jks` (gitignored, not in this repo). Using a different key means users must uninstall and lose their settings.
 4. **Do not enable minify or shrinking.** This is the owner's choice, and the Material palette APIs rely on it.
 5. **Destructive actions need confirmation.** Deleting files always asks first. Removing an item from a playlist never deletes the file.
-6. Everything stays on the device. No analytics or network calls (except user-entered stream URLs).
+6. **Never remove anything from the Home page/toolbar when adding features.** Toolbar order (owner's choice): theme, search, grid/list, sort, overflow, all always visible.
+7. **Always `git pull --ff-only` before editing** — the repo is also edited outside this workspace.
+8. Everything stays on the device. No analytics or network calls (except user-entered stream URLs).
 
 ## Build
 ```bash
@@ -33,7 +36,7 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 | `Store.kt` | SharedPreferences/JSON store: playlists, favorites, watched, resume positions, bulk operations |
 | `Prefs.kt` | Typed access to user settings (remember audio/sub language, gesture sides, etc.) |
 | `ThumbLoader.kt` | Thumbnails with dark-frame rejection and frame fallback, playlist cover = first video thumbnail only (no collage since v2.5.1); async `fetch` |
-| `PlayerActivity.kt` | Main player UI: controls, gestures, timeline, sheets, queue, PiP, Focus pill and break card. `EXTRA_SHUFFLED` for shuffled queues |
+| `PlayerActivity.kt` | Main player UI: controls, gestures, timeline, sheets, queue, PiP, Focus pill and break card. `EXTRA_SHUFFLED` for shuffled queues. Window insets (system bars + display cutout) pad `controls`/`edgeOverlay`. `fitButtonRow()` adapts the bottom button row (`p23ButtonRow`) to its real width: pills drop icons, then icon buttons shrink 48→36dp, so the right lock button (`btnLockRight`) never overflows on narrow portrait screens |
 | `PlayerHolder.kt` / `PlaybackService.kt` | Shared ExoPlayer instance and media session/background service |
 | `ZoomableVideoLayout.kt` + `AspectMode.kt` | Aspect-ratio modes and pinch zoom (top-priority feature) |
 | `TimelineSeekBar.kt` | Custom seek bar: buffered track, expanding thumb, frame preview hookup |
@@ -86,17 +89,17 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 - **Atmosphere** (every non-player screen): theme attrs `atmoTop/atmoMid/atmoBottom/atmoGlowA/atmoGlowB`, drawn by `AtmosphereDrawable` as the window background. Status bar is transparent over it. Never paint flat `colorSurface` blocks over it; opaque layers that must hide content during animations use `Atmosphere.viewBackground(view)`.
 - **Glass levels**: L1 `glassSurface` (chips, tonal buttons, thumbnails placeholders, grid tiles), L2 `glassSurfaceElevated` (settings group panels, collection header, search field, skeleton), L3 `glassSurfaceStrong` (dialogs, sheets, popups). All with `glassStroke` hairline + `glassHighlight` sheen. Long lists stay clean: list rows have no card (`bg_item`), grid tiles are L1 glass (`bg_item_grid`).
 - **Pill navigation**: `navContainer` capsule (`bg_nav_pill_container`), `navSelected` pill (near-white in dark, ink in light), `navOnSelected`, `navText`. Chips use `Widget.Vela.NavPill.Chip`.
-- **Player**: top bar = glass capsule (`bg_player_cluster`), bottom = glass dock (`bg_player_dock`), play = glass orb (`bg_player_play`) with AVD morph (`avd_play_to_pause`/`avd_pause_to_play`), speed/aspect = `Widget.Vela.PlayerPill`; `TimelineSeekBar` gradient progress + glowing white-cored thumb + glide; `PlayerSheet` float-in spring + row stagger + accent-glass selected rows. Never blur live video; gesture/seek logic untouched.
+- **Player**: top/bottom bars have NO glass boxes since v2.15 (scrims only); play = glass orb (`bg_player_play`, dark contrast halo since v2.16.1) with AVD morph (`avd_play_to_pause`/`avd_pause_to_play`), speed/aspect = `Widget.Vela.PlayerPill`; `TimelineSeekBar` gradient progress + glowing white-cored thumb + glide; `PlayerSheet` float-in spring + row stagger + accent-glass selected rows. Never blur live video; gesture/seek logic untouched.
 - **Settings**: grouped glass panels (`SettingsPanelDecoration`), small-caps section headers (`TextAppearance.Vela.Section`, via `VelaPreferenceTheme`). Vault settings build the same panels in code (`header()` opens a panel, rows go inside).
 - **Light mode**: generated "frosted" palette — pale blue-grey atmosphere, white glass, dark ink nav pill.
 - **Theme generator** (`tools/themegen/Gen.java`) now takes per theme: accent seed, secondary, tertiary, background tint, glow A, glow B, strength, mono flag. Sections: Signature, Jewel, Warm, Cool, Neon, Soft & Light. Re-run it after changing themes (command above).
 - Themes (35): Midnight Glass (default), Obsidian Noir, Aurora Glass, Arctic Silver, Graphite Mist · Sapphire Depths, Violet Nebula, Emerald Aura, Crimson Eclipse, Amethyst Night, Ruby Noir, Golden Eclipse, Royal Indigo · Sunset Ember, Rose Gold Luxe, Copper Dusk, Amber Glow, Coral Reef, Mocha Velvet, Sakura Bloom · Ocean Teal, Glacier Blue, Mint Frost, Deep Forest, Nordic Fjord, Lavender Haze, Steel Blue · Cyber Cyan, Neon Tokyo, Synthwave, Toxic Lime, Electric Blue · Pearl Champagne, Blush Quartz, Sky Porcelain.
 
-## Launcher icon (v2.13)
-- Adaptive icon: `mipmap-anydpi-v26/ic_launcher(_round).xml` → `drawable/ic_launcher_background.xml`, `ic_launcher_fg.xml`, `ic_launcher_monochrome.xml` (themed icons, Android 13). Legacy PNGs `mipmap-{mdpi..xxxhdpi}/ic_launcher(_round).png` for API 24–25.
-- All GENERATED by `tools/icongen/gen_icon.py` (one design → VectorDrawables + cairosvg PNGs): `python3 tools/icongen/gen_icon.py . <preview.png>` (needs `pip install cairosvg`). Never hand-edit the outputs.
-- Design: midnight-blue → near-black atmosphere with violet/blue glows; stacked glass "screens" with a glowing play triangle and a seek bar (accent progress + glowing thumb). NO letters/text/app name (the name may change). Foreground stays inside the 66 dp safe circle.
-- No in-app place shows the logo (no splash/about screen).
+## Launcher icon (current: v2.16.1)
+- Adaptive icon: `mipmap-anydpi-v26/ic_launcher(_round).xml` → `drawable/ic_launcher_background.xml` (transparent), `drawable-nodpi/ic_launcher_fg.png`, `drawable-nodpi/ic_launcher_monochrome.png` (themed icons, Android 13). Legacy PNGs `mipmap-{mdpi..xxxhdpi}/ic_launcher(_round).png` for API 24–25.
+- Source = owner's artwork (gradient ring + play triangle, transparent): `tools/icongen/user_icon_source.svg` → rendered to `user_icon_source.png` with cairosvg (1254 px). Generate everything with `python3 tools/icongen/gen_user_icon.py` (numpy + Pillow). Never hand-edit outputs. To replace the icon: render the new art to `user_icon_source.png` and re-run.
+- `tools/icongen/gen_icon.py` is the OLD v2.13 procedural icon generator (unused now).
+- No letters/app name in the icon (the name may change). No in-app place shows the logo.
 
 ## v2.14 Home-screen widgets
 - **Widgets** (AppWidgetProvider + RemoteViews, all real data, no fake controls):
@@ -149,7 +152,9 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 2. Bump `versionCode` / `versionName`.
 3. `assembleRelease` with the release keystore and verify the signing cert is unchanged.
 4. Commit and push to `main`.
-5. Upload the signed APK to the Google Drive folder "Vela Player APKs" as `VelaPlayer-vX.Y.apk`.
+5. Upload the signed APK to Google Drive as `VelaPlayer-vX.Y.apk` (anyone-with-link reader) and update this file's version line + history.
+
+Signing cert SHA-256 starts `407d7a6d75c25fb2` (alias `androiddebugkey`). Check with `apksigner verify --print-certs`.
 
 ## Recent history
 - v2.5 Vault private storage · v2.5.1 single-thumbnail covers · v2.5.2 slimmer Vault settings
@@ -157,8 +162,8 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 - v2.7 Settings navigation root-cause fixes (rapid taps, GPU layer, reduced motion)
 - v2.8 Settings: categories open with hide/add (main screen no longer re-inflated on Back), search field is an overlay (no layout jump), no row cross-fade on toggles, title cross-fade. VelaScroller everywhere, themed native scrollbars, Motion.enabled/exit/reveal (reduced motion), animated empty states, Vault lock panel lowered via 40/60 spacers + ease-in, Vault settings: removed "Storage & uninstalling" and "About hiding" sections
 
-## Pending (requested 2026-10-13, partly done in v2.8)
-Full UI/UX + motion polish across the app: consistent motion system, design tokens (spacing, radii, type), light/dark/accent consistency, clearer empty/error/loading states, scroll/thumbnail performance. Keep every feature working.
+## Version log (v2.8.1 → v2.14)
+Original 2026-10-13 ask, mostly delivered: full UI/UX + motion polish across the app: consistent motion system, design tokens (spacing, radii, type), light/dark/accent consistency, clearer empty/error/loading states, scroll/thumbnail performance. Keep every feature working.
 - v2.8.1 Vault settings › Privacy › "Allow screenshots" (VaultAuth.allowScreenshots/applySecure; off = FLAG_SECURE in vault, vault settings, vault playback; also gates frame capture)
 - v2.8.2 Settings ListPreference/EditTextPreference pop-ups replaced by Material dialogs (showVelaPrefDialog in SettingsActivity via onDisplayPreferenceDialog)
 - v2.9 FitButtons.kt (Play all/Shuffle single-line fit), no reorder drag hint subtitle, rotation = 3 modes auto(FULL_SENSOR)/landscape/portrait shared via Prefs default_orientation (button cycles + saves; player listens to prefs; Settings refreshes onResume). Aspect Auto no longer forces rotation.
@@ -184,3 +189,7 @@ Full UI/UX + motion polish across the app: consistent motion system, design toke
 - Icon from user transparent SVG (tools/icongen/user_icon_source.svg -> png via cairosvg), transparent adaptive bg.
 - Play orb: dark halo + core under glass (bg_player_play) for bright frames.
 - PlayerActivity.fitButtonRow: bottom button row adapts (pill icons drop, icon buttons 48->36dp) so btnLockRight never overflows; bottomBar margins reduced.
+
+## Open work (not done yet)
+- Search redesign remainder (asked 2026-10-13): dedicated results layout with richer thumbnails/metadata, initial (no-query) state, richer empty state, recent searches only if backed by real data, fuller open/close choreography beyond the circular reveal.
+- Nothing is device-tested in CI; there is no emulator in the build sandbox. Owner tests on the phone and reports back.
