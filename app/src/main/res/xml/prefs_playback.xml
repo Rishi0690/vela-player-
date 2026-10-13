@@ -9,7 +9,7 @@
         <SwitchPreferenceCompat app:key="autoplay_next" app:title="Auto-play next video" app:defaultValue="true" app:iconSpaceReserved="false" />
         <ListPreference app:key="default_aspect" app:title="Default aspect ratio" app:entries="@array/aspect_entries" app:entryValues="@array/aspect_values" app:defaultValue="FIT" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="remember_aspect" app:title="Remember last aspect ratio" app:summary="Start with the mode you picked last time" app:defaultValue="true" app:iconSpaceReserved="false" />
-        <ListPreference app:key="default_orientation" app:title="Default screen orientation" app:entries="@array/orientation_entries" app:entryValues="@array/orientation_values" app:defaultValue="auto" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="default_orientation" app:title="Screen orientation" app:dialogTitle="Same as the rotate button in the player" app:entries="@array/orientation_entries" app:entryValues="@array/orientation_values" app:defaultValue="auto" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat app:key="keep_screen_on" app:title="Keep screen awake while playing" app:defaultValue="true" app:iconSpaceReserved="false" />
         </PreferenceCategory>
     <PreferenceCategory app:title="Audio &amp; subtitles" app:iconSpaceReserved="false">

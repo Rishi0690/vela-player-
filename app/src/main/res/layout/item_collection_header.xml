@@ -66,6 +66,16 @@
             android:layout_height="48dp"
             android:layout_weight="1"
             android:text="Play all"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:ellipsize="none"
+            android:paddingStart="12dp"
+            android:paddingEnd="14dp"
+            android:minWidth="0dp"
+            android:textSize="14sp"
+            app:iconSize="18dp"
+            app:iconPadding="6dp"
+            app:iconGravity="textStart"
             app:icon="@drawable/ic_play" />
 
         <com.google.android.material.button.MaterialButton
@@ -73,9 +83,19 @@
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="0dp"
             android:layout_height="48dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/header_btn_gap"
             android:layout_weight="1"
             android:text="Shuffle"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:ellipsize="none"
+            android:paddingStart="12dp"
+            android:paddingEnd="14dp"
+            android:minWidth="0dp"
+            android:textSize="14sp"
+            app:iconSize="18dp"
+            app:iconPadding="6dp"
+            app:iconGravity="textStart"
             app:icon="@drawable/ic_shuffle" />
 
         <com.google.android.material.button.MaterialButton

@@ -1670,6 +1670,7 @@ class MainActivity : ThemedActivity() {
             v.btnAdd.setOnClickListener { openPlaylist?.let { openPicker(it) } }
             v.l23BtnReorder.setOnClickListener { if (reordering) reorderMode?.finish() else startReorder() }
             Motion.pressable(v.btnPlayAll, 0.95f); Motion.pressable(v.btnShuffle, 0.95f); Motion.pressable(v.btnAdd, 0.9f)
+            FitButtons.apply(v.btnPlayAll, v.btnShuffle)
         }
         fun bind(row: Row.Header) {
             v.title.text = row.title
@@ -1801,7 +1802,7 @@ class MainActivity : ThemedActivity() {
     private val reorderActionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             mode.title = "Edit order"
-            mode.subtitle = if (adapter.grid) "Long-press a video, then drag it" else "Drag ☰ to move a video"
+            mode.subtitle = null // v2.9: no drag hint text; dragging still works
             return true
         }
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false

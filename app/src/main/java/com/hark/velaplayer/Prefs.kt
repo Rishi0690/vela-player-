@@ -27,7 +27,11 @@ object Prefs {
     fun seekInterval(c: Context): Long = (sp(c).getString("seek_interval", "10")?.toLongOrNull() ?: 10L) * 1000L
     fun resume(c: Context) = sp(c).getBoolean("resume", true)
     fun autoplayNext(c: Context) = sp(c).getBoolean("autoplay_next", true)
-    fun orientation(c: Context) = sp(c).getString("default_orientation", "auto") ?: "auto"
+    /** v2.9: three modes shared by Settings and the player's rotate button: auto (device sensor), landscape, portrait. */
+    fun orientation(c: Context): String = when (sp(c).getString("default_orientation", "auto")) {
+        "landscape" -> "landscape"; "portrait" -> "portrait"; else -> "auto" // old "sensor" / match-video both mean auto
+    }
+    fun setOrientation(c: Context, mode: String) = sp(c).edit().putString("default_orientation", mode).apply()
     fun keepScreenOn(c: Context) = sp(c).getBoolean("keep_screen_on", true)
     fun gesture(c: Context, key: String) = sp(c).getBoolean(key, true)
     fun backgroundAudio(c: Context) = sp(c).getBoolean("background_audio", false)

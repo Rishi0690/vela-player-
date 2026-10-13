@@ -277,6 +277,10 @@ class SettingsActivity : ThemedActivity() {
 
         override fun onResume() {
             super.onResume()
+            // v2.9: the player's rotate button may have changed the orientation mode meanwhile.
+            findPreference<androidx.preference.ListPreference>("default_orientation")?.let { lp ->
+                val cur = Prefs.orientation(requireContext()); if (lp.value != cur) lp.value = cur
+            }
             // Came back from Android's Do Not Disturb access screen.
             if (askingDnd) {
                 askingDnd = false

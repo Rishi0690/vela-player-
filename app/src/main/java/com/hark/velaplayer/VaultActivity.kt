@@ -149,6 +149,7 @@ class VaultActivity : ThemedActivity() {
         header.btnShuffle.setOnClickListener { playAll(true) }
         header.l23BtnReorder.setOnClickListener { if (reorderMode != null) reorderMode?.finish() else startReorder() }
         Motion.pressable(header.btnPlayAll, 0.95f); Motion.pressable(header.btnShuffle, 0.95f); Motion.pressable(header.l23BtnReorder, 0.9f)
+        FitButtons.apply(header.btnPlayAll, header.btnShuffle)
         filters.setOnCheckedStateChangeListener { _, ids ->
             val nf = when (ids.firstOrNull()) { R.id.vaultFProgress -> "progress"; R.id.vaultFUnwatched -> "unwatched"; R.id.vaultFWatched -> "watched"; else -> "all" }
             if (nf != filter) { filter = nf; if (nf != "all") reorderMode?.finish(); show() }
@@ -837,7 +838,7 @@ class VaultActivity : ThemedActivity() {
     private val reorderActionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             mode.title = "Edit order"
-            mode.subtitle = if (gridMode) "Long-press a video, then drag it" else "Drag ☰ to move a video"
+            mode.subtitle = null // v2.9: no drag hint text
             return true
         }
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false

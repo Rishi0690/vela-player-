@@ -385,6 +385,8 @@ class PlayerActivity : AppCompatActivity() {
             finish(); return
         }
         applyOrientation(null)
+        lastAppliedOrientation = Prefs.orientation(this)
+        Prefs.sp(this).registerOnSharedPreferenceChangeListener(orientationPrefListener)
         handler.post(ticker)
         setControlsVisible(true)
         if (Prefs.focusFeature(this) && Prefs.focusAutoStart(this)) startFocus(announce = false)
@@ -405,6 +407,7 @@ class PlayerActivity : AppCompatActivity() {
         if (playerReady) {
             applyModes(); renderModes(); renderRotateButton()
         }
+        if (::b.isInitialized) syncOrientationFromPrefs()
     }
 
     override fun onPause() {
@@ -456,6 +459,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(orientationPrefListener) }
         if (::focus.isInitialized && focus.active) focus.stop()
         handler.removeCallbacksAndMessages(null)
         if (::chip.isInitialized) chip.release()
@@ -886,20 +890,14 @@ class PlayerActivity : AppCompatActivity() {
         b.btnUnlock.setOnClickListener { unlockControls() }
         b.btnUnlockRight.setOnClickListener { unlockControls() }
         b.btnRotate.setOnClickListener { v ->
-            // Small turn of the icon toward the new orientation, then it settles on the new state.
+            // v2.9: one tap = next mode (Auto rotation → Landscape lock → Portrait lock), saved to Settings at once.
             v.animate().cancel()
-            v.animate().rotation(if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) -90f else 90f)
-                .setDuration(260).setInterpolator(OvershootInterpolator(1.6f))
-                .withEndAction { v.rotation = 0f; renderRotateButton() }.start()
-            rotateScreen(); scheduleHide()
+            v.animate().rotation(90f).setDuration(260).setInterpolator(OvershootInterpolator(1.6f))
+                .withEndAction { v.rotation = 0f }.start()
+            cycleRotation(); scheduleHide()
         }
         b.btnRotate.setOnLongClickListener {
-            // Back to automatic: follow the video (or the orientation chosen in Settings).
-            userRotated = false
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            applyOrientation(player.videoSize.takeIf { it.width > 0 && it.height > 0 })
-            renderRotateButton()
-            showIndicator(R.drawable.ic_screen_rotation, "Rotation follows the video", null); hideIndicatorSoon()
+            showIndicator(rotationIcon(Prefs.orientation(this)), rotationLabel(Prefs.orientation(this)), null); hideIndicatorSoon()
             true
         }
         b.btnPip.setOnClickListener { enterPip() }
@@ -1136,16 +1134,51 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    /** v2.9: applies the shared orientation mode (Settings ⇄ rotate button). [vs] is unused now; kept for callers. */
+    @Suppress("UNUSED_PARAMETER")
     private fun applyOrientation(vs: VideoSize?) {
-        if (userRotated) return
-        val pref = Prefs.orientation(this)
-        requestOrientationProgrammatic(when {
-            pref == "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            pref == "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            pref == "sensor" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-            vs != null -> orientationFor(vs)
-            else -> return
-        })
+        requestOrientationProgrammatic(orientationReq(Prefs.orientation(this)))
+    }
+
+    private fun orientationReq(mode: String) = when (mode) {
+        "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        else -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+    }
+
+    private fun rotationIcon(mode: String) = when (mode) {
+        "landscape" -> R.drawable.ic_screen_lock_landscape
+        "portrait" -> R.drawable.ic_screen_lock_portrait
+        else -> R.drawable.ic_screen_rotation
+    }
+
+    private fun rotationLabel(mode: String) = when (mode) {
+        "landscape" -> "Landscape lock"
+        "portrait" -> "Portrait lock"
+        else -> "Auto rotation"
+    }
+
+    /** Rotate button tap: next mode, save it (Settings shows it too), apply it, update the icon. */
+    private fun cycleRotation() {
+        val next = when (Prefs.orientation(this)) { "auto" -> "landscape"; "landscape" -> "portrait"; else -> "auto" }
+        Prefs.setOrientation(this, next) // the prefs listener applies it; apply directly too in case it fires late
+        lastAppliedOrientation = next
+        requestedOrientation = orientationReq(next)
+        renderRotateButton()
+        showIndicator(rotationIcon(next), rotationLabel(next), null); hideIndicatorSoon()
+    }
+
+    private var lastAppliedOrientation: String? = null
+    /** Settings changed the orientation (or another screen did): follow it right away. */
+    private val orientationPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "default_orientation") syncOrientationFromPrefs()
+    }
+
+    private fun syncOrientationFromPrefs() {
+        val mode = Prefs.orientation(this)
+        if (mode == lastAppliedOrientation && requestedOrientation == orientationReq(mode)) { renderRotateButton(); return }
+        lastAppliedOrientation = mode
+        if (!isInPipSafe()) requestOrientationProgrammatic(orientationReq(mode)) else renderRotateButton()
     }
 
     /**
@@ -1172,34 +1205,21 @@ class PlayerActivity : AppCompatActivity() {
         b.btnAspectLabel.text = aspect.short
     }
 
-    /** Rotation button: icon shows whether rotation follows the video (auto) or is locked by the user, and to which side. */
+    /** Rotation button: icon + tint show the current mode (white = auto rotation, accent = locked). */
     private fun renderRotateButton() {
         if (!::b.isInitialized) return
-        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val mode = Prefs.orientation(this)
         val btn = b.btnRotate
-        val icon = when {
-            !userRotated -> R.drawable.ic_screen_rotation
-            landscape -> R.drawable.ic_screen_lock_landscape
-            else -> R.drawable.ic_screen_lock_portrait
-        }
+        val icon = rotationIcon(mode)
         if (btn.tag != icon) { btn.setImageResource(icon); btn.tag = icon }
-        btn.imageTintList = android.content.res.ColorStateList.valueOf(if (userRotated) ThemeManager.primary(this) else 0xFFFFFFFF.toInt())
-        btn.contentDescription = if (userRotated)
-            "Screen locked to ${if (landscape) "landscape" else "portrait"}. Tap to rotate, press and hold to follow the video again"
-        else "Rotate screen to ${if (landscape) "portrait" else "landscape"}"
+        btn.imageTintList = android.content.res.ColorStateList.valueOf(if (mode != "auto") ThemeManager.primary(this) else 0xFFFFFFFF.toInt())
+        val next = when (mode) { "auto" -> "Landscape lock"; "landscape" -> "Portrait lock"; else -> "Auto rotation" }
+        btn.contentDescription = "Rotation: ${rotationLabel(mode)}. Tap for $next"
     }
 
     private fun orientationFor(vs: VideoSize): Int =
         if (vs.width * vs.pixelWidthHeightRatio >= vs.height) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-
-    private fun rotateScreen() {
-        userRotated = true
-        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        renderRotateButton()
-    }
 
     // ------------------------------------------------------------------ aspect ratio
 
@@ -1210,7 +1230,8 @@ class PlayerActivity : AppCompatActivity() {
         Prefs.saveAspect(this, m)
         if (m == AspectMode.AUTO) {
             val vs = player.videoSize
-            if (vs.width > 0 && vs.height > 0) { userRotated = false; requestOrientationProgrammatic(orientationFor(vs)) }
+            // v2.9: Auto aspect no longer forces a rotation; the rotate button / Settings mode decides orientation.
+            if (vs.width > 0 && vs.height > 0) b.videoLayout.requestLayout()
         }
         // v2.2: no on-screen message; the aspect button label already shows the new mode.
         b.btnAspectLabel.contentDescription = "Aspect ratio: ${m.label}"
