@@ -132,7 +132,7 @@ class VaultActivity : ThemedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        VaultAuth.applySecure(window, this)
         setContentView(R.layout.vault_activity)
         lockPane = findViewById(R.id.vaultLockPane)
         lockHost = findViewById(R.id.vaultLockHost)
@@ -185,6 +185,7 @@ class VaultActivity : ThemedActivity() {
 
     override fun onStart() {
         super.onStart()
+        VaultAuth.applySecure(window, this)
         if (childOpen) {
             childOpen = false
             // Back from the player: "Immediately" or an expired inactivity period asks again.

@@ -2625,7 +2625,7 @@ class PlayerActivity : AppCompatActivity() {
     /** Saves the current video frame (no controls or subtitles) to Pictures/VelaPlayer. */
     private fun captureFrame() {
         if (!playerReady) return
-        if (vaultMode) { notice(R.drawable.ic_info, "Frame capture is off for private videos"); return }
+        if (vaultMode && !VaultAuth.allowScreenshots(this)) { notice(R.drawable.ic_info, "Screenshots are off for private videos. Turn them on in Vault settings."); return }
         if (Build.VERSION.SDK_INT < 29 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             requestWrite.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE); return
@@ -2662,7 +2662,7 @@ class PlayerActivity : AppCompatActivity() {
     /** Switches vault behaviour on/off for the queue being loaded (private titles, no app-switcher preview, no library browser). */
     private fun setVaultMode(on: Boolean) {
         vaultMode = on
-        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (on) VaultAuth.applySecure(window, this)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (::focus.isInitialized) focus.privateMode = on
         if (on && browserOpen) closeBrowser(false)

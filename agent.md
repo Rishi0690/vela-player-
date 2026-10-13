@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.8`, `versionCode 19`
+- Current version: `versionName 2.8.1`, `versionCode 20`
 
 ## Golden rules
 1. **Never break existing playback.** Every change must keep the player, gestures, aspect modes, subtitles, audio tracks and queue working.
@@ -88,3 +88,4 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 
 ## Pending (requested 2026-10-13, partly done in v2.8)
 Full UI/UX + motion polish across the app: consistent motion system, design tokens (spacing, radii, type), light/dark/accent consistency, clearer empty/error/loading states, scroll/thumbnail performance. Keep every feature working.
+- v2.8.1 Vault settings › Privacy › "Allow screenshots" (VaultAuth.allowScreenshots/applySecure; off = FLAG_SECURE in vault, vault settings, vault playback; also gates frame capture)

@@ -50,7 +50,7 @@ class VaultSettingsActivity : ThemedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        VaultAuth.applySecure(window, this)
         VaultAuth.sync(this)
         if (!Vault.isUnlocked()) { finish(); return }
         setContentView(R.layout.vault_settings)
@@ -187,6 +187,16 @@ class VaultSettingsActivity : ThemedActivity() {
                     .setNegativeButton("Cancel", null).show()
             }
             note(c, "The vault always locks when you close it or leave the app.")
+        }
+
+        header(c, "Privacy")
+        switchRow(c, "Allow screenshots",
+            "Lets you take screenshots and screen recordings in the vault, vault settings and while playing vault videos. " +
+                "When off, they're blocked and the recent-apps preview stays blank.",
+            VaultAuth.allowScreenshots(this)) { _, on ->
+            VaultAuth.setAllowScreenshots(this, on)
+            VaultAuth.applySecure(window, this)
+            toast(if (on) "Screenshots allowed in the vault" else "Screenshots blocked in the vault")
         }
 
         header(c, "(Recommended) Main Settings")

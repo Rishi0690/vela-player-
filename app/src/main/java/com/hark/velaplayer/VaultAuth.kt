@@ -78,6 +78,14 @@ object VaultAuth {
 
     /** "Hide Hidden Vault instructions from main Settings" (default off). Only changeable inside the vault. */
     fun hideInstructions(c: Context) = sp(c).getBoolean("hide_instructions", false)
+    /** v2.8.1: screenshots/screen recording inside the vault, vault settings and vault playback. Off = FLAG_SECURE. */
+    fun allowScreenshots(c: Context) = sp(c).getBoolean("allow_screenshots", false)
+    fun setAllowScreenshots(c: Context, on: Boolean) = sp(c).edit().putBoolean("allow_screenshots", on).apply()
+    /** Applies the screenshot choice to a vault window. */
+    fun applySecure(w: android.view.Window, c: Context) {
+        if (allowScreenshots(c)) w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        else w.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+    }
     fun setHideInstructions(c: Context, on: Boolean) = sp(c).edit().putBoolean("hide_instructions", on).apply()
 
     /** v2.5.2: the toggle was removed from vault settings, so thumbnails are always shown. */
