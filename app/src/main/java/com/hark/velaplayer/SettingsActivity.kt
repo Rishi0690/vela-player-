@@ -206,6 +206,11 @@ class SettingsActivity : ThemedActivity() {
             navAnim(this, nextAnim)
         fun reveal(key: String) = revealPreference(this, key)
 
+        /** v2.8.2: choice and text pop-ups use the same Material dialog as the rest of the app. */
+        override fun onDisplayPreferenceDialog(preference: Preference) {
+            if (!showVelaPrefDialog(this, preference)) super.onDisplayPreferenceDialog(preference)
+        }
+
         /** Keeps the first row clear of the overlaid search field; rows scroll up underneath it. */
         fun padForSearch(h: Int) {
             val l = listView ?: return
@@ -245,6 +250,11 @@ class SettingsActivity : ThemedActivity() {
 
     class SectionFragment : PreferenceFragmentCompat() {
         private var askingDnd = false
+
+        /** v2.8.2: choice and text pop-ups use the same Material dialog as the rest of the app. */
+        override fun onDisplayPreferenceDialog(preference: Preference) {
+            if (!showVelaPrefDialog(this, preference)) super.onDisplayPreferenceDialog(preference)
+        }
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
@@ -329,6 +339,81 @@ class SettingsActivity : ThemedActivity() {
             if (Build.VERSION.SDK_INT < 23) findPreference<Preference>("focus_dnd")?.isEnabled = false
         }
     }
+}
+
+/**
+ * v2.8.2: Material 3 versions of the stock preference pop-ups (which used the old platform AlertDialog look).
+ * Lists: radio choices with the current one checked, picks apply at once and close with the shared dialog motion;
+ * the change still goes through callChangeListener, so listeners (theme, thumbnails...) behave as before.
+ * Text: an outlined field with the explanation as helper text. Returns false for anything else.
+ */
+private fun showVelaPrefDialog(f: PreferenceFragmentCompat, p: Preference): Boolean {
+    val ctx = f.context ?: return false
+    if (f.parentFragmentManager.isStateSaved) return false
+    val d = ctx.resources.displayMetrics.density
+    fun titleView(title: CharSequence?, sub: CharSequence?): View = android.widget.LinearLayout(ctx).apply {
+        orientation = android.widget.LinearLayout.VERTICAL
+        setPadding((24 * d).toInt(), (22 * d).toInt(), (24 * d).toInt(), (if (sub.isNullOrBlank()) 8 else 10).let { (it * d).toInt() })
+        addView(android.widget.TextView(ctx).apply {
+            text = title
+            androidx.core.widget.TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall)
+        })
+        if (!sub.isNullOrBlank()) addView(android.widget.TextView(ctx).apply {
+            text = sub; alpha = 0.72f
+            androidx.core.widget.TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            setPadding(0, (6 * d).toInt(), 0, 0)
+        })
+    }
+    when (p) {
+        is androidx.preference.ListPreference -> {
+            val entries = p.entries ?: return false
+            val values = p.entryValues ?: return false
+            val cur = p.findIndexOfValue(p.value)
+            val sub = (p.dialogTitle ?: p.dialogMessage)?.takeIf { it.toString() != p.title?.toString() }
+            MaterialAlertDialogBuilder(ctx)
+                .setCustomTitle(titleView(p.title, sub))
+                .setSingleChoiceItems(entries, cur) { dlg, i ->
+                    val v = values[i].toString()
+                    if (p.callChangeListener(v)) p.value = v
+                    dlg.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return true
+        }
+        is androidx.preference.EditTextPreference -> {
+            val box = com.google.android.material.textfield.TextInputLayout(ctx, null,
+                com.google.android.material.R.attr.textInputOutlinedStyle).apply {
+                hint = p.title
+                helperText = p.dialogMessage
+                setBoxCornerRadii(16 * d, 16 * d, 16 * d, 16 * d)
+            }
+            val edit = com.google.android.material.textfield.TextInputEditText(box.context).apply {
+                setText(p.text); setSingleLine(); setSelection(text?.length ?: 0)
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            }
+            box.addView(edit)
+            val wrap = android.widget.FrameLayout(ctx).apply {
+                setPadding((24 * d).toInt(), (8 * d).toInt(), (24 * d).toInt(), 0)
+                addView(box)
+            }
+            val dlg = MaterialAlertDialogBuilder(ctx)
+                .setTitle(p.title)
+                .setView(wrap)
+                .setPositiveButton("Save") { _, _ ->
+                    val v = edit.text?.toString()?.trim().orEmpty()
+                    if (p.callChangeListener(v)) p.text = v
+                }
+                .setNegativeButton("Cancel", null)
+                .create()
+            edit.setOnEditorActionListener { _, _, _ -> dlg.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.performClick(); true }
+            dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+            dlg.show()
+            edit.requestFocus()
+            return true
+        }
+    }
+    return false
 }
 
 /** Scrolls a settings screen to [key] and briefly highlights its row with the theme accent. */
