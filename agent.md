@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.10`, `versionCode 23`
+- Current version: `versionName 2.10.1`, `versionCode 24`
 
 ## Golden rules
 1. **Never break existing playback.** Every change must keep the player, gestures, aspect modes, subtitles, audio tracks and queue working.
@@ -92,3 +92,4 @@ Full UI/UX + motion polish across the app: consistent motion system, design toke
 - v2.8.2 Settings ListPreference/EditTextPreference pop-ups replaced by Material dialogs (showVelaPrefDialog in SettingsActivity via onDisplayPreferenceDialog)
 - v2.9 FitButtons.kt (Play all/Shuffle single-line fit), no reorder drag hint subtitle, rotation = 3 modes auto(FULL_SENSOR)/landscape/portrait shared via Prefs default_orientation (button cycles + saves; player listens to prefs; Settings refreshes onResume). Aspect Auto no longer forces rotation.
 - v2.10 ThemeSwitch.kt: home toolbar sun/moon (action_theme, next to search) toggles theme pref dark/light; snapshot + circular reveal overlay after recreate, icon spin-pop.
+- v2.10.1 grid/list toggle (action_view) showAsAction=always so it stays on the toolbar beside the theme button.

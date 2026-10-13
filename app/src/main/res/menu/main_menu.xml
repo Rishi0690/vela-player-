@@ -5,7 +5,7 @@
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
     <item android:id="@+id/action_theme" android:icon="@drawable/ic_dark_mode" android:title="Dark / light mode" app:showAsAction="always" />
-    <item android:id="@+id/action_view" android:icon="@drawable/ic_grid" android:title="Grid view" app:showAsAction="ifRoom" />
+    <item android:id="@+id/action_view" android:icon="@drawable/ic_grid" android:title="Grid view" app:showAsAction="always" />
     <item android:id="@+id/action_sort" android:icon="@drawable/ic_sort" android:title="Sort" app:showAsAction="ifRoom" />
     <item android:id="@+id/l23_action_reorder" android:icon="@drawable/l23_ic_drag_handle" android:title="Edit order" android:visible="false" app:showAsAction="never" />
     <item android:id="@+id/action_select" android:icon="@drawable/ic_select" android:title="Select" app:showAsAction="never" />
