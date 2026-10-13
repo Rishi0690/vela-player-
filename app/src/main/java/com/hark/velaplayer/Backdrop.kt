@@ -91,6 +91,41 @@ object Backdrop {
 
     fun customFile(c: Context) = File(File(c.filesDir, "backdrop"), "custom.jpg")
     fun hasCustom(c: Context) = customFile(c).let { it.exists() && it.length() > 0 }
+
+    // v2.18.1: several gallery photos. Legacy single photo = source "custom" (custom.jpg); new ones = "c:<file name>".
+    private fun dir(c: Context) = File(c.filesDir, "backdrop")
+    fun isCustom(source: String) = source == SRC_CUSTOM || source.startsWith("c:")
+    fun fileFor(c: Context, source: String): File? = when {
+        source == SRC_CUSTOM -> customFile(c)
+        source.startsWith("c:") -> source.removePrefix("c:").takeIf { it.isNotEmpty() && !it.contains('/') }?.let { File(dir(c), it) }
+        else -> null
+    }?.takeIf { it.exists() && it.length() > 0 }
+
+    /** Imported photos, newest first. */
+    fun customs(c: Context): List<String> {
+        val out = ArrayList<Pair<Long, String>>()
+        customFile(c).takeIf { it.exists() && it.length() > 0 }?.let { out += it.lastModified() to SRC_CUSTOM }
+        dir(c).listFiles()?.filter { it.name.startsWith("c_") && it.name.endsWith(".jpg") && it.length() > 0 }?.forEach { out += it.lastModified() to "c:" + it.name }
+        return out.sortedByDescending { it.first }.map { it.second }
+    }
+
+    /**
+     * Deletes an imported photo. If it is the active background, switches to the default theme background first
+     * (appearance settings kept), so no screen ever points at a missing file.
+     */
+    fun deleteCustom(c: Context, source: String): Boolean {
+        if (!isCustom(source)) return false
+        if (spec(c).source == source) update(c, source = "")
+        synchronized(lock) {
+            if (srcCacheKey?.startsWith("$source|") == true) { srcCacheKey = null; srcCache = null }
+            if (cacheKey?.startsWith("$source|") == true) { cacheKey = null; cache = null }
+        }
+        val f = fileFor(c, source) ?: return true
+        return f.delete() || !f.exists()
+    }
+
+    /** Restore to default: theme background + default appearance (Blurred glass, default blur and dim). Photos are kept. */
+    fun restoreDefaults(c: Context) = update(c, source = "", style = STYLE_GLASS, blur = DEFAULT_BLUR, dim = DEFAULT_DIM)
     fun builtin(id: String) = BUILTINS.firstOrNull { it.id == id }
 
     /** A photo is selected and still available. */
@@ -98,7 +133,7 @@ object Backdrop {
         val s = spec(c).source
         return when {
             s.isEmpty() -> false
-            s == SRC_CUSTOM -> hasCustom(c)
+            isCustom(s) -> fileFor(c, s) != null
             s.startsWith("b:") -> builtin(s.removePrefix("b:")) != null
             else -> false
         }
@@ -132,7 +167,7 @@ object Backdrop {
 
     private fun decodeSource(c: Context, s: Spec, maxSide: Int): Bitmap? {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        fun open(opts: BitmapFactory.Options): Bitmap? = if (s.source == SRC_CUSTOM) BitmapFactory.decodeFile(customFile(c).path, opts)
+        fun open(opts: BitmapFactory.Options): Bitmap? = if (isCustom(s.source)) fileFor(c, s.source)?.let { BitmapFactory.decodeFile(it.path, opts) }
             else builtin(s.source.removePrefix("b:"))?.let { BitmapFactory.decodeResource(c.resources, it.res, opts) }
         open(o)
         if (o.outWidth <= 0 || o.outHeight <= 0) return null
@@ -263,15 +298,15 @@ object Backdrop {
     // ------------------------------------------------------------------ custom photo import
 
     /** Copies a gallery photo into private storage (downscaled to ≤1600 px, EXIF rotation applied). Run off the main thread. */
-    fun importCustom(c: Context, uri: Uri): Boolean {
+    fun importCustom(c: Context, uri: Uri): String? {
         return try {
             val cr = c.contentResolver
             val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
-            if (o.outWidth <= 0 || o.outHeight <= 0) return false
+            if (o.outWidth <= 0 || o.outHeight <= 0) return null
             var sample = 1
             while (max(o.outWidth, o.outHeight) / (sample * 2) >= 1600) sample *= 2
-            var bmp = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return false
+            var bmp = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return null
             val rot = try {
                 cr.openInputStream(uri)?.use {
                     when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
@@ -290,13 +325,14 @@ object Backdrop {
                 if (out !== bmp) bmp.recycle()
                 bmp = out
             }
-            val f = customFile(c); f.parentFile?.mkdirs()
+            val name = "c_${System.currentTimeMillis()}.jpg"
+            val f = File(dir(c), name); f.parentFile?.mkdirs()
             val tmp = File(f.parentFile, "custom.tmp")
             tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
             bmp.recycle()
             if (!tmp.renameTo(f)) { tmp.copyTo(f, overwrite = true); tmp.delete() }
-            true
-        } catch (_: Throwable) { false }
+            "c:$name"
+        } catch (_: Throwable) { null }
     }
 
     /** Small thumbnail for the picker tiles. */

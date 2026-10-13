@@ -52,11 +52,11 @@ class BackgroundActivity : ThemedActivity() {
         Toast.makeText(this, "Setting your photo…", Toast.LENGTH_SHORT).show()
         val app = applicationContext
         io.execute {
-            val ok = Backdrop.importCustom(app, uri)
+            val src = Backdrop.importCustom(app, uri)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (!ok) { Toast.makeText(this, "Couldn't open that photo. Try another one.", Toast.LENGTH_LONG).show(); return@runOnUiThread }
-                Backdrop.update(this, source = Backdrop.SRC_CUSTOM, stamp = System.currentTimeMillis())
+                if (src == null) { Toast.makeText(this, "Couldn't open that photo. Try another one.", Toast.LENGTH_LONG).show(); return@runOnUiThread }
+                Backdrop.update(this, source = src, stamp = System.currentTimeMillis())
                 buildCustomGrid()
                 applyNow()
             }
@@ -79,6 +79,11 @@ class BackgroundActivity : ThemedActivity() {
         setContentView(root)
 
         col.addView(note("Your background shows behind every screen: library, folders, search, settings and the vault. Changes apply instantly."))
+        // v2.18.1: Restore to default (theme background + default appearance).
+        col.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            text = "Restore to default"; setIconResource(R.drawable.ic_restore_default)
+            setOnClickListener { Motion.haptic(it); confirmRestore() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52f)).apply { topMargin = dp(12f) })
 
         // ---- Appearance
         appearanceBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -174,22 +179,63 @@ class BackgroundActivity : ThemedActivity() {
 
     private fun buildCustomGrid() {
         customGrid.removeAllViews()
-        tiles.removeAll { it.source == Backdrop.SRC_CUSTOM || it.source == PICK }
+        tiles.removeAll { Backdrop.isCustom(it.source) || it.source == PICK }
         val list = ArrayList<Tile>()
         list += Tile(this, PICK, "Choose photo").apply {
             setIcon(R.drawable.ic_add)
             setOnClickListener { Motion.haptic(it); pick.launch("image/*") }
         }
-        if (Backdrop.hasCustom(this)) list += Tile(this, Backdrop.SRC_CUSTOM, "Your photo").apply {
-            setOnClickListener { Motion.haptic(it); select(Backdrop.SRC_CUSTOM) }
+        val customs = Backdrop.customs(this)
+        customs.forEachIndexed { i, src ->
+            list += Tile(this, src, if (customs.size == 1) "Your photo" else "Your photo ${customs.size - i}").apply {
+                setOnClickListener { Motion.haptic(it); select(src) }
+                setOnLongClickListener { Motion.haptic(it); confirmDelete(src); true }
+                setDeleteAction { confirmDelete(src) }
+            }
         }
         customGrid.addView(grid(list, register = false))
         tiles += list
-        list.firstOrNull { it.source == Backdrop.SRC_CUSTOM }?.let { t ->
-            val app = applicationContext
-            io.execute { val bm = Backdrop.thumb(app, Backdrop.SRC_CUSTOM); runOnUiThread { if (!isDestroyed) t.setImage(bm) } }
+        val app = applicationContext
+        list.filter { Backdrop.isCustom(it.source) }.forEach { t ->
+            io.execute { val bm = Backdrop.thumb(app, t.source, 320); runOnUiThread { if (!isDestroyed) t.setImage(bm) } }
         }
+        if (customs.isNotEmpty()) customGrid.addView(note("Tap the bin on a photo (or long-press it) to remove it from the app."))
         refreshSelectionSafe()
+    }
+
+    private fun confirmDelete(src: String) {
+        VelaDialogBuilder(this)
+            .setTitle("Delete this photo?")
+            .setMessage(if (Backdrop.spec(this).source == src) "It's your current background, so Vela will switch to the default background." else "It will be removed from your backgrounds. The original stays in your gallery.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ ->
+                val wasActive = Backdrop.spec(this).source == src
+                Backdrop.deleteCustom(this, src)
+                buildCustomGrid()
+                if (wasActive) applyNow() else refreshSelection()
+                Toast.makeText(this, "Photo deleted", Toast.LENGTH_SHORT).show()
+            }.show()
+    }
+
+    private fun confirmRestore() {
+        VelaDialogBuilder(this)
+            .setTitle("Restore default background?")
+            .setMessage("Vela goes back to its original theme background with the default appearance. Your photos stay in the collection.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Restore") { _, _ ->
+                Backdrop.restoreDefaults(this)
+                syncControls()
+                applyNow()
+                Toast.makeText(this, "Default background restored", Toast.LENGTH_SHORT).show()
+            }.show()
+    }
+
+    /** Puts the style buttons and sliders back in line with the saved settings (after Restore). */
+    private fun syncControls() {
+        val s = Backdrop.spec(this)
+        styleGroup.check(styleGroup.getChildAt(if (s.glass) 1 else 0).id)
+        blurSlider.value = s.blur.toFloat(); dimSlider.value = s.dim.toFloat()
+        updateLabels()
     }
 
     private fun refreshSelectionSafe() { if (::appearanceBlock.isInitialized && ::blurSlider.isInitialized) refreshSelection() }
@@ -300,6 +346,19 @@ class BackgroundActivity : ThemedActivity() {
         fun setIcon(res: Int) {
             icon.setImageResource(res); icon.visibility = VISIBLE
             icon.imageTintList = ColorStateList.valueOf(ThemeManager.primary(context))
+        }
+
+        /** Small bin badge (top-left) for imported photos. */
+        fun setDeleteAction(onDelete: () -> Unit) {
+            val bin = ImageView(context).apply {
+                setImageResource(R.drawable.ic_delete)
+                imageTintList = ColorStateList.valueOf(Color.WHITE)
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x99000000.toInt()) }
+                val p = (5 * d).toInt(); setPadding(p, p, p, p)
+                contentDescription = "Delete photo"
+                setOnClickListener { Motion.haptic(it); onDelete() }
+            }
+            addView(bin, LayoutParams((30 * d).toInt(), (30 * d).toInt(), Gravity.TOP or Gravity.START).apply { topMargin = (7 * d).toInt(); marginStart = (7 * d).toInt() })
         }
 
         fun setImage(b: Bitmap?) { if (b != null) image.setImageBitmap(b) }
