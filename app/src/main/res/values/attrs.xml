@@ -15,4 +15,19 @@
     <attr name="glassScrim" format="color" />
     <!-- Faint hue of the theme for placeholders and selected glass. -->
     <attr name="glassTint" format="color" />
+
+    <!-- v2.12 Midnight Glass design tokens (set per theme by the generated overlays). -->
+    <!-- Glass level 2: grouped panels (settings groups, headers, floating clusters). Level 1 = glassSurface, level 3 = glassSurfaceStrong. -->
+    <attr name="glassSurfaceElevated" format="color" />
+    <!-- Atmosphere: the window background gradient (top darker → bottom tinted) and two soft radial glows. -->
+    <attr name="atmoTop" format="color" />
+    <attr name="atmoMid" format="color" />
+    <attr name="atmoBottom" format="color" />
+    <attr name="atmoGlowA" format="color" />
+    <attr name="atmoGlowB" format="color" />
+    <!-- Floating pill navigation: container glass, the selected pill, text on it, inactive text. -->
+    <attr name="navContainer" format="color" />
+    <attr name="navSelected" format="color" />
+    <attr name="navOnSelected" format="color" />
+    <attr name="navText" format="color" />
 </resources>

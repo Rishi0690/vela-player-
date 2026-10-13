@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="vela_scroller" type="id" />
+    <item name="vela_blur_anim" type="id" />
+    <item name="vela_add_anim" type="id" />
 </resources>

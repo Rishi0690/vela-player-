@@ -258,7 +258,8 @@ class VaultActivity : ThemedActivity() {
     private fun render() {
         val unlocked = Vault.isUnlocked()
         // v2.8: unlocking eases the library in instead of snapping it on screen.
-        if (unlocked && !content.isVisible && lockPane.isVisible) Motion.enter(content, fromY = 12 * resources.displayMetrics.density, duration = Motion.MEDIUM)
+        // v2.12: unlocking "opens" the vault: the library zooms forward out of a blur.
+        if (unlocked && !content.isVisible && lockPane.isVisible) { content.isVisible = true; Motion.zoomThrough(content, forward = true) }
         content.isVisible = unlocked
         addFab.isVisible = unlocked
         lockPane.isVisible = !unlocked

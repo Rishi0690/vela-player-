@@ -25,9 +25,25 @@
         <item name="glassHighlight">@color/glass_highlight</item>
         <item name="glassScrim">@color/glass_scrim</item>
         <item name="glassTint">@color/glass_tint</item>
+        <!-- v2.12 Midnight Glass tokens (defaults; each theme overlay replaces them). -->
+        <item name="glassSurfaceElevated">@color/glass_surface_elevated</item>
+        <item name="atmoTop">@color/atmo_top</item>
+        <item name="atmoMid">@color/atmo_mid</item>
+        <item name="atmoBottom">@color/atmo_bottom</item>
+        <item name="atmoGlowA">@color/atmo_glow_a</item>
+        <item name="atmoGlowB">@color/atmo_glow_b</item>
+        <item name="navContainer">@color/nav_container</item>
+        <item name="navSelected">@color/nav_selected</item>
+        <item name="navOnSelected">@color/nav_on_selected</item>
+        <item name="navText">@color/nav_text</item>
+        <item name="android:windowBackground">@color/atmo_mid</item>
         <item name="materialCardViewStyle">@style/Widget.Vela.Glass.Card</item>
         <item name="materialButtonOutlinedStyle">@style/Widget.Vela.Glass.Button.Outlined</item>
         <item name="toolbarStyle">@style/Widget.Vela.Glass.Toolbar</item>
+        <item name="floatingActionButtonStyle">@style/Widget.Vela.Fab</item>
+        <item name="materialSwitchStyle">@style/Widget.Vela.Switch</item>
+        <item name="preferenceTheme">@style/VelaPreferenceTheme</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Vela.Headline</item>
         <item name="popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu</item>
         <item name="listPopupWindowStyle">@style/Widget.Vela.Glass.ListPopupWindow</item>
         <item name="actionOverflowMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Overflow</item>
@@ -122,6 +138,11 @@
         <item name="glassHighlight">#1FFFFFFF</item>
         <item name="glassScrim">#99000000</item>
         <item name="glassTint">#1FFFFFFF</item>
+        <item name="glassSurfaceElevated">#1CFFFFFF</item>
+        <item name="navContainer">#D90B0E1E</item>
+        <item name="navSelected">#F2F4FA</item>
+        <item name="navOnSelected">#0D1122</item>
+        <item name="navText">#9AA1B8</item>
         <item name="chipStyle">@style/VelaChip</item>
         <item name="materialCardViewStyle">@style/Widget.Vela.Glass.Card</item>
         <item name="materialButtonOutlinedStyle">@style/Widget.Vela.Glass.Button.Outlined</item>
@@ -222,6 +243,77 @@
     </style>
     <style name="Widget.Vela.Glass.PopupMenu.FrameworkDark" parent="@android:style/Widget.Material.PopupMenu">
         <item name="android:popupBackground">@drawable/glass_popup_dark</item>
+    </style>
+
+    <!-- ===================== v2.12 Midnight Glass components ===================== -->
+    <!-- Floating pill navigation chip: no own background or stroke (PillNavGroup draws the sliding pill), medium label. -->
+    <style name="Widget.Vela.NavPill.Chip" parent="Widget.Material3.Chip.Filter">
+        <item name="shapeAppearanceOverlay">@style/PillShape</item>
+        <item name="chipBackgroundColor">@android:color/transparent</item>
+        <item name="chipSurfaceColor">@android:color/transparent</item>
+        <item name="chipStrokeWidth">0dp</item>
+        <item name="chipStrokeColor">@android:color/transparent</item>
+        <item name="checkedIconVisible">false</item>
+        <item name="chipIconVisible">false</item>
+        <item name="chipMinHeight">40dp</item>
+        <item name="chipStartPadding">8dp</item>
+        <item name="chipEndPadding">8dp</item>
+        <item name="textStartPadding">6dp</item>
+        <item name="textEndPadding">6dp</item>
+        <item name="ensureMinTouchTargetSize">false</item>
+        <item name="android:textAppearance">@style/TextAppearance.Vela.NavPill</item>
+        <item name="rippleColor">@color/nav_ripple</item>
+    </style>
+    <style name="TextAppearance.Vela.NavPill" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">14sp</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+    <!-- Clean, slightly tighter headline for screen titles ("Vela Player"). -->
+    <style name="TextAppearance.Vela.Headline" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:letterSpacing">-0.01</item>
+        <item name="fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+    <style name="TextAppearance.Vela.Section" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- Floating action button: soft accent pill-circle with a low glow shadow, no heavy elevation. -->
+    <style name="Widget.Vela.Fab" parent="Widget.Material3.FloatingActionButton.Primary">
+        <item name="shapeAppearanceOverlay">@style/PillShape</item>
+        <item name="elevation">6dp</item>
+        <item name="pressedTranslationZ">2dp</item>
+        <item name="hoveredFocusedTranslationZ">2dp</item>
+    </style>
+
+    <!-- Switches: glass track when off, accent when on. -->
+    <style name="Widget.Vela.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="trackDecorationTint">@color/glass_switch_decoration</item>
+    </style>
+
+    <!-- Preferences: transparent rows (the panel decoration draws the glass), section headers in small caps. -->
+    <style name="VelaPreferenceTheme" parent="@style/PreferenceThemeOverlay">
+        <item name="preferenceCategoryTitleTextAppearance">@style/TextAppearance.Vela.Section</item>
+    </style>
+
+    <!-- Player: speed / aspect as small glass pills on the dock. -->
+    <style name="Widget.Vela.PlayerPill" parent="Widget.Material3.Button.TonalButton.Icon">
+        <item name="backgroundTint">#1FFFFFFF</item>
+        <item name="strokeColor">#2EFFFFFF</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="rippleColor">#33FFFFFF</item>
+        <item name="shapeAppearanceOverlay">@style/PillShape</item>
+        <item name="android:insetTop">6dp</item>
+        <item name="android:insetBottom">6dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="iconPadding">6dp</item>
+        <item name="android:textSize">13sp</item>
     </style>
 
     <!-- Glass sheet / dialog aliases (the real ones are VelaBottomSheet and VelaDialog above). -->

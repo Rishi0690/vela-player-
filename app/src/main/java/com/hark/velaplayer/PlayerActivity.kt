@@ -870,6 +870,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun setupControls() {
         b.btnBack.setOnClickListener { finish() }
+        b.btnPlay.softShadow = false // v2.12: sits on its own glass orb; its icon morphs (AVD)
         b.btnPlay.setOnClickListener { Motion.bounce(it); togglePlayPause(); scheduleHide() }
         listOf(b.btnRewind, b.btnForward, b.btnPrev, b.btnNext, b.btnUnlock, b.btnUnlockRight).forEach { Motion.pressable(it, 0.88f) }
         b.btnRewind.setOnClickListener { showSeekFeedback(-1, seekBy(-seekIntervalMs)); scheduleHide() }
@@ -1000,10 +1001,21 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
 
+    /** v2.12: last icon state of the play button, so a real change morphs (▶ ⇄ ‖) instead of swapping. */
+    private var playIconPause: Boolean? = null
+
     private fun updatePlayButton() {
         val showPause = player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE
-        b.btnPlay.setImageResource(if (showPause) R.drawable.ic_pause else R.drawable.ic_play)
+        val prev = playIconPause
+        playIconPause = showPause
         b.btnPlay.contentDescription = if (showPause) "Pause" else "Play"
+        if (prev == showPause && b.btnPlay.drawable != null) return
+        if (prev != null && controlsVisible && b.controls.isVisible && Motion.enabled(this)) {
+            val avd = androidx.vectordrawable.graphics.drawable.AnimatedVectorDrawableCompat.create(this,
+                if (showPause) R.drawable.avd_play_to_pause else R.drawable.avd_pause_to_play)
+            if (avd != null) { b.btnPlay.setImageDrawable(avd); avd.start(); return }
+        }
+        b.btnPlay.setImageResource(if (showPause) R.drawable.ic_pause else R.drawable.ic_play)
     }
 
     private fun updateNavButtons() {

@@ -63,7 +63,7 @@ class PlayerSheet(private val host: FrameLayout, private val onClosed: () -> Uni
             override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
         }.apply {
             orientation = LinearLayout.VERTICAL
-            background = Glass.playerPanel(c, 24f) // v2.11 dark glass, no blur over video
+            background = Glass.playerPanel(c, Tokens.RADIUS_XL - 4f) // dark glass, no blur over video
             elevation = dp(8).toFloat()
             isClickable = true
             setPadding(0, dp(if (landscape) 14 else 8), 0, dp(12))
@@ -156,18 +156,30 @@ class PlayerSheet(private val host: FrameLayout, private val onClosed: () -> Uni
         host.addView(p, lp)
         scrim = s; panel = p
 
-        s.animate().alpha(1f).setDuration(200).start()
+        // v2.12: the glass panel floats in (rise/slide + settle from 94% on a soft spring), rows follow in a short stagger.
+        val motion = Motion.enabled(c)
+        s.animate().alpha(1f).setDuration(if (motion) 200 else 0).start()
         p.alpha = 0f
-        if (landscape) p.translationX = dp(48).toFloat() else p.translationY = dp(64).toFloat()
-        p.animate().alpha(1f).translationX(0f).translationY(0f).setDuration(300).setInterpolator(Motion.emphasized).start()
+        if (motion) {
+            if (landscape) p.translationX = dp(48).toFloat() else p.translationY = dp(64).toFloat()
+            p.scaleX = 0.94f; p.scaleY = 0.94f
+            p.pivotX = if (landscape) lp.width.toFloat() else (lp.width / 2f); p.pivotY = if (landscape) hostH / 2f else hostH * 0.6f
+        }
+        p.animate().alpha(1f).translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(if (motion) 420 else 0).setInterpolator(Motion.springSoft).start()
+        if (motion) rows.take(10).forEachIndexed { i, r ->
+            r.alpha = 0f; r.translationY = dp(10).toFloat()
+            r.animate().alpha(1f).translationY(0f).setStartDelay(60L + i * Motion.STAGGER).setDuration(260).setInterpolator(Motion.emphasized).start()
+        }
         // Bring the selected row into view in long lists.
         val sel = rows.indexOfFirst { it.isSelected }
         if (sel > 3) scroll.post { scroll.smoothScrollTo(0, (rows[sel].top - dp(24)).coerceAtLeast(0)) }
     }
 
     private fun rowBg(selected: Boolean, primary: Int) = GradientDrawable().apply {
-        cornerRadius = dp(14).toFloat()
-        setColor(if (selected) (primary and 0x00FFFFFF) or 0x33000000 else 0x00000000)
+        cornerRadius = dp(16).toFloat()
+        // v2.12: selected = accent glass pill (tinted fill + accent hairline)
+        setColor(if (selected) (primary and 0x00FFFFFF) or 0x29000000 else 0x00000000)
+        if (selected) setStroke(dp(1), (primary and 0x00FFFFFF) or 0x59000000)
     }.let { bg ->
         android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), bg, GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(-1) })
     }

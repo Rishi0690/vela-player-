@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.12: folder / playlist header as one large level-2 glass panel (inset from the screen edges). -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android" android:insetLeft="10dp" android:insetRight="10dp" android:insetBottom="4dp">
+    <layer-list>
+        <item>
+            <shape android:shape="rectangle">
+                <solid android:color="?attr/glassSurfaceElevated" />
+                <stroke android:width="1dp" android:color="?attr/glassStroke" />
+                <corners android:radius="26dp" />
+            </shape>
+        </item>
+        <item android:bottom="60dp">
+            <shape android:shape="rectangle">
+                <gradient android:angle="270" android:startColor="?attr/glassHighlight" android:endColor="@android:color/transparent" />
+                <corners android:topLeftRadius="26dp" android:topRightRadius="26dp" />
+            </shape>
+        </item>
+    </layer-list>
+</inset>

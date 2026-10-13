@@ -1,6 +1,8 @@
-<!-- v2.6.1: calm "fade through": short slide + fade, new screen fades in once the old one is mostly gone. -->
-<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="260" android:startOffset="40"
-    android:interpolator="@android:interpolator/linear_out_slow_in" android:zAdjustment="top">
-    <alpha android:fromAlpha="0" android:toAlpha="1" />
-    <translate android:fromXDelta="6%" android:toXDelta="0" />
+<!-- v2.12: depth fade-through. The new screen fades in while settling from 95% scale (slightly closer than the
+     old one), a small 3% drift keeps the direction readable. No big slides (user rejected those in v2.6). -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="300" android:startOffset="30"
+    android:interpolator="@anim/emphasized" android:zAdjustment="top">
+    <alpha android:fromAlpha="0" android:toAlpha="1" android:duration="220" />
+    <scale android:fromXScale="0.95" android:toXScale="1" android:fromYScale="0.95" android:toYScale="1" android:pivotX="50%" android:pivotY="40%" />
+    <translate android:fromXDelta="3%" android:toXDelta="0" />
 </set>

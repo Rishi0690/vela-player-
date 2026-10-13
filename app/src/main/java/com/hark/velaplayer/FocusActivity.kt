@@ -23,6 +23,8 @@ class FocusActivity : ThemedActivity() {
         b = ActivityFocusBinding.inflate(layoutInflater)
         setContentView(b.root)
         b.toolbar.setNavigationOnClickListener { finish() }
+        // v2.12: the dashboard's cards rise in one after another.
+        if (savedInstanceState == null) Motion.stagger((0 until minOf(8, b.content.childCount)).map { b.content.getChildAt(it) }, 14f, 60, 0.96f)
         b.btnSettings.setOnClickListener { openFocusSettings() }
         // Daily limit opens a small dialog right here (no trip to Settings); the progress updates on save.
         b.goalButton.setOnClickListener { editLimit() }

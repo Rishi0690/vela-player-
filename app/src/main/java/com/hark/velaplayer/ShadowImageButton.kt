@@ -22,6 +22,9 @@ class ShadowImageButton @JvmOverloads constructor(c: Context, a: AttributeSet? =
     private val offset = IntArray(2)
     private var builtFor: Drawable? = null
     private var building = false
+    /** v2.12: off for buttons that sit on their own glass orb (play/pause) or animate their icon (AVD morphs). */
+    var softShadow = true
+        set(v) { field = v; drop() }
 
     override fun setImageDrawable(drawable: Drawable?) { super.setImageDrawable(drawable); drop() }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { super.onSizeChanged(w, h, oldw, oldh); drop() }
@@ -30,7 +33,7 @@ class ShadowImageButton @JvmOverloads constructor(c: Context, a: AttributeSet? =
     private fun drop() { shadow?.recycle(); shadow = null; builtFor = null; invalidate() }
 
     override fun onDraw(canvas: Canvas) {
-        if (!building && drawable != null && width > 0 && height > 0) {
+        if (softShadow && !building && drawable != null && width > 0 && height > 0) {
             if (shadow == null || builtFor !== drawable) build()
             shadow?.let { canvas.drawBitmap(it, offset[0].toFloat(), offset[1] + density, shadowPaint) }
         }

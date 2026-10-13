@@ -82,11 +82,17 @@ class ThemeActivity : ThemedActivity() {
         b.btnApply.setOnClickListener { applyDraft() }
         b.btnSave.setOnClickListener { saveDialog() }
         b.btnReset.setOnClickListener {
-            VelaDialogBuilder(this).setTitle("Reset theme?").setMessage("Go back to Pure Black Glass. Your saved themes are kept.")
+            VelaDialogBuilder(this).setTitle("Reset theme?").setMessage("Go back to Midnight Glass. Your saved themes are kept.")
                 .setPositiveButton("Reset") { _, _ -> ThemeManager.presetByKey(ThemeManager.DEFAULT_KEY)?.let { draft = Draft(it, it.seed); editingId = null; applyDraft() } }
                 .setNegativeButton("Cancel", null).show()
         }
-        b.advancedHeader.setOnClickListener { advancedOpen = !advancedOpen; renderAdvancedOpen() }
+        b.advancedHeader.setOnClickListener {
+            advancedOpen = !advancedOpen
+            // v2.12: the Advanced section expands/collapses smoothly instead of snapping.
+            if (Motion.enabled(this)) android.transition.TransitionManager.beginDelayedTransition(b.scroll.getChildAt(0) as android.view.ViewGroup,
+                android.transition.AutoTransition().setDuration(Motion.MEDIUM).setInterpolator(Motion.emphasized))
+            renderAdvancedOpen()
+        }
         renderAdvancedOpen()
 
         if (!ThemeManager.exactCustomColors) {
@@ -98,6 +104,11 @@ class ThemeActivity : ThemedActivity() {
         buildAdvanced()
         syncPickerTo(draft.seed)
         render()
+        // v2.12: the gallery cards arrive in a short staggered rise; the live preview sharpens in.
+        if (savedInstanceState == null) {
+            Motion.stagger(cards.map { it.second }.take(15), 14f, 80, 0.92f)
+            Motion.blurIn(b.preview, 16f, Motion.XLONG)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -145,7 +156,8 @@ class ThemeActivity : ThemedActivity() {
         b.btnSave.text = if (editingId != null) "Save changes" else "Save theme"
     }
 
-    private fun setDraft(d: Draft) { draft = d; render() }
+    /** v2.12: the live preview cross-dissolves (blur-to-sharp) into the newly picked theme. */
+    private fun setDraft(d: Draft) { Motion.crossSwap(b.preview) { draft = d; render() } }
 
     private fun setCustomDraft(c: Int, fromPicker: Boolean = false, fromHex: Boolean = false) {
         val seed = c or 0xFF000000.toInt()

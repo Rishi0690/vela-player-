@@ -40,10 +40,10 @@
             app:singleLine="true"
             app:singleSelection="true">
 
-            <com.google.android.material.chip.Chip android:id="@+id/fAll" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="All" />
-            <com.google.android.material.chip.Chip android:id="@+id/fProgress" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="In progress" />
-            <com.google.android.material.chip.Chip android:id="@+id/fUnwatched" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Unwatched" />
-            <com.google.android.material.chip.Chip android:id="@+id/fWatched" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Watched" />
+            <com.google.android.material.chip.Chip android:id="@+id/fAll" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="All" />
+            <com.google.android.material.chip.Chip android:id="@+id/fProgress" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="In progress" />
+            <com.google.android.material.chip.Chip android:id="@+id/fUnwatched" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Unwatched" />
+            <com.google.android.material.chip.Chip android:id="@+id/fWatched" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Watched" />
         </com.google.android.material.chip.ChipGroup>
     </HorizontalScrollView>
 </LinearLayout>

@@ -96,14 +96,36 @@ class VaultSettingsActivity : ThemedActivity() {
     private val dp get() = resources.displayMetrics.density
     private fun col() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, (4 * dp).toInt(), 0, (32 * dp).toInt()) }
 
-    private fun header(parent: LinearLayout, s: String) = parent.addView(TextView(this).apply {
-        text = s
-        TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
-        setTextColor(ThemeManager.primary(this@VaultSettingsActivity))
-        setPadding((20 * dp).toInt(), (20 * dp).toInt(), (20 * dp).toInt(), (6 * dp).toInt())
-    })
+    /** v2.12: each header opens one large glass panel; the rows/notes that follow go inside it (with hairlines). */
+    private val groups = java.util.WeakHashMap<LinearLayout, LinearLayout>()
+    private fun groupOf(parent: LinearLayout): LinearLayout = groups[parent] ?: parent
+    private fun addRow(parent: LinearLayout, r: View) {
+        val g = groupOf(parent)
+        if (g !== parent && g.childCount > 0) g.addView(View(this).apply { setBackgroundColor(Glass.stroke(this@VaultSettingsActivity)) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp.toInt().coerceAtLeast(1)).apply { marginStart = (20 * dp).toInt(); marginEnd = (20 * dp).toInt() })
+        g.addView(r)
+    }
 
-    private fun note(parent: LinearLayout, s: String) = parent.addView(TextView(this).apply {
+    private fun header(parent: LinearLayout, s: String) {
+        parent.addView(TextView(this).apply {
+            text = s
+            TextViewCompat.setTextAppearance(this, R.style.TextAppearance_Vela_Section)
+            setTextColor(ThemeManager.primary(this@VaultSettingsActivity))
+            setPadding((28 * dp).toInt(), (22 * dp).toInt(), (20 * dp).toInt(), (8 * dp).toInt())
+        })
+        val g = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Glass.elevatedPanel(this@VaultSettingsActivity)
+            setPadding(0, (4 * dp).toInt(), 0, (4 * dp).toInt())
+            clipToOutline = true
+            outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+        }
+        parent.addView(g, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = (16 * dp).toInt(); marginEnd = (16 * dp).toInt() })
+        groups[parent] = g
+    }
+
+    private fun note(parent: LinearLayout, s: String) = groupOf(parent).addView(TextView(this).apply {
         text = s; alpha = 0.7f
         TextViewCompat.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
         setPadding((20 * dp).toInt(), (4 * dp).toInt(), (20 * dp).toInt(), (8 * dp).toInt())
@@ -133,7 +155,7 @@ class VaultSettingsActivity : ThemedActivity() {
         r.setBackgroundResource(tv.resourceId)
         r.isClickable = true
         r.setOnClickListener { onClick() }
-        parent.addView(r)
+        addRow(parent, r)
     }
 
     private fun switchRow(parent: LinearLayout, title: String, summary: String?, checked: Boolean, enabled: Boolean = true, onChange: (MaterialSwitch, Boolean) -> Unit) {
@@ -146,7 +168,7 @@ class VaultSettingsActivity : ThemedActivity() {
         r.setOnClickListener { if (sw.isEnabled) sw.toggle() }
         if (!enabled) r.alpha = 0.5f
         r.addView(sw)
-        parent.addView(r)
+        addRow(parent, r)
     }
 
     // ------------------------------------------------------------------ main page

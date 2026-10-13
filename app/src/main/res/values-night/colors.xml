@@ -6,4 +6,16 @@
     <color name="glass_highlight">#1FFFFFFF</color>
     <color name="glass_scrim">#99000000</color>
     <color name="glass_tint">#1FFFFFFF</color>
+
+    <!-- v2.12 defaults (dark: Midnight Glass). -->
+    <color name="glass_surface_elevated">#1CFFFFFF</color>
+    <color name="atmo_top">#04050C</color>
+    <color name="atmo_mid">#0A0D20</color>
+    <color name="atmo_bottom">#141B3E</color>
+    <color name="atmo_glow_a">#5C5B47C9</color>
+    <color name="atmo_glow_b">#3D2F64C8</color>
+    <color name="nav_container">#D90B0E1E</color>
+    <color name="nav_selected">#F2F4FA</color>
+    <color name="nav_on_selected">#0D1122</color>
+    <color name="nav_text">#9AA1B8</color>
 </resources>

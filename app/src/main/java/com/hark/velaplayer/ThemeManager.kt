@@ -33,9 +33,37 @@ object ThemeManager {
 
     val presets: List<Preset> get() = ThemeCatalog.all
 
-    const val DEFAULT_KEY = "pure_black"
-    /** Seed of the default theme (Pure Black Glass). Before v2.11 the default was Vela Violet (#8B6CFF), which is still a preset. */
-    val DEFAULT_SEED: Int get() = presetByKey(DEFAULT_KEY)?.seed ?: 0xFF8AB4FF.toInt()
+    const val DEFAULT_KEY = "midnight_glass"
+    /** Seed of the default theme (v2.12: Midnight Glass; v2.11: Pure Black Glass; before: Vela Violet). */
+    val DEFAULT_SEED: Int get() = presetByKey(DEFAULT_KEY)?.seed ?: 0xFF8FA8FF.toInt()
+
+    /**
+     * v2.12: v2.11 (and older) preset keys → the nearest v2.12 preset, so a theme the user picked survives the
+     * new catalogue. Installs that never picked a theme have no theme_key/accent_seed and get Midnight Glass.
+     */
+    val LEGACY: Map<String, String> = mapOf(
+        "pure_black" to "obsidian_noir", "midnight" to "sapphire_depths", "nebula" to "violet_nebula",
+        "crimson" to "crimson_eclipse", "slate" to "arctic_silver", "aurora" to "aurora_glass",
+        "violet" to "amethyst_night", "ocean" to "sapphire_depths", "ruby" to "ruby_noir", "indigo" to "royal_indigo",
+        "cyan" to "cyber_cyan", "emerald" to "emerald_aura", "sunset" to "sunset_ember", "amber" to "golden_eclipse",
+        "rose_gold" to "rose_gold_luxe", "coral" to "coral_reef", "copper" to "copper_dusk", "rose" to "sakura_bloom",
+        "teal" to "ocean_teal", "mint" to "mint_frost", "lavender" to "lavender_haze", "glacier" to "glacier_blue",
+        "lime" to "toxic_lime", "pearl" to "pearl_champagne", "blush" to "blush_quartz", "sky" to "sky_porcelain",
+    )
+    /** Seeds of v2.11 / pre-2.11 presets (accent_seed was the only pref before v2.11) → their v2.12 preset key. */
+    private val LEGACY_SEEDS: Map<Int, String> = mapOf(
+        0xFF8AB4FF.toInt() to "obsidian_noir", 0xFF4C6FFF.toInt() to "sapphire_depths", 0xFFA855F7.toInt() to "violet_nebula",
+        0xFFE53950.toInt() to "crimson_eclipse", 0xFF6F7FA0.toInt() to "arctic_silver", 0xFF3B82F6.toInt() to "aurora_glass",
+        0xFF8B6CFF.toInt() to "amethyst_night", 0xFF2F7DF6.toInt() to "sapphire_depths", 0xFFD0103A.toInt() to "ruby_noir",
+        0xFF5B5BD6.toInt() to "royal_indigo", 0xFF06B6D4.toInt() to "cyber_cyan", 0xFF2EAD5B.toInt() to "emerald_aura",
+        0xFFFF7A2F.toInt() to "sunset_ember", 0xFFF2B705.toInt() to "golden_eclipse", 0xFFD4917F.toInt() to "rose_gold_luxe",
+        0xFFFF6F61.toInt() to "coral_reef", 0xFFC2703D.toInt() to "copper_dusk", 0xFFF0609E.toInt() to "sakura_bloom",
+        0xFF00A896.toInt() to "ocean_teal", 0xFF3DDC97.toInt() to "mint_frost", 0xFFB39DDB.toInt() to "lavender_haze",
+        0xFF8FB8DE.toInt() to "glacier_blue", 0xFF8BC34A.toInt() to "toxic_lime", 0xFFA79B8E.toInt() to "pearl_champagne",
+        0xFFE8A0BF.toInt() to "blush_quartz", 0xFF5AA9E6.toInt() to "sky_porcelain",
+    )
+    /** A v2.12 key for any key ever saved (new keys pass through). */
+    fun migrateKey(key: String?): String? = if (key.isNullOrEmpty()) key else LEGACY[key] ?: key
     private const val KEY_SEED = "accent_seed"
     private const val KEY_CUSTOM = "custom_themes"
     private const val KEY_VERSION = "theme_version"
@@ -60,11 +88,12 @@ object ThemeManager {
         val key = sp.getString(KEY_THEME, null)
         val seed = seed(c)
         val sec = sp.getInt(KEY_SECONDARY, 0)
-        val base = sp.getString(KEY_BASE, "") ?: ""
-        if (key != null && !key.startsWith("custom")) presetByKey(key)?.let { return Selection(it, it.seed, 0, "", null) }
+        val base = migrateKey(sp.getString(KEY_BASE, "") ?: "") ?: ""
+        if (key != null && !key.startsWith("custom")) presetByKey(migrateKey(key))?.let { return Selection(it, it.seed, 0, "", null) }
         if (key == null || (sec == 0 && base.isEmpty())) {
             // Pre-2.11 installs only have accent_seed: a preset seed keeps that preset, anything else is a custom color.
             presetFor(seed)?.let { return Selection(it, it.seed, 0, "", null) }
+            if (key == null) presetByKey(LEGACY_SEEDS[seed or 0xFF000000.toInt()])?.let { return Selection(it, it.seed, 0, "", null) }
         }
         return Selection(null, seed, sec, base, key?.substringAfter("custom:", "")?.ifEmpty { null })
     }
@@ -129,6 +158,10 @@ object ThemeManager {
         val bg: Int, val surface: Int, val glass: Int, val glassStrong: Int, val stroke: Int, val highlight: Int,
         val primary: Int, val onPrimary: Int, val primaryContainer: Int, val onPrimaryContainer: Int,
         val secondary: Int, val tertiary: Int, val text: Int, val textDim: Int,
+        // v2.12: atmosphere, level-2 glass and pill navigation
+        val atmoTop: Int = bg, val atmoMid: Int = bg, val atmoBottom: Int = bg, val glowA: Int = 0, val glowB: Int = 0,
+        val elevated: Int = glass, val navContainer: Int = glassStrong, val navSelected: Int = text, val navOnSelected: Int = bg,
+        val navText: Int = textDim,
     )
 
     private val paletteAttrs = intArrayOf(
@@ -139,6 +172,8 @@ object ThemeManager {
         com.google.android.material.R.attr.colorPrimaryContainer, com.google.android.material.R.attr.colorOnPrimaryContainer,
         com.google.android.material.R.attr.colorSecondary, com.google.android.material.R.attr.colorTertiary,
         com.google.android.material.R.attr.colorOnSurface, com.google.android.material.R.attr.colorOnSurfaceVariant,
+        R.attr.atmoTop, R.attr.atmoMid, R.attr.atmoBottom, R.attr.atmoGlowA, R.attr.atmoGlowB,
+        R.attr.glassSurfaceElevated, R.attr.navContainer, R.attr.navSelected, R.attr.navOnSelected, R.attr.navText,
     )
 
     /** The real colors a preset draws with in the current light/dark mode (read from its generated overlay). */
@@ -152,7 +187,8 @@ object ThemeManager {
         val v = IntArray(paletteAttrs.size)
         order.forEachIndexed { idx, orig -> v[orig] = a.getColor(idx, 0) }
         a.recycle()
-        return Palette(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13])
+        return Palette(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13],
+            v[14], v[15], v[16], v[17], v[18], v[19], v[20], v[21], v[22], v[23])
     }
 
     /**
@@ -177,6 +213,11 @@ object ThemeManager {
                 onPrimaryContainer = n.onPrimaryContainer, secondary = n.secondary, tertiary = n.tertiary)
         }
         if (secondary != 0) { val s = palette(c, nearestPreset(secondary)); out = out.copy(secondary = s.secondary, tertiary = s.tertiary) }
+        // v2.12: one colour → its own atmosphere (unless a base theme was chosen in Advanced).
+        if (presetByKey(base) == null) {
+            val a = Atmosphere.fromSeed(seed, secondary, night)
+            out = out.copy(atmoTop = a.top, atmoMid = a.mid, atmoBottom = a.bottom, glowA = a.glowA, glowB = a.glowB, bg = a.mid)
+        }
         return out
     }
 
@@ -189,7 +230,7 @@ object ThemeManager {
             val o = a.getJSONObject(it)
             val seed = o.getInt("seed")
             Custom(o.optString("id").ifEmpty { "s" + Integer.toHexString(seed) }, o.getString("name"), seed,
-                o.optInt("secondary", 0), o.optString("base", ""))
+                o.optInt("secondary", 0), migrateKey(o.optString("base", "")) ?: "")
         }
     } catch (_: Exception) { emptyList() }
 
@@ -251,9 +292,9 @@ object ThemeManager {
     fun styleStatusBar(a: Activity) {
         val w = a.window ?: return
         val light = isLight(a)
-        val surface = attr(a, com.google.android.material.R.attr.colorSurface)
+        // v2.12: the bar is transparent so the atmosphere runs behind it (set in Atmosphere.applyTo).
         // Before Android 6 icons are always white, so keep a dark bar there in light mode.
-        w.statusBarColor = if (light && Build.VERSION.SDK_INT < 23) 0xFF000000.toInt() else surface
+        w.statusBarColor = if (light && Build.VERSION.SDK_INT < 23) 0xFF000000.toInt() else android.graphics.Color.TRANSPARENT
         androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightStatusBars = light && Build.VERSION.SDK_INT >= 23
     }
 }
@@ -271,6 +312,7 @@ abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
         ThemeManager.apply(this, isPlayerTheme)
         themeVersion = ThemeManager.version(this)
         super.onCreate(savedInstanceState)
+        if (!isPlayerTheme) Atmosphere.applyTo(this)
         if (styleSystemBars && !isPlayerTheme) ThemeManager.styleStatusBar(this)
     }
     override fun onResume() {

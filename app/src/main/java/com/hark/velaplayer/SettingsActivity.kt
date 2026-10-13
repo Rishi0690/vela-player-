@@ -57,6 +57,9 @@ class SettingsActivity : ThemedActivity() {
         onBackPressedDispatcher.addCallback(this, clearSearchOnBack)
         b.searchResults.layoutManager = LinearLayoutManager(this)
         b.searchResults.adapter = results
+        // v2.12: opaque layers carry a window-aligned copy of the atmosphere (no flat colour blocks).
+        Atmosphere.viewBackground(b.searchResults); Atmosphere.viewBackground(b.searchEmpty); Atmosphere.viewBackground(b.searchBox)
+        b.searchResults.itemAnimator = VelaItemAnimator()
         VelaScroller.attach(b.searchResults)
         // v2.8: results and the empty message sit below the overlaid search field.
         b.searchBox.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
@@ -125,8 +128,9 @@ class SettingsActivity : ThemedActivity() {
             .let { all -> if (VaultAuth.hideInstructions(this)) all.filter { it.key !in VAULT_KEYS } else all }
         val found = SettingsSearch.search(idx, query)
         results.submit(found)
+        if (found.isNotEmpty() && !b.searchResults.isVisible) { b.searchResults.isVisible = true; Motion.zoomThrough(b.searchResults, true) }
         b.searchResults.isVisible = found.isNotEmpty()
-        b.searchEmpty.isVisible = found.isEmpty()
+        if (found.isEmpty()) Motion.reveal(b.searchEmpty, true) else Motion.reveal(b.searchEmpty, false)
         b.searchEmpty.text = "No settings match \"$query\""
         if (found.isNotEmpty()) b.searchResults.scrollToPosition(0)
     }
@@ -570,8 +574,10 @@ object SettingsSearch {
  * and the screen sliding away on Back is lifted above the one coming back (iOS-style pop).
  */
 private fun prepareNavScreen(f: PreferenceFragmentCompat, view: View) {
-    val tv = android.util.TypedValue()
-    if (f.requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) view.setBackgroundColor(tv.data)
+    // v2.12: still opaque (for the nav animation), but with the window-aligned atmosphere instead of a flat colour,
+    // and every group of rows sits in one large glass panel.
+    Atmosphere.viewBackground(view)
+    SettingsPanelDecoration.attach(f)
     f.listView?.let { l ->
         // v2.8: toggling a switch or a dependency used to cross-fade the whole row (DefaultItemAnimator change
         // animation), which read as a flicker. Rows now update in place; inserts/removals still animate.

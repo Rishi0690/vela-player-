@@ -73,7 +73,9 @@ object ThemeSwitch {
                 override fun onDraw(canvas: Canvas) { canvas.drawBitmap(p.shot, 0f, 0f, null) }
             }
             decor.addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            v.animate().alpha(0f).setStartDelay(60).setDuration(if (Motion.enabled(a)) 340 else 1)
+            // v2.12: the old look lifts away (slight zoom) while it dissolves into the new theme.
+            v.pivotX = decor.width / 2f; v.pivotY = decor.height * 0.35f
+            v.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setStartDelay(60).setDuration(if (Motion.enabled(a)) 420 else 1)
                 .setInterpolator(PathInterpolator(0.3f, 0f, 0.1f, 1f))
                 .withEndAction { decor.removeView(v); p.shot.recycle() }.start()
             return
@@ -84,7 +86,7 @@ object ThemeSwitch {
             val end = max(max(hypot(p.cx, p.cy), hypot(overlay.width - p.cx, p.cy)),
                 max(hypot(p.cx, overlay.height - p.cy), hypot(overlay.width - p.cx, overlay.height - p.cy)))
             ValueAnimator.ofFloat(0f, end).apply {
-                duration = 620
+                duration = if (Motion.enabled(a)) 620 else 1
                 interpolator = PathInterpolator(0.3f, 0f, 0.1f, 1f)
                 addUpdateListener { overlay.radius = it.animatedValue as Float }
                 addListener(object : android.animation.AnimatorListenerAdapter() {

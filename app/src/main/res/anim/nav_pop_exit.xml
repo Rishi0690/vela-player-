@@ -1,4 +1,6 @@
-<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="140" android:interpolator="@android:interpolator/fast_out_linear_in" android:zAdjustment="top">
+<!-- v2.12: the closing screen shrinks back to 95% and fades (reverse of nav_push_enter). -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="200" android:interpolator="@android:interpolator/fast_out_linear_in" android:zAdjustment="top">
     <alpha android:fromAlpha="1" android:toAlpha="0" />
+    <scale android:fromXScale="1" android:toXScale="0.95" android:fromYScale="1" android:toYScale="0.95" android:pivotX="50%" android:pivotY="40%" />
     <translate android:fromXDelta="0" android:toXDelta="3%" />
 </set>

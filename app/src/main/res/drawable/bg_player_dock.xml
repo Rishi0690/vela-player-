@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.12: the bottom control dock (timeline + buttons) as one rounded floating glass panel. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#800A0C14" />
+            <stroke android:width="1dp" android:color="#24FFFFFF" />
+            <corners android:radius="28dp" />
+        </shape>
+    </item>
+    <item android:left="1dp" android:right="1dp" android:top="1dp" android:bottom="40dp">
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#14FFFFFF" android:endColor="#00FFFFFF" />
+            <corners android:topLeftRadius="27dp" android:topRightRadius="27dp" />
+        </shape>
+    </item>
+</layer-list>

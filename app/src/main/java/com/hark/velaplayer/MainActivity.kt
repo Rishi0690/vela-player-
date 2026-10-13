@@ -201,8 +201,9 @@ class MainActivity : ThemedActivity() {
         b.list.layoutAnimation = android.view.animation.AnimationUtils.loadLayoutAnimation(this, R.anim.list_layout)
         touchHelper = ItemTouchHelper(reorderCallback).also { it.attachToRecyclerView(b.list) }
         setupVaultHold()
-        (b.list.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
-        b.list.itemAnimator?.apply { addDuration = 260; removeDuration = 200; moveDuration = 260 }
+        // v2.12: staggered rise for new rows (search results, filters, playlist edits); moves/removals as before.
+        b.list.itemAnimator = VelaItemAnimator()
+        b.chipScroll.clipToOutline = true
         // Toolbar gets a soft shadow once the list scrolls under it.
         val lift = 4 * resources.displayMetrics.density
         b.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -237,6 +238,7 @@ class MainActivity : ThemedActivity() {
                 else -> Tab.FOLDERS
             }
             if (newTab == tab) return@setOnCheckedStateChangeListener
+            b.chips.slideToChecked() // v2.12: the nav pill slides/stretches to the new tab
             b.l23AppTitle.cancelHold()
             reorderMode?.finish()
             Motion.haptic(group)
@@ -275,7 +277,7 @@ class MainActivity : ThemedActivity() {
         b.swipeRefresh.setOnRefreshListener { ThumbLoader.clearFailures(); loadLibrary() }
 
         // Ask only when we have no access at all; limited access shows the banner instead of re-asking every launch.
-        if (hasPermission() || hasPartialAccess()) loadLibrary() else requestPermission()
+        if (hasPermission() || hasPartialAccess()) { if (!loaded) b.skeleton.isVisible = true; loadLibrary() } else requestPermission()
         Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
         Store.registerListener(this, storeListener)
     }
@@ -487,6 +489,7 @@ class MainActivity : ThemedActivity() {
                 byUri = items.associateBy { it.uri.toString() }
                 loaded = true
                 b.swipeRefresh.isRefreshing = false
+                if (b.skeleton.isVisible) Motion.exit(b.skeleton, Motion.MEDIUM)
                 updateAccessBanner()
                 refresh()
                 // v2.3.1: launch Resume snackbar removed (user request); Continue Watching still resumes.
@@ -530,8 +533,8 @@ class MainActivity : ThemedActivity() {
             it.title = if (g) "List view" else "Grid view"
         }
         if (changed && animate) {
-            @Suppress("NotifyDataSetChanged") adapter.notifyDataSetChanged()
-            b.list.scheduleLayoutAnimation()
+            // v2.12: grid ↔ list cross-dissolve: the old layout zooms/fades away while the new one sharpens in.
+            Motion.crossSwap(b.list) { @Suppress("NotifyDataSetChanged") adapter.notifyDataSetChanged() }
         }
     }
 
@@ -673,7 +676,13 @@ class MainActivity : ThemedActivity() {
         }
         adapter.submit(filtered, newScreen)
         // Tab changes slide as a whole (TabSwipeLayout); other screen changes keep the staggered entrance.
-        if (newScreen && !tabTransition) b.list.scheduleLayoutAnimation()
+        if (newScreen && !tabTransition) {
+            val depth = if (openFolder != null || openPlaylist != null) 1 else 0
+            // v2.12: opening a folder/playlist zooms in (from 94%), going back zooms out (from 105%), with blur-to-sharp.
+            if (screenDepth >= 0 && depth != screenDepth) Motion.zoomThrough(b.list, forward = depth > screenDepth)
+            else b.list.scheduleLayoutAnimation()
+        }
+        screenDepth = if (openFolder != null || openPlaylist != null) 1 else 0
         lastScreenQuery = query
         // Each screen comes back where it was scrolled (also after a cold start, once the library is there).
         if (loaded && (newScreen || restoring)) {
@@ -682,8 +691,17 @@ class MainActivity : ThemedActivity() {
             saveUiState()
         }
         val empty = filtered.none { it is Row.Video || it is Row.Folder || it is Row.Playlist }
-        Motion.reveal(b.emptyView, empty && filtered.none { it is Row.Summary || it is Row.ContinueStrip })
+        // v2.12: while the first load runs the skeleton shows instead of an "empty" message.
+        Motion.reveal(b.emptyView, empty && filtered.none { it is Row.Summary || it is Row.ContinueStrip } && (loaded || !(hasPermission() || hasPartialAccess())))
         b.btnGrant.isVisible = empty && (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess()
+        b.emptyIcon.setImageResource(when {
+            query.isNotBlank() -> R.drawable.ic_search
+            (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess() -> R.drawable.ic_lock_open
+            tab == Tab.FOLDERS && openFolder == null -> R.drawable.ic_folder
+            tab == Tab.FAVORITES -> R.drawable.ic_star
+            tab == Tab.PLAYLISTS -> R.drawable.ic_playlist
+            else -> R.drawable.ic_video_library
+        })
         b.emptyText.text = when {
             query.isNotBlank() -> "Nothing matches \"$query\"."
             (tab == Tab.ALL || tab == Tab.FOLDERS) && !hasPermission() && !hasPartialAccess() -> "Allow access so Vela can show the videos on your phone."
@@ -741,8 +759,10 @@ class MainActivity : ThemedActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
         menuRef = menu
-        val sv = menu.findItem(R.id.action_search).actionView as SearchView
+        val searchItem = menu.findItem(R.id.action_search)
+        val sv = searchItem.actionView as SearchView
         sv.queryHint = "Search videos"
+        SearchMorph.install(this, b.toolbar, searchItem, sv, depth = listOf(b.tabSwipe), dim = listOf(b.navWrap))
         sv.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(q: String?): Boolean { sv.clearFocus(); return true }
             override fun onQueryTextChange(q: String?): Boolean {
@@ -764,7 +784,11 @@ class MainActivity : ThemedActivity() {
             R.id.action_view -> {
                 val now = if (Prefs.viewMode(this, section()) == "grid") "list" else "grid"
                 Prefs.setViewMode(this, section(), now)
+                val icon = findViewById<View>(R.id.action_view)
                 applyViewMode(animate = true)
+                // icon morph (grid ⇄ list): the new icon spins in on a spring
+                if (icon != null && Motion.enabled(this)) { icon.rotation = -90f; icon.scaleX = 0.5f; icon.scaleY = 0.5f; icon.alpha = 0f
+                    icon.animate().rotation(0f).scaleX(1f).scaleY(1f).alpha(1f).setDuration(Motion.LONG + 80).setInterpolator(Motion.spring).start() }
             }
             R.id.action_sort -> if (tab == Tab.PLAYLISTS && openPlaylist != null) playlistSortDialog() else if (tab == Tab.PLAYLISTS) playlistsListSortDialog() else sortDialog()
             R.id.l23_action_reorder -> startReorder()
@@ -850,7 +874,11 @@ class MainActivity : ThemedActivity() {
             .putExtra(PlayerSession.EXTRA_SOURCE_ID, sourceId)
         if (!shuffled) i.putExtra(PlayerActivity.EXTRA_INDEX, index - from)
         rememberScroll(); saveUiState()
-        startActivity(i)
+        // v2.12: the player grows out of the tapped thumbnail (system scale-up transition; plain launch otherwise).
+        val from0 = launchFrom; launchFrom = null
+        val opts = if (from0 != null && from0.isAttachedToWindow && from0.width > 0 && Motion.enabled(this))
+            androidx.core.app.ActivityOptionsCompat.makeScaleUpAnimation(from0, 0, 0, from0.width, from0.height).toBundle() else null
+        startActivity(i, opts)
     }
 
     /** Play all / Shuffle for the open folder or playlist, in the order shown. Unavailable videos are left out. */
@@ -868,8 +896,14 @@ class MainActivity : ThemedActivity() {
         if (selecting) { toggleSelection(position); return }
         if (row.unavailable) { toast("This video was moved or deleted. Long-press to remove it."); return }
         val videos = adapter.rows.filterIsInstance<Row.Video>().filter { !it.unavailable }
+        launchFrom = b.list.findViewHolderForAdapterPosition(position)?.itemView?.let { it.findViewById<View>(R.id.thumb) ?: it }
         play(videos.map { it.entry }, videos.indexOf(row).coerceAtLeast(0))
     }
+
+    /** v2.12: the view the next player launch grows out of (set by a thumbnail tap, used once). */
+    private var launchFrom: View? = null
+    /** v2.12: 0 = a tab's top level, 1 = inside a folder/playlist; drives the zoom direction of screen changes. */
+    private var screenDepth = -1
 
     private fun openPicker(playlist: String) {
         startActivity(Intent(this, VideoPickerActivity::class.java).putExtra(VideoPickerActivity.EXTRA_PLAYLIST, playlist))
@@ -1867,7 +1901,11 @@ class MainActivity : ThemedActivity() {
         b.l23AppTitle.canHold = { !selecting && !reordering }
         b.l23AppTitle.onHoldComplete = {
             if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-                try { startActivity(Intent(this, VaultActivity::class.java)) } catch (_: Exception) { }
+                try {
+                    startActivity(Intent(this, VaultActivity::class.java))
+                    // v2.12: the vault rises out of the dark while home sinks away.
+                    if (Motion.enabled(this)) @Suppress("DEPRECATION") overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold_exit)
+                } catch (_: Exception) { }
             }
         }
     }

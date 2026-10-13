@@ -194,10 +194,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="top"
+            android:layout_marginHorizontal="10dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_player_cluster"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingHorizontal="4dp"
-            android:paddingTop="4dp">
+            android:paddingHorizontal="4dp">
 
             <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnBack" style="@style/PlayerIcon" android:contentDescription="Back" android:src="@drawable/ic_arrow_back" />
 
@@ -247,8 +249,8 @@
                 style="@style/PlayerBigIcon"
                 android:layout_width="72dp"
                 android:layout_height="72dp"
-                android:background="@drawable/bg_circle"
-                android:padding="16dp"
+                android:background="@drawable/bg_player_play"
+                android:padding="18dp"
                 android:contentDescription="Play"
                 android:src="@drawable/ic_pause" />
             <com.hark.velaplayer.ShadowImageButton android:id="@+id/btnForward" style="@style/PlayerBigIcon" android:layout_marginStart="16dp" android:contentDescription="Fast forward" android:src="@drawable/ic_fast_forward" />
@@ -260,9 +262,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
+            android:layout_marginHorizontal="10dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bg_player_dock"
             android:orientation="vertical"
-            android:paddingHorizontal="8dp"
-            android:paddingBottom="4dp">
+            android:paddingHorizontal="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp">
 
             <!-- v2.1: playback modes (shuffle / loop / auto-play next), compact and right-aligned above the timeline. -->
             <LinearLayout
@@ -335,7 +341,7 @@
                     android:shadowColor="#B3000000"
                     android:shadowDy="1"
                     android:shadowRadius="6"
-                    style="@style/Widget.Material3.Button.TextButton.Icon"
+                    style="@style/Widget.Vela.PlayerPill"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:contentDescription="Playback speed. Tap for speeds, press and hold for the slider"
@@ -349,7 +355,7 @@
                     android:shadowColor="#B3000000"
                     android:shadowDy="1"
                     android:shadowRadius="6"
-                    style="@style/Widget.Material3.Button.TextButton.Icon"
+                    style="@style/Widget.Vela.PlayerPill"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:contentDescription="Change aspect ratio. Tap to cycle, long press for menu"
@@ -787,14 +793,14 @@
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chipScopeAll"
-                style="@style/Widget.Material3.Chip.Filter"
+                style="@style/VelaChip"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="All videos" />
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chipScopeFolder"
-                style="@style/Widget.Material3.Chip.Filter"
+                style="@style/VelaChip"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:checked="true"

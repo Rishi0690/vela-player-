@@ -27,31 +27,48 @@
                 android:paddingBottom="6dp"
                 android:maxLines="1"
                 android:text="Vela Player"
-                android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+                android:textAppearance="@style/TextAppearance.Vela.Headline"
                 android:textColor="?attr/colorOnSurface" />
         </com.google.android.material.appbar.MaterialToolbar>
 
-        <HorizontalScrollView
-            android:id="@+id/chipScroll"
+        <!-- v2.12: floating pill navigation. Same ChipGroup/chips/ids as before (tab logic unchanged); PillNavGroup draws
+             the sliding near-white pill, bg_nav_pill_container is the dark glass capsule around it. -->
+        <FrameLayout
+            android:id="@+id/navWrap"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="12dp"
-            android:scrollbars="none">
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="10dp">
 
-            <com.google.android.material.chip.ChipGroup
-                android:id="@+id/chips"
+            <HorizontalScrollView
+                android:id="@+id/chipScroll"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                app:selectionRequired="true"
-                app:singleLine="true"
-                app:singleSelection="true">
+                android:layout_gravity="center_horizontal"
+                android:background="@drawable/bg_nav_pill_container"
+                android:overScrollMode="never"
+                android:padding="4dp"
+                android:scrollbars="none">
 
-                <com.google.android.material.chip.Chip android:id="@+id/chipFolders" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="Folders" app:chipIcon="@drawable/ic_folder" app:chipIconVisible="true" />
-                <com.google.android.material.chip.Chip android:id="@+id/chipAll" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="All videos" app:chipIcon="@drawable/ic_video_library" app:chipIconVisible="true" />
-                <com.google.android.material.chip.Chip android:id="@+id/chipFavorites" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Favorites" />
-                <com.google.android.material.chip.Chip android:id="@+id/chipPlaylists" style="@style/VelaChip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Playlists" />
-            </com.google.android.material.chip.ChipGroup>
-        </HorizontalScrollView>
+                <com.hark.velaplayer.PillNavGroup
+                    android:id="@+id/chips"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:chipSpacingHorizontal="2dp"
+                    app:selectionRequired="true"
+                    app:singleLine="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.chip.Chip android:id="@+id/chipFolders" style="@style/Widget.Vela.NavPill.Chip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="Folders" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipAll" style="@style/Widget.Vela.NavPill.Chip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="All videos" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipFavorites" style="@style/Widget.Vela.NavPill.Chip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Favorites" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipPlaylists" style="@style/Widget.Vela.NavPill.Chip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Playlists" />
+                </com.hark.velaplayer.PillNavGroup>
+            </HorizontalScrollView>
+        </FrameLayout>
 
         <LinearLayout
             android:id="@+id/accessBanner"
@@ -107,10 +124,14 @@
 
             <TextView
                 android:id="@+id/header"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackground"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="12dp"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/bg_glass_pill_button"
                 android:gravity="center_vertical"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:paddingHorizontal="16dp"
                 android:textAppearance="?attr/textAppearanceTitleMedium"
                 android:visibility="gone" />
@@ -133,6 +154,13 @@
                         android:paddingBottom="88dp" />
                 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
+                <!-- v2.12: glass skeleton rows with a light sweep while the library loads the first time. -->
+                <com.hark.velaplayer.SkeletonView
+                    android:id="@+id/skeleton"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:id="@+id/emptyView"
                     android:layout_width="match_parent"
@@ -142,13 +170,30 @@
                     android:padding="32dp"
                     android:visibility="gone">
 
+                    <FrameLayout
+                        android:layout_width="88dp"
+                        android:layout_height="88dp"
+                        android:layout_marginBottom="18dp"
+                        android:background="@drawable/bg_empty_orb">
+
+                        <ImageView
+                            android:id="@+id/emptyIcon"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:layout_gravity="center"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_video_library"
+                            app:tint="?attr/colorPrimary" />
+                    </FrameLayout>
+
                     <TextView
                         android:id="@+id/emptyText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:alpha="0.8"
                         android:gravity="center"
-                        android:textAppearance="?attr/textAppearanceBodyLarge" />
+                        android:maxWidth="300dp"
+                        android:textAppearance="?attr/textAppearanceBodyLarge"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnGrant"

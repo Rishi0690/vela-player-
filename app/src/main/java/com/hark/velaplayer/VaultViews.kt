@@ -139,6 +139,7 @@ class VaultPinPad(context: Context) : LinearLayout(context) {
                 setPadding(0, 0, 0, 0)
                 contentDescription = when (l) { "⌫" -> "Delete"; "✓" -> "Confirm"; else -> l }
                 setOnClickListener { press(l) }
+                Motion.pressable(this, 0.88f) // v2.12: keys squash and spring back
                 if (l == "⌫") setOnLongClickListener { sb.clear(); render(); true }
             }
             keys += btn
@@ -160,7 +161,11 @@ class VaultPinPad(context: Context) : LinearLayout(context) {
         render()
     }
 
+    private var shown = 0
     private fun render() {
+        // v2.12: each new dot pops in with a small spring.
+        if (sb.length > shown && Motion.enabled(context)) { dots.scaleX = 1.12f; dots.scaleY = 1.12f; dots.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(Motion.spring).start() }
+        shown = sb.length
         dots.text = if (sb.isEmpty()) "" else "●".repeat(sb.length)
         dots.hint = "Enter PIN"
     }
@@ -198,7 +203,10 @@ class VaultLockPanel(context: Context) : LinearLayout(context) {
         addView(android.widget.Space(context), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.4f))
         icon.setImageResource(R.drawable.ic_lock)
         icon.imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(context))
-        addView(icon, LayoutParams(context.dp(40f).toInt(), context.dp(40f).toInt()))
+        // v2.12: the lock sits in a soft glass orb.
+        icon.setBackgroundResource(R.drawable.bg_empty_orb)
+        val ip = context.dp(18f).toInt(); icon.setPadding(ip, ip, ip, ip)
+        addView(icon, LayoutParams(context.dp(72f).toInt(), context.dp(72f).toInt()))
         TextViewCompat.setTextAppearance(title, com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall)
         title.gravity = Gravity.CENTER
         addView(title, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(12f).toInt() })
@@ -223,7 +231,13 @@ class VaultLockPanel(context: Context) : LinearLayout(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         // v2.8: each step (unlock, new, confirm, verify) eases in, so moving between steps reads as one flow.
-        if (!entered) { entered = true; Motion.enter(this, fromY = context.dp(16f), duration = Motion.MEDIUM) }
+        if (!entered) {
+            entered = true; Motion.enter(this, fromY = context.dp(16f), duration = Motion.MEDIUM)
+            // v2.12: blur-to-sharp + the orb settles from a little larger.
+            Motion.blurIn(this, 14f, Motion.LONG)
+            if (Motion.enabled(context)) { icon.scaleX = 1.25f; icon.scaleY = 1.25f; icon.alpha = 0f
+                icon.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(80).setDuration(Motion.XLONG).setInterpolator(Motion.springSoft).start() }
+        }
     }
 
     fun setTexts(t: String, m: String?) { title.text = t; message.text = m ?: ""; message.isVisible = !m.isNullOrBlank() }
