@@ -3,6 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory app:title="Theme" app:iconSpaceReserved="false">
         <Preference app:key="theme_editor" app:title="Theme editor" app:summary="Accent color, presets, custom HEX colors and your saved themes" app:icon="@drawable/ic_palette" />
+        <Preference app:key="background_editor" app:title="Background" app:summary="Wallpapers, your own photo, clear or blurred glass" app:icon="@drawable/ic_wallpaper" />
         <ListPreference app:key="theme" app:title="Appearance" app:entries="@array/theme_entries" app:entryValues="@array/theme_values" app:defaultValue="dark" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="true" />
     </PreferenceCategory>
     <PreferenceCategory app:title="Layout" app:iconSpaceReserved="false">

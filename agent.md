@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.17.1`, `versionCode 36` (last updated 2026-10-14)
+- Current version: `versionName 2.18`, `versionCode 37` (last updated 2026-10-14)
 - Repo: `Rishi0690/vela-player-` (private, branch `main`). Owner works from an Android phone only (no PC); keep instructions simple.
 
 ## Golden rules
@@ -204,6 +204,13 @@ Original 2026-10-13 ask, mostly delivered: full UI/UX + motion polish across the
 
 ## v2.17.1 (versionCode 36)
 - Long-press on an already-selected video while 2+ are selected opens a selection options sheet (MainActivity.onSelectionOptions / VaultActivity.selectionOptions); every action runs on the whole selection via shared runSelAction(id) + selActionVisible(id) (same code as the action bar). Rename is single-only (omitted, noted in header); Properties/Details show a combined summary. With 1 selected, the normal single-video sheet opens. ⋮ always opens that one video's sheet.
+
+## v2.18 Background photos (versionCode 37)
+- `Backdrop.kt` = the ONE app-wide background system. `Atmosphere.applyTo` / `Atmosphere.viewBackground` call `Atmosphere.backdrop()` which returns `BackdropDrawable` (photo) when a photo is set, else `AtmosphereDrawable`. Never add per-screen backgrounds. Player excluded.
+- Prefs: `bg_source` ("" theme | "b:<id>" | "custom"), `bg_style` clear|glass, `bg_blur` 0-100, `bg_dim` 0-90, `bg_custom_stamp`, `bg_version` (ThemedActivity recreates stale screens on resume; the changing screen calls `backdropChangedHere()`).
+- Drawable: centre-crop to window frame (align for settings layers), adaptive theme-tinted scrim = max(user Dim, what photo luminance needs), top/bottom bands, glass = downscale+stack blur, 1.18 saturation, theme glow + grain. Processing cached in memory; prewarm in VelaApp.
+- 12 built-ins `drawable-nodpi/bgp_*.webp` (AI-generated originals: 6 "Vela Originals", 6 "Cinematic collection"). Custom photo copied to files/backdrop/custom.jpg (<=1600px, EXIF rotation) via GetContent (no permission).
+- UI: `BackgroundActivity` (Settings › Appearance › Background `background_editor`, Theme editor › Background photo button). Not device-tested.
 
 ## Open work (not done yet)
 - Search redesign remainder (asked 2026-10-13): dedicated results layout with richer thumbnails/metadata, initial (no-query) state, richer empty state, recent searches only if backed by real data, fuller open/close choreography beyond the circular reveal.

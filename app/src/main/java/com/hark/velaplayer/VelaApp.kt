@@ -24,6 +24,8 @@ class VelaApp : Application() {
         VaultAuth.sync(this)
         // v2.14: home-screen widgets follow the theme, light/dark, playback and library changes.
         WidgetUpdater.install(this)
+        // v2.18: decode/blur the background photo off the main thread before the first screen needs it.
+        Backdrop.prewarm(this)
         val startedAt = System.currentTimeMillis()
         Thread { try { FocusStore.get(this).closeAbandoned(startedAt) } catch (_: Exception) { } }.start()
     }

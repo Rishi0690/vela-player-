@@ -45,6 +45,11 @@
                 <com.google.android.material.button.MaterialButton android:id="@+id/modeSystem" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="System" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
+            <!-- v2.18: background photos live in their own screen (Settings › Appearance › Background too). -->
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnBackground" style="@style/Widget.Vela.Glass.Button.Tonal.Icon"
+                android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="12dp"
+                android:text="Background photo" app:icon="@drawable/ic_wallpaper" />
+
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:alpha="0.7"
                 android:text="Tap a theme to preview it above. Tap it again, or press Apply, to use it everywhere."
                 android:textAppearance="?attr/textAppearanceBodySmall" />

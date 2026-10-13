@@ -310,6 +310,7 @@ class SettingsActivity : ThemedActivity() {
         private fun bind() {
             val ctx = requireContext()
             findPreference<Preference>("theme_editor")?.setOnPreferenceClickListener { startActivity(Intent(ctx, ThemeActivity::class.java)); true }
+            findPreference<Preference>("background_editor")?.setOnPreferenceClickListener { startActivity(Intent(ctx, BackgroundActivity::class.java)); true }
             findPreference<Preference>("theme")?.setOnPreferenceChangeListener { _, _ ->
                 view?.post { ThemeManager.touch(ctx); Prefs.applyTheme(ctx) }
                 true

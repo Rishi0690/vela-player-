@@ -83,7 +83,7 @@ object Atmosphere {
     fun applyTo(a: Activity) {
         val w = a.window ?: return
         val atmo = of(a)
-        w.setBackgroundDrawable(AtmosphereDrawable(atmo))
+        w.setBackgroundDrawable(backdrop(a, atmo))
         if (atmo.dark || Build.VERSION.SDK_INT >= 23) w.statusBarColor = android.graphics.Color.TRANSPARENT
         if (atmo.dark) w.navigationBarColor = atmo.bottom
         else if (Build.VERSION.SDK_INT >= 27) {
@@ -96,14 +96,20 @@ object Atmosphere {
      * A copy of the window atmosphere for an opaque view that must hide what is under it while it animates (settings
      * screens). It lines itself up with the window so its gradient continues the backdrop seamlessly.
      */
-    fun viewBackground(v: View): AtmosphereDrawable {
-        val d = AtmosphereDrawable(of(v.context))
+    fun viewBackground(v: View): Drawable {
+        val d = backdrop(v.context, of(v.context))
         v.background = d
         v.post {
             val loc = IntArray(2); v.getLocationInWindow(loc)
-            d.align(loc[1], v.rootView.height)
+            when (d) { is AtmosphereDrawable -> d.align(loc[1], v.rootView.height); is BackdropDrawable -> d.align(loc[1], v.rootView.height) }
         }
         return d
+    }
+
+    /** v2.18: the user's background photo ([Backdrop]) when one is set, otherwise the theme atmosphere. */
+    fun backdrop(c: Context, atmo: Atmo = of(c)): Drawable {
+        val p = Backdrop.processed(c) ?: return AtmosphereDrawable(atmo)
+        return BackdropDrawable(c, atmo, p, Backdrop.spec(c))
     }
 }
 

@@ -72,6 +72,7 @@
             android:label="Settings" />
 
         <activity android:name=".ThemeActivity" android:exported="false" android:label="Theme editor" />
+        <activity android:name=".BackgroundActivity" android:exported="false" android:label="Background" />
         <activity android:name=".FocusActivity" android:exported="false" android:label="Focus stats" />
         <activity android:name=".VideoPickerActivity" android:exported="false" android:label="Add videos" />
         <!-- v2.2 Hidden Vault: authenticates itself before showing anything (FLAG_SECURE, singleTop for repeated launches). -->

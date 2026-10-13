@@ -67,6 +67,7 @@ class ThemeActivity : ThemedActivity() {
             Prefs.applyTheme(this) // AppCompat recreates this screen in the new mode
         }
 
+        b.btnBackground.setOnClickListener { startActivity(android.content.Intent(this, BackgroundActivity::class.java)) }
         b.picker.onColorChanged = { setCustomDraft(it, fromPicker = true) }
         b.hexInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}

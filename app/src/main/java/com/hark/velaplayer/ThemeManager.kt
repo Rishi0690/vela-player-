@@ -302,6 +302,7 @@ object ThemeManager {
 /** Base for screens that follow the theme: applies it, and recreates when it changes elsewhere. */
 abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
     private var themeVersion = -1
+    private var backdropVersion = -1
     protected open val isPlayerTheme = false
     /**
      * Screens that manage the system bars themselves (fullscreen / immersive, like the player) return false
@@ -311,12 +312,17 @@ abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         ThemeManager.apply(this, isPlayerTheme)
         themeVersion = ThemeManager.version(this)
+        backdropVersion = Backdrop.version(this)
         super.onCreate(savedInstanceState)
         if (!isPlayerTheme) Atmosphere.applyTo(this)
         if (styleSystemBars && !isPlayerTheme) ThemeManager.styleStatusBar(this)
     }
     override fun onResume() {
         super.onResume()
-        if (themeVersion != ThemeManager.version(this)) { themeVersion = ThemeManager.version(this); recreate() }
+        if (themeVersion != ThemeManager.version(this)) { themeVersion = ThemeManager.version(this); recreate(); return }
+        // v2.18: background photo changed on another screen -> rebuild so every layer (window + settings pages) matches.
+        if (!isPlayerTheme && backdropVersion != Backdrop.version(this)) { backdropVersion = Backdrop.version(this); recreate() }
     }
+    /** v2.18: a screen that just changed the backdrop itself re-applies it live instead of recreating. */
+    protected fun backdropChangedHere() { backdropVersion = Backdrop.version(this); Atmosphere.applyTo(this) }
 }
