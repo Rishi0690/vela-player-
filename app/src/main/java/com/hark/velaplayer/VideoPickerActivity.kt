@@ -207,7 +207,7 @@ class VideoPickerActivity : ThemedActivity() {
             if (fromFiles) { already = (Store.playlists(this)[playlist] ?: emptyList()).map { it.uri }.toSet(); adapter.notifyDataSetChanged() } else finish()
         }
         if (replace && !fromFiles && already.isNotEmpty()) {
-            MaterialAlertDialogBuilder(this).setTitle("Replace \"$playlist\"?")
+            VelaDialogBuilder(this).setTitle("Replace \"$playlist\"?")
                 .setMessage("The ${already.size} videos now in this playlist will be replaced by the ${entries.size} you picked. Video files aren't deleted.")
                 .setPositiveButton("Replace") { _, _ -> doIt() }
                 .setNegativeButton("Cancel", null).show()

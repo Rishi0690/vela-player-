@@ -4,4 +4,18 @@
     <color name="bg_dark">#0E0D14</color>
     <color name="surface_dark">#17151F</color>
     <color name="launcher_bg">#16122B</color>
+
+    <!-- v2.11 glass defaults (light). Theme overlays replace them per theme. -->
+    <color name="glass_surface">#B8FFFFFF</color>
+    <color name="glass_surface_strong">#F2FBFBFD</color>
+    <color name="glass_stroke">#17000000</color>
+    <color name="glass_highlight">#CCFFFFFF</color>
+    <color name="glass_scrim">#66000000</color>
+    <color name="glass_tint">#14000000</color>
+
+    <!-- Player glass: always dark, never blurred (live video sits underneath). -->
+    <color name="player_glass">#E0101014</color>
+    <color name="player_glass_soft">#99101014</color>
+    <color name="player_glass_stroke">#24FFFFFF</color>
+    <color name="player_glass_highlight">#14FFFFFF</color>
 </resources>

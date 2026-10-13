@@ -1,4 +1,18 @@
 <resources>
     <!-- The seed color the user picked; the real UI colors come from the M3 palette built around it. -->
     <attr name="colorAccentSeed" format="color" />
+
+    <!-- v2.11 glass system. Every theme overlay (values*/accents*.xml, generated) sets these, so one style works everywhere. -->
+    <!-- Translucent fill for cards, chips, tonal buttons and fields (low-alpha white on dark, frosted white on light). -->
+    <attr name="glassSurface" format="color" />
+    <!-- Near-opaque glass for dialogs, sheets and popup menus (they float over content). -->
+    <attr name="glassSurfaceStrong" format="color" />
+    <!-- Hairline 1dp border on glass surfaces. -->
+    <attr name="glassStroke" format="color" />
+    <!-- Soft top sheen on glass panels. -->
+    <attr name="glassHighlight" format="color" />
+    <!-- Dark scrim behind floating panels. -->
+    <attr name="glassScrim" format="color" />
+    <!-- Faint hue of the theme for placeholders and selected glass. -->
+    <attr name="glassTint" format="color" />
 </resources>

@@ -80,7 +80,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnShuffle"
-            style="@style/Widget.Material3.Button.TonalButton"
+            style="@style/Widget.Vela.Glass.Button.Tonal"
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_marginStart="@dimen/header_btn_gap"
@@ -100,7 +100,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/l23BtnReorder"
-            style="@style/Widget.Material3.Button.TonalButton.Icon"
+            style="@style/Widget.Vela.Glass.Button.Tonal.Icon"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_marginStart="8dp"
@@ -116,7 +116,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAdd"
-            style="@style/Widget.Material3.Button.TonalButton.Icon"
+            style="@style/Widget.Vela.Glass.Button.Tonal.Icon"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_marginStart="8dp"

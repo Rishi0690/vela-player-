@@ -21,7 +21,7 @@ import kotlin.math.max
  * is laid on top and a growing circle (from the button) cuts it away, so the new theme "spreads" out of the icon.
  */
 object ThemeSwitch {
-    private class Pending(val shot: Bitmap, val cx: Float, val cy: Float, val toDark: Boolean)
+    private class Pending(val shot: Bitmap, val cx: Float, val cy: Float, val toDark: Boolean, val fade: Boolean = false)
     private var pending: Pending? = null
 
     fun isPendingAvailable() = pending != null
@@ -49,11 +49,35 @@ object ThemeSwitch {
         Prefs.applyTheme(a) // AppCompat recreates every open screen in the new mode
     }
 
+    /**
+     * v2.11: snapshot the screen so that, after [Activity.recreate] in a new theme, the old look cross-fades into the
+     * new one instead of flashing. Call right before recreate(); the recreated screen calls [playIfPending].
+     */
+    fun prepareCrossfade(a: Activity) {
+        val decor = a.window.decorView
+        if (decor.width == 0 || decor.height == 0) return
+        val shot = runCatching {
+            Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888).also { decor.draw(Canvas(it)) }
+        }.getOrNull() ?: return
+        pending = Pending(shot, 0f, 0f, isDark(a), fade = true)
+    }
+
     /** Call from the recreated activity's onCreate (after setContentView). */
     fun playIfPending(a: Activity) {
         val p = pending ?: return
         pending = null
         val decor = a.window.decorView as ViewGroup
+        if (p.fade) {
+            val v = object : View(a) {
+                init { isClickable = true }
+                override fun onDraw(canvas: Canvas) { canvas.drawBitmap(p.shot, 0f, 0f, null) }
+            }
+            decor.addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            v.animate().alpha(0f).setStartDelay(60).setDuration(if (Motion.enabled(a)) 340 else 1)
+                .setInterpolator(PathInterpolator(0.3f, 0f, 0.1f, 1f))
+                .withEndAction { decor.removeView(v); p.shot.recycle() }.start()
+            return
+        }
         val overlay = RevealView(a, p.shot, p.cx, p.cy)
         decor.addView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         overlay.post {

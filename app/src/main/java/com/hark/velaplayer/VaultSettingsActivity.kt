@@ -182,7 +182,7 @@ class VaultSettingsActivity : ThemedActivity() {
             val values = resources.getStringArray(R.array.vault_lock_values)
             val cur = values.indexOf(VaultAuth.lockAfterMin(this).toString()).coerceAtLeast(0)
             row(c, "Lock after inactivity", labels[cur]) {
-                MaterialAlertDialogBuilder(this).setTitle("Lock after inactivity")
+                VelaDialogBuilder(this).setTitle("Lock after inactivity")
                     .setSingleChoiceItems(labels, cur) { d, i -> VaultAuth.setLockAfterMin(this, values[i].toInt()); d.dismiss(); showMain() }
                     .setNegativeButton("Cancel", null).show()
             }
@@ -233,7 +233,7 @@ class VaultSettingsActivity : ThemedActivity() {
     }
 
     private fun offerBio() {
-        MaterialAlertDialogBuilder(this).setTitle("Also unlock with fingerprint?")
+        VelaDialogBuilder(this).setTitle("Also unlock with fingerprint?")
             .setMessage("Your ${word()} stays as the backup when fingerprint can't be used.")
             .setPositiveButton("Use fingerprint") { _, _ ->
                 VaultBio.prompt(this, "Confirm fingerprint", "Cancel",
@@ -257,7 +257,7 @@ class VaultSettingsActivity : ThemedActivity() {
 
     private fun confirmNoPassword() {
         showMain()
-        MaterialAlertDialogBuilder(this).setTitle("Use the vault without a password?")
+        VelaDialogBuilder(this).setTitle("Use the vault without a password?")
             .setMessage("The Hidden Vault will open without any authentication, so anyone with your phone who holds the Vela Player name on the Home screen can see your hidden videos. Your hidden videos stay in the vault. You can set up security again here at any time.")
             .setPositiveButton("Remove security") { _, _ ->
                 VaultAuth.clearSecret(this)

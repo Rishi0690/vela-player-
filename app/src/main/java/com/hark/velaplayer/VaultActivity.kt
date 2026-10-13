@@ -349,7 +349,7 @@ class VaultActivity : ThemedActivity() {
     }
 
     private fun usePasswordFree() {
-        MaterialAlertDialogBuilder(this)
+        VelaDialogBuilder(this)
             .setTitle("Use without password?")
             .setMessage("The Hidden Vault won't ask for a PIN, pattern or fingerprint. It is not password-protected. You can set up security later in Vault settings without losing anything.")
             .setPositiveButton("Use without password") { _, _ ->
@@ -526,7 +526,7 @@ class VaultActivity : ThemedActivity() {
             R.id.vault_sort -> {
                 val labels = arrayOf("Custom order (your arrangement)", "Recently hidden", "Name A–Z", "Last played", "Longest first", "Largest first")
                 val keys = arrayOf("custom", "hidden", "name", "played", "longest", "largest")
-                MaterialAlertDialogBuilder(this).setTitle("Sort by")
+                VelaDialogBuilder(this).setTitle("Sort by")
                     .setSingleChoiceItems(labels, keys.indexOf(sort).coerceAtLeast(0)) { d, i ->
                         sort = keys[i]; Prefs.sp(this).edit().putString("vault_sort", sort).apply()
                         if (sort != "custom") reorderMode?.finish()
@@ -586,7 +586,7 @@ class VaultActivity : ThemedActivity() {
                     "${if (priv.size == 1) "It" else "They"} will be visible in Gallery and other apps again.")
             }
         }
-        MaterialAlertDialogBuilder(this)
+        VelaDialogBuilder(this)
             .setTitle(if (uris.size == 1) "Unhide this video?" else "Unhide ${uris.size} videos?")
             .setMessage(msg)
             .setPositiveButton(if (priv.isEmpty()) "Unhide" else "Restore") { _, _ ->
@@ -618,7 +618,7 @@ class VaultActivity : ThemedActivity() {
         if (!row.item.isPrivate && !row.unavailable) { labels += "Move to private storage (hide from Gallery)"; acts += { moveToPrivate(listOf(row.item.uri)) } }
         labels += if (row.item.isPrivate) "Unhide (restore to phone storage)" else "Unhide (remove from vault)"; acts += { unhide(listOf(row.item.uri)) }
         labels += "Details"; acts += { details(row) }
-        MaterialAlertDialogBuilder(this).setTitle(row.item.title)
+        VelaDialogBuilder(this).setTitle(row.item.title)
             .setItems(labels.toTypedArray()) { _, i -> acts[i]() }.show()
     }
 
@@ -643,7 +643,7 @@ class VaultActivity : ThemedActivity() {
                 "Uninstalling Vela or clearing its storage deletes it permanently, so unhide it first.")
         } else sb.append("\nHidden in Vela only: the file isn't moved or encrypted and stays visible in Gallery and other apps. " +
             "Uninstalling Vela doesn't delete it.")
-        MaterialAlertDialogBuilder(this).setTitle("Details").setMessage(sb.toString()).setPositiveButton("Close", null).show()
+        VelaDialogBuilder(this).setTitle("Details").setMessage(sb.toString()).setPositiveButton("Close", null).show()
     }
 
     // ------------------------------------------------------------------ multi-select

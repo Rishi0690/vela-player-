@@ -18,6 +18,20 @@
         <item name="android:scrollbarFadeDuration">300</item>
         <item name="android:scrollbarDefaultDelayBeforeFade">1000</item>
         <item name="android:scrollbarStyle">insideOverlay</item>
+        <!-- v2.11 glass system: defaults (each theme overlay replaces them) + glass widget styles app-wide. -->
+        <item name="glassSurface">@color/glass_surface</item>
+        <item name="glassSurfaceStrong">@color/glass_surface_strong</item>
+        <item name="glassStroke">@color/glass_stroke</item>
+        <item name="glassHighlight">@color/glass_highlight</item>
+        <item name="glassScrim">@color/glass_scrim</item>
+        <item name="glassTint">@color/glass_tint</item>
+        <item name="materialCardViewStyle">@style/Widget.Vela.Glass.Card</item>
+        <item name="materialButtonOutlinedStyle">@style/Widget.Vela.Glass.Button.Outlined</item>
+        <item name="toolbarStyle">@style/Widget.Vela.Glass.Toolbar</item>
+        <item name="popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu</item>
+        <item name="listPopupWindowStyle">@style/Widget.Vela.Glass.ListPopupWindow</item>
+        <item name="actionOverflowMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Overflow</item>
+        <item name="android:popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Framework</item>
     </style>
 
     <style name="VelaWindowAnim" parent="@android:style/Animation.Activity">
@@ -35,7 +49,13 @@
 
     <style name="VelaChip" parent="Widget.Material3.Chip.Filter">
         <item name="shapeAppearanceOverlay">@style/PillShape</item>
+        <!-- v2.11: glass chip: translucent fill + hairline, soft accent glass when checked. -->
+        <item name="chipBackgroundColor">@color/glass_chip_bg</item>
+        <item name="chipStrokeColor">@color/glass_chip_stroke</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="chipSurfaceColor">@android:color/transparent</item>
     </style>
+    <style name="Widget.Vela.Glass.Chip" parent="VelaChip" />
 
     <style name="PillShape">
         <item name="cornerFamily">rounded</item>
@@ -48,6 +68,8 @@
 
     <style name="VelaBottomSheetStyle" parent="Widget.Material3.BottomSheet.Modal">
         <item name="shapeAppearance">@style/SheetShape</item>
+        <!-- v2.11: glass sheet (near-opaque tinted; Android 12+ blurs the screen behind it). -->
+        <item name="backgroundTint">?attr/glassSurfaceStrong</item>
     </style>
 
     <style name="SheetShape">
@@ -58,16 +80,22 @@
         <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
-    <style name="VelaDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+    <!-- v2.11: glass dialog base (tinted near-opaque fill; VelaDialogBuilder adds the hairline border). -->
+    <style name="VelaDialog.Base" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="shapeAppearanceOverlay">@style/DialogShape</item>
         <item name="android:windowAnimationStyle">@style/VelaDialogAnim</item>
+        <item name="alertDialogStyle">@style/MaterialAlertDialog.Vela</item>
+    </style>
+    <style name="VelaDialog" parent="VelaDialog.Base">
+        <item name="android:backgroundDimAmount">0.45</item>
+    </style>
+    <style name="MaterialAlertDialog.Vela" parent="MaterialAlertDialog.Material3">
+        <item name="backgroundTint">?attr/glassSurfaceStrong</item>
+        <item name="shapeAppearance">@style/DialogShape</item>
     </style>
 
     <!-- Player: no blur behind sheets/dialogs (blurring live video costs GPU and could stutter playback). -->
-    <style name="VelaDialogPlain" parent="ThemeOverlay.Material3.MaterialAlertDialog">
-        <item name="shapeAppearanceOverlay">@style/DialogShape</item>
-        <item name="android:windowAnimationStyle">@style/VelaDialogAnim</item>
-    </style>
+    <style name="VelaDialogPlain" parent="VelaDialog.Base" />
     <style name="VelaBottomSheetPlain" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/VelaBottomSheetStyle</item>
     </style>
@@ -87,6 +115,18 @@
         <item name="android:windowAnimationStyle">@style/VelaWindowAnim</item>
         <item name="bottomSheetDialogTheme">@style/VelaBottomSheetPlain</item>
         <item name="materialAlertDialogTheme">@style/VelaDialogPlain</item>
+        <!-- v2.11: player glass is always dark and never blurred (live video underneath). -->
+        <item name="glassSurface">#14FFFFFF</item>
+        <item name="glassSurfaceStrong">#EB141418</item>
+        <item name="glassStroke">#24FFFFFF</item>
+        <item name="glassHighlight">#1FFFFFFF</item>
+        <item name="glassScrim">#99000000</item>
+        <item name="glassTint">#1FFFFFFF</item>
+        <item name="chipStyle">@style/VelaChip</item>
+        <item name="materialCardViewStyle">@style/Widget.Vela.Glass.Card</item>
+        <item name="materialButtonOutlinedStyle">@style/Widget.Vela.Glass.Button.Outlined</item>
+        <item name="popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu</item>
+        <item name="android:popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu.FrameworkDark</item>
     </style>
 
     <style name="PlayerIcon">
@@ -125,4 +165,66 @@
         <item name="android:shadowRadius">6</item>
         <item name="android:shadowDy">1</item>
     </style>
+
+    <!-- ===================== v2.11 glass widget styles ===================== -->
+    <style name="GlassShapeCard">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
+    </style>
+    <style name="GlassShapeButton">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="Widget.Vela.Glass.Card" parent="Widget.Material3.CardView.Outlined">
+        <item name="cardBackgroundColor">?attr/glassSurface</item>
+        <item name="strokeColor">?attr/glassStroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="shapeAppearance">@style/GlassShapeCard</item>
+    </style>
+
+    <style name="Widget.Vela.Glass.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="backgroundTint">@color/glass_button_bg</item>
+        <item name="strokeColor">@color/glass_button_stroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:textColor">@color/glass_button_text</item>
+        <item name="iconTint">@color/glass_button_icon</item>
+    </style>
+    <style name="Widget.Vela.Glass.Button.Tonal.Icon" parent="Widget.Material3.Button.TonalButton.Icon">
+        <item name="backgroundTint">@color/glass_button_bg</item>
+        <item name="strokeColor">@color/glass_button_stroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:textColor">@color/glass_button_text</item>
+        <item name="iconTint">@color/glass_button_icon</item>
+    </style>
+    <style name="Widget.Vela.Glass.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="backgroundTint">@color/glass_button_bg</item>
+        <item name="strokeColor">@color/glass_button_stroke</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="Widget.Vela.Glass.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">@android:color/transparent</item>
+    </style>
+
+    <style name="Widget.Vela.Glass.PopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">@drawable/glass_popup</item>
+    </style>
+    <style name="Widget.Vela.Glass.ListPopupWindow" parent="Widget.Material3.PopupMenu.ListPopupWindow">
+        <item name="android:popupBackground">@drawable/glass_popup</item>
+    </style>
+    <style name="Widget.Vela.Glass.PopupMenu.Overflow" parent="Widget.Material3.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/glass_popup</item>
+    </style>
+    <style name="Widget.Vela.Glass.PopupMenu.Framework" parent="@android:style/Widget.Material.PopupMenu">
+        <item name="android:popupBackground">@drawable/glass_popup</item>
+    </style>
+    <style name="Widget.Vela.Glass.PopupMenu.FrameworkDark" parent="@android:style/Widget.Material.PopupMenu">
+        <item name="android:popupBackground">@drawable/glass_popup_dark</item>
+    </style>
+
+    <!-- Glass sheet / dialog aliases (the real ones are VelaBottomSheet and VelaDialog above). -->
+    <style name="Widget.Vela.Glass.Sheet" parent="VelaBottomSheetStyle" />
+    <style name="Widget.Vela.Glass.Dialog" parent="MaterialAlertDialog.Vela" />
 </resources>

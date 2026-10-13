@@ -28,7 +28,7 @@ class FocusActivity : ThemedActivity() {
         b.goalButton.setOnClickListener { editLimit() }
         b.goalCard.setOnClickListener { editLimit() }
         b.btnClear.setOnClickListener {
-            MaterialAlertDialogBuilder(this).setTitle("Clear focus history?")
+            VelaDialogBuilder(this).setTitle("Clear focus history?")
                 .setMessage("All focus sessions, daily totals and per-video focus times will be deleted from this phone. Your videos, watch progress and settings are not affected.")
                 .setPositiveButton("Clear") { _, _ -> io.execute { FocusStore.get(this).clearAll(); runOnUiThread { load() } } }
                 .setNegativeButton("Cancel", null).show()
@@ -167,7 +167,7 @@ object FocusLimitDialog {
             setPadding((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), 0)
             addView(row); addView(error)
         }
-        val dlg = MaterialAlertDialogBuilder(a)
+        val dlg = VelaDialogBuilder(a)
             .setTitle("Daily focus limit")
             .setMessage("How much real focus time per day? Progress on the stats screen and in the player follows it.")
             .setView(box)

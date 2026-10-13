@@ -1,0 +1,9 @@
+<resources>
+    <!-- v2.11 glass defaults (dark). Theme overlays replace them per theme. -->
+    <color name="glass_surface">#14FFFFFF</color>
+    <color name="glass_surface_strong">#EB1A1A1F</color>
+    <color name="glass_stroke">#24FFFFFF</color>
+    <color name="glass_highlight">#1FFFFFFF</color>
+    <color name="glass_scrim">#99000000</color>
+    <color name="glass_tint">#1FFFFFFF</color>
+</resources>

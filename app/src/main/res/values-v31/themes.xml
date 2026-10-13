@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v2.6: Android 12+ frosted look: the screen behind dialogs and sheets is blurred (when the phone allows window blur). -->
+<!-- Android 12+ frosted glass: the screen behind dialogs and sheets is blurred (when the phone allows window blur).
+     Static overlays only: the player uses the *Plain styles (no blur over live video). -->
 <resources>
-    <style name="VelaDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
-        <item name="shapeAppearanceOverlay">@style/DialogShape</item>
-        <item name="android:windowAnimationStyle">@style/VelaDialogAnim</item>
+    <style name="VelaDialog" parent="VelaDialog.Base">
         <item name="android:windowBlurBehindEnabled">true</item>
-        <item name="android:windowBlurBehindRadius">16dp</item>
-        <item name="android:backgroundDimAmount">0.28</item>
+        <item name="android:windowBlurBehindRadius">20dp</item>
+        <item name="android:backgroundDimAmount">0.30</item>
     </style>
 
     <style name="VelaBottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/VelaBottomSheetStyle</item>
         <item name="android:windowBlurBehindEnabled">true</item>
-        <item name="android:windowBlurBehindRadius">16dp</item>
-        <item name="android:backgroundDimAmount">0.25</item>
+        <item name="android:windowBlurBehindRadius">20dp</item>
+        <item name="android:backgroundDimAmount">0.28</item>
     </style>
 </resources>

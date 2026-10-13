@@ -228,7 +228,7 @@ class SettingsActivity : ThemedActivity() {
                 findPreference<Preference>("sec_$s")?.setOnPreferenceClickListener { (activity as SettingsActivity).open(s); true }
             }
             findPreference<Preference>("reset_all")?.setOnPreferenceClickListener {
-                MaterialAlertDialogBuilder(requireContext())
+                VelaDialogBuilder(requireContext())
                     .setTitle("Reset all settings?")
                     .setMessage("Playback, gesture, subtitle, layout, Focus Mode and theme settings go back to defaults. Playlists, favorites, resume points, saved themes, focus history and the Hidden Vault (its videos and its PIN/pattern) are kept.")
                     .setPositiveButton("Reset") { _, _ ->
@@ -317,7 +317,7 @@ class SettingsActivity : ThemedActivity() {
             }
             findPreference<Preference>("focus_dashboard")?.setOnPreferenceClickListener { startActivity(Intent(ctx, FocusActivity::class.java)); true }
             findPreference<Preference>("focus_clear")?.setOnPreferenceClickListener {
-                MaterialAlertDialogBuilder(ctx).setTitle("Clear focus history?")
+                VelaDialogBuilder(ctx).setTitle("Clear focus history?")
                     .setMessage("All focus sessions and totals will be deleted from this phone. Videos, watch progress and settings stay.")
                     .setPositiveButton("Clear") { _, _ -> FocusStore.get(ctx).clearAll(); toast("Focus history cleared") }
                     .setNegativeButton("Cancel", null).show()
@@ -328,7 +328,7 @@ class SettingsActivity : ThemedActivity() {
                 if (!on) { Dnd.restore(ctx); return@setOnPreferenceChangeListener true }
                 if (Dnd.hasAccess(ctx)) return@setOnPreferenceChangeListener true
                 // Explain before sending the user to the system screen; never change anything silently.
-                MaterialAlertDialogBuilder(ctx).setTitle("Allow Do Not Disturb access?")
+                VelaDialogBuilder(ctx).setTitle("Allow Do Not Disturb access?")
                     .setMessage("To silence calls and notifications during focus sessions, Vela needs Android's \"Do Not Disturb access\". " +
                         "Vela only switches Do Not Disturb on when a focus session starts (if it was off) and switches it back off when the session ends. " +
                         "Priority contacts and alarms follow your phone's own Do Not Disturb rules.\n\nOn the next screen, find Vela Player and allow access.")
@@ -374,7 +374,7 @@ private fun showVelaPrefDialog(f: PreferenceFragmentCompat, p: Preference): Bool
             val values = p.entryValues ?: return false
             val cur = p.findIndexOfValue(p.value)
             val sub = (p.dialogTitle ?: p.dialogMessage)?.takeIf { it.toString() != p.title?.toString() }
-            MaterialAlertDialogBuilder(ctx)
+            VelaDialogBuilder(ctx)
                 .setCustomTitle(titleView(p.title, sub))
                 .setSingleChoiceItems(entries, cur) { dlg, i ->
                     val v = values[i].toString()
@@ -401,7 +401,7 @@ private fun showVelaPrefDialog(f: PreferenceFragmentCompat, p: Preference): Bool
                 setPadding((24 * d).toInt(), (8 * d).toInt(), (24 * d).toInt(), 0)
                 addView(box)
             }
-            val dlg = MaterialAlertDialogBuilder(ctx)
+            val dlg = VelaDialogBuilder(ctx)
                 .setTitle(p.title)
                 .setView(wrap)
                 .setPositiveButton("Save") { _, _ ->

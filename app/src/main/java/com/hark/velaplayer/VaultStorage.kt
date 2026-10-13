@@ -130,7 +130,7 @@ object VaultStorage {
         col.addView(group); col.addView(check)
         val scroll = ScrollView(act).apply { addView(col) }
 
-        val dlg = MaterialAlertDialogBuilder(act)
+        val dlg = VelaDialogBuilder(act)
             .setTitle(if (n == 1) "Hide this video" else "Hide $n videos")
             .setView(scroll)
             .setPositiveButton("Hide", null)
@@ -163,7 +163,7 @@ object VaultStorage {
         init {
             val px = (22 * act.resources.displayMetrics.density).toInt()
             val col = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; setPadding(px, px / 2, px, 0); addView(label); addView(bar) }
-            dlg = MaterialAlertDialogBuilder(act).setTitle(title).setView(col).setCancelable(false).create()
+            dlg = VelaDialogBuilder(act).setTitle(title).setView(col).setCancelable(false).create()
             dlg.show()
         }
         fun set(i: Int, n: Int, what: String) = main.post { label.text = "$what ${i + 1} of $n…"; bar.setProgressCompat(i * 1000 / n.coerceAtLeast(1), true) }
@@ -181,7 +181,7 @@ object VaultStorage {
                 if (failures.size > 8) append("…and ${failures.size - 8} more\n")
             }
         }
-        MaterialAlertDialogBuilder(act).setTitle(title).setMessage(msg.trim()).setPositiveButton("OK", null).show()
+        VelaDialogBuilder(act).setTitle(title).setMessage(msg.trim()).setPositiveButton("OK", null).show()
     }
 
     // ------------------------------------------------------------------ move into private storage

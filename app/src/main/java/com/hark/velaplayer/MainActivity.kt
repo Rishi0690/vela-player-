@@ -789,7 +789,7 @@ class MainActivity : ThemedActivity() {
         val labels = arrayOf("Oldest created first", "Newest created first", "Name A–Z", "Name Z–A", "Most videos", "Fewest videos")
         val keys = arrayOf("created", "newest", "name_asc", "name_desc", "count_desc", "count_asc")
         val cur = Prefs.sp(this).getString("playlists_list_sort", "created")
-        MaterialAlertDialogBuilder(this).setTitle("Sort playlists")
+        VelaDialogBuilder(this).setTitle("Sort playlists")
             .setSingleChoiceItems(labels, keys.indexOf(cur).coerceAtLeast(0)) { d, i ->
                 Prefs.sp(this).edit().putString("playlists_list_sort", keys[i]).apply()
                 refresh(); d.dismiss()
@@ -799,7 +799,7 @@ class MainActivity : ThemedActivity() {
     private fun sortDialog() {
         val labels = arrayOf("Newest first", "Oldest first", "Name A–Z", "Name Z–A", "Longest first", "Shortest first", "Largest first", "Smallest first")
         val keys = arrayOf("date_desc", "date_asc", "name_asc", "name_desc", "duration_desc", "duration_asc", "size_desc", "size_asc")
-        MaterialAlertDialogBuilder(this).setTitle("Sort by")
+        VelaDialogBuilder(this).setTitle("Sort by")
             .setSingleChoiceItems(labels, keys.indexOf(sort).coerceAtLeast(0)) { d, i ->
                 sort = keys[i]
                 Prefs.sp(this).edit().putString("library_sort", sort).apply()
@@ -809,7 +809,7 @@ class MainActivity : ThemedActivity() {
 
     private fun urlDialog() {
         val v = DialogUrlBinding.inflate(layoutInflater)
-        MaterialAlertDialogBuilder(this).setTitle("Open network stream")
+        VelaDialogBuilder(this).setTitle("Open network stream")
             .setMessage("Direct video links (MP4, MKV, WebM…), HLS (.m3u8) and DASH (.mpd) are supported. Web pages and DRM streams are not.")
             .setView(v.root)
             .setPositiveButton("Play") { _, _ ->
@@ -973,7 +973,7 @@ class MainActivity : ThemedActivity() {
                 R.id.sel_unwatched -> { Store.setWatchedMany(this@MainActivity, vids.map { it.entry.uri }, false); refresh() }
                 R.id.sel_remove -> {
                     val pl = openPlaylist ?: return true
-                    MaterialAlertDialogBuilder(this@MainActivity).setTitle("Remove ${vids.size} from \"$pl\"?")
+                    VelaDialogBuilder(this@MainActivity).setTitle("Remove ${vids.size} from \"$pl\"?")
                         .setMessage("They're only taken out of this playlist. The video files stay on your phone.")
                         .setPositiveButton("Remove") { _, _ ->
                             Store.removeManyFromPlaylist(this@MainActivity, pl, vids.map { it.entry.uri })
@@ -989,7 +989,7 @@ class MainActivity : ThemedActivity() {
                 }
                 R.id.sel_delete_playlists -> {
                     val names = selectedPlaylists()
-                    MaterialAlertDialogBuilder(this@MainActivity).setTitle("Delete ${names.size} playlist${if (names.size == 1) "" else "s"}?")
+                    VelaDialogBuilder(this@MainActivity).setTitle("Delete ${names.size} playlist${if (names.size == 1) "" else "s"}?")
                         .setMessage("Only the playlists are removed. Your video files stay on the phone.")
                         .setPositiveButton("Delete") { _, _ -> names.forEach { Store.deletePlaylist(this@MainActivity, it) }; toast("Deleted"); refresh() }
                         .setNegativeButton("Cancel", null).show()
@@ -1118,7 +1118,7 @@ class MainActivity : ThemedActivity() {
             val msg = "Videos available: ${f.videos.size}\nWatched: ${row.watched}\nIn progress: ${row.inProgress}\n" +
                 "Total length: ${Fmt.time(dur)}\nTotal size: ${Formatter.formatFileSize(this, size)}" +
                 (f.path?.let { "\nPath: $it" } ?: "")
-            MaterialAlertDialogBuilder(this).setTitle("Folder properties").setMessage(msg).setPositiveButton("Close", null).show()
+            VelaDialogBuilder(this).setTitle("Folder properties").setMessage(msg).setPositiveButton("Close", null).show()
         }
         showSheet(f.name, f.path, a)
     }
@@ -1141,7 +1141,7 @@ class MainActivity : ThemedActivity() {
         a += Action("Select", R.drawable.ic_select) { startSelection(row) }
         a += Action("Rename", R.drawable.ic_edit) { newPlaylistDialog(row.name) }
         a += Action("Delete playlist", R.drawable.ic_delete, danger = true) {
-            MaterialAlertDialogBuilder(this).setTitle("Delete \"${row.name}\"?")
+            VelaDialogBuilder(this).setTitle("Delete \"${row.name}\"?")
                 .setMessage("Only the playlist is removed. Your video files stay on the phone.")
                 .setPositiveButton("Delete") { _, _ -> Store.deletePlaylist(this, row.name); refresh() }
                 .setNegativeButton("Cancel", null).show()
@@ -1171,7 +1171,7 @@ class MainActivity : ThemedActivity() {
             val pad = (20 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad / 2, pad, 0); addView(input)
         }
-        val dlg = MaterialAlertDialogBuilder(this).setTitle(title).setView(box)
+        val dlg = VelaDialogBuilder(this).setTitle(title).setView(box)
             .setPositiveButton("Rename") { _, _ -> onOk(input.text.toString().trim()) }
             .setNegativeButton("Cancel", null).create()
         dlg.setOnShowListener {
@@ -1285,7 +1285,7 @@ class MainActivity : ThemedActivity() {
 
     private fun confirmDelete(items: List<VideoItem>, title: String, message: String = "This video will be permanently deleted from your phone.") {
         if (items.isEmpty()) return
-        MaterialAlertDialogBuilder(this).setTitle(title).setMessage(message)
+        VelaDialogBuilder(this).setTitle(title).setMessage(message)
             .setPositiveButton("Delete") { _, _ -> deleteVideos(items) }
             .setNegativeButton("Cancel", null).show()
     }
@@ -1362,7 +1362,7 @@ class MainActivity : ThemedActivity() {
         if (entries.isEmpty()) return
         val names = Store.playlists(this).keys.toList()
         val labels = (names + "New playlist…").toTypedArray()
-        MaterialAlertDialogBuilder(this).setTitle(if (entries.size == 1) "Add to playlist" else "Add ${entries.size} videos to")
+        VelaDialogBuilder(this).setTitle(if (entries.size == 1) "Add to playlist" else "Add ${entries.size} videos to")
             .setItems(labels) { _, i ->
                 if (i == names.size) newPlaylistDialog(null, thenAdd = entries)
                 else addToPlaylistReport(names[i], entries)
@@ -1385,7 +1385,7 @@ class MainActivity : ThemedActivity() {
             val pad = (20 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad / 2, pad, 0); addView(input)
         }
-        MaterialAlertDialogBuilder(this).setTitle(if (renameFrom == null) "New playlist" else "Rename playlist")
+        VelaDialogBuilder(this).setTitle(if (renameFrom == null) "New playlist" else "Rename playlist")
             .setView(box)
             .setPositiveButton(if (openPickerAfter) "Next: add videos" else "Save") { _, _ ->
                 val name = input.text.toString().trim()
@@ -1413,7 +1413,7 @@ class MainActivity : ThemedActivity() {
         } else sb.append("Source: ").append(row.entry.uri).append('\n')
         val pos = Store.position(this, row.entry.uri)
         if (pos > 0) sb.append("Resume at: ").append(Fmt.time(pos)).append('\n')
-        MaterialAlertDialogBuilder(this).setTitle("Details").setMessage(sb.toString().trim()).setPositiveButton("Close", null).show()
+        VelaDialogBuilder(this).setTitle("Details").setMessage(sb.toString().trim()).setPositiveButton("Close", null).show()
     }
 
     private fun nameOf(uri: Uri): String {
@@ -1764,7 +1764,7 @@ class MainActivity : ThemedActivity() {
         val labels = arrayOf("Custom order (your arrangement)", "Name A–Z", "Name Z–A", "Longest first", "Shortest first")
         val keys = arrayOf("custom", "name_asc", "name_desc", "duration_desc", "duration_asc")
         val cur = Prefs.sp(this).getString("l23_playlist_sort", "custom")
-        MaterialAlertDialogBuilder(this).setTitle("Sort playlist by")
+        VelaDialogBuilder(this).setTitle("Sort playlist by")
             .setSingleChoiceItems(labels, keys.indexOf(cur).coerceAtLeast(0)) { d, i ->
                 Prefs.sp(this).edit().putString("l23_playlist_sort", keys[i]).apply()
                 if (keys[i] != "custom") reorderMode?.finish()

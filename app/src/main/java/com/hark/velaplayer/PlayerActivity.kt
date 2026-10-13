@@ -1569,7 +1569,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun dialog(title: String): MaterialAlertDialogBuilder {
         handler.removeCallbacks(hideControlsRunnable)
-        return MaterialAlertDialogBuilder(this).setTitle(title).setOnDismissListener {
+        return VelaDialogBuilder(this).setTitle(title).setOnDismissListener {
             scheduleHide()
             if (fullscreen) setFullscreen(true)
         }
@@ -2035,7 +2035,7 @@ class PlayerActivity : AppCompatActivity() {
         else "Today: ${FocusFmt.dur(today)} in total"
         focusSummaryShowing = true
         handler.removeCallbacks(hideControlsRunnable)
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        VelaDialogBuilder(this)
             .setTitle("Focus session complete")
             .setIcon(R.drawable.ic_focus)
             .setMessage(lines.joinToString("\n"))

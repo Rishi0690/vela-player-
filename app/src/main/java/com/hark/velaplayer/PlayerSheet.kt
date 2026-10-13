@@ -63,13 +63,13 @@ class PlayerSheet(private val host: FrameLayout, private val onClosed: () -> Uni
             override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
         }.apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply { setColor(0xF2181620.toInt()); cornerRadius = dp(24).toFloat() }
+            background = Glass.playerPanel(c, 24f) // v2.11 dark glass, no blur over video
             elevation = dp(8).toFloat()
             isClickable = true
             setPadding(0, dp(if (landscape) 14 else 8), 0, dp(12))
         }
         if (!landscape) p.addView(View(c).apply {
-            background = GradientDrawable().apply { setColor(0x66FFFFFF); cornerRadius = dp(2).toFloat() }
+            background = GradientDrawable().apply { setColor(0x4DFFFFFF); cornerRadius = dp(2).toFloat() }
         }, LinearLayout.LayoutParams(dp(36), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(8) })
 
         p.addView(TextView(c).apply {
