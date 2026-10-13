@@ -184,6 +184,8 @@ class MainActivity : ThemedActivity() {
         // v2.3: the app name is the HoldTitleView inside the toolbar (same look), not the action bar title.
         supportActionBar?.setDisplayShowTitleEnabled(false)
         onBackPressedDispatcher.addCallback(this, backCallback)
+        themeSwitched = ThemeSwitch.isPendingAvailable()
+        ThemeSwitch.playIfPending(this)
 
         sort = Prefs.sp(this).getString("library_sort", "date_desc") ?: "date_desc"
         grid = GridLayoutManager(this, 1)
@@ -751,8 +753,11 @@ class MainActivity : ThemedActivity() {
         })
         applyViewMode(animate = false)
         updateReorderMenu()
+        menu.findItem(R.id.action_theme)?.setIcon(ThemeSwitch.iconFor(this))
+        if (themeSwitched) { themeSwitched = false; b.toolbar.post { ThemeSwitch.popIcon(findViewById(R.id.action_theme)) } }
         return true
     }
+    private var themeSwitched = false
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
@@ -767,6 +772,7 @@ class MainActivity : ThemedActivity() {
             R.id.action_focus -> startActivity(Intent(this, FocusActivity::class.java))
             R.id.action_open_url -> urlDialog()
             R.id.action_open_file -> openFile.launch(arrayOf("video/*"))
+            R.id.action_theme -> ThemeSwitch.toggle(this, findViewById(R.id.action_theme))
             R.id.action_settings -> startActivity(Intent(this, SettingsActivity::class.java))
             else -> return super.onOptionsItemSelected(item)
         }

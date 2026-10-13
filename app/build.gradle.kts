@@ -11,8 +11,8 @@ android {
         applicationId = "com.hark.velaplayer"
         minSdk = 24
         targetSdk = 34
-        versionCode = 22
-        versionName = "2.9"
+        versionCode = 23
+        versionName = "2.10"
     }
     // One fixed keystore for every release so new versions install over old ones and keep settings.
     // It is the same key that signed v1.1. Never replace it.
