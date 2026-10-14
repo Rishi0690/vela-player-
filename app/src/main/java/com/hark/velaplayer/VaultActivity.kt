@@ -668,7 +668,10 @@ class VaultActivity : ThemedActivity() {
                 "Uninstalling Vela or clearing its storage deletes it permanently, so unhide it first.")
         } else sb.append("\nHidden in Vela only: the file isn't moved or encrypted and stays visible in Gallery and other apps. " +
             "Uninstalling Vela doesn't delete it.")
-        VelaDialogBuilder(this).setTitle("Details").setMessage(sb.toString()).setPositiveButton("Close", null).show()
+        val base = sb.toString().trim()
+        val d = VelaDialogBuilder(this).setTitle("Details").setMessage(base).setPositiveButton("Close", null).show()
+        val src = if (row.item.isPrivate) VaultStorage.fileOf(row.item)?.takeIf { it.exists() }?.let { Uri.fromFile(it) } else Uri.parse(row.item.uri)
+        if (!row.unavailable && src != null) MediaInspect.attach(this, d, base, src)
     }
 
     // ------------------------------------------------------------------ multi-select

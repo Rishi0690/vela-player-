@@ -1506,7 +1506,9 @@ class MainActivity : ThemedActivity() {
         } else sb.append("Source: ").append(row.entry.uri).append('\n')
         val pos = Store.position(this, row.entry.uri)
         if (pos > 0) sb.append("Resume at: ").append(Fmt.time(pos)).append('\n')
-        VelaDialogBuilder(this).setTitle("Details").setMessage(sb.toString().trim()).setPositiveButton("Close", null).show()
+        val base = sb.toString().trim()
+        val d = VelaDialogBuilder(this).setTitle("Details").setMessage(base).setPositiveButton("Close", null).show()
+        if (it != null) MediaInspect.attach(this, d, base, Uri.parse(row.entry.uri))
     }
 
     private fun nameOf(uri: Uri): String {
