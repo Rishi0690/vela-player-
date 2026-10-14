@@ -8,32 +8,30 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
-import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import java.util.Locale
 
 /**
  * Owns the playback engine (Media3 ExoPlayer), separate from the player UI.
- * Built from current settings (decoder, buffer, preferred languages) each time playback starts.
+ * Built from current settings (decoder preference, buffer, preferred languages) each time playback starts.
  */
 object PlayerHolder {
     var player: ExoPlayer? = null
         private set
+
+    /** v2.19: decoder ordering + per-video fallback overrides; lives for the app process so overrides survive a new player. */
+    val decoders = DecoderPolicy()
 
     fun create(ctx: Context): ExoPlayer {
         release()
         val c = ctx.applicationContext
         val sp = Prefs.sp(c)
 
-        val renderers = DefaultRenderersFactory(c).setEnableDecoderFallback(true)
-        if (sp.getString("decoder", "hw") == "sw") {
-            renderers.setMediaCodecSelector(MediaCodecSelector { mime, secure, tunneling ->
-                val all = MediaCodecUtil.getDecoderInfos(mime, secure, tunneling)
-                all.filter { it.softwareOnly }.ifEmpty { all }
-            })
-        }
+        // v2.19: the saved choice orders the decoders (preferred kind first, the other kind kept as fallback);
+        // per-video automatic switching lives in [decoders]. The saved "decoder" setting is only read here, never written.
+        decoders.setPreferred(sp.getString("decoder", "hw"))
+        val renderers = DefaultRenderersFactory(c).setEnableDecoderFallback(true).setMediaCodecSelector(decoders)
 
         val (minBuf, maxBuf) = when (sp.getString("buffer", "normal")) {
             "low" -> 15_000 to 30_000

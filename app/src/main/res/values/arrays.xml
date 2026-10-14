@@ -21,7 +21,7 @@
     <string-array name="sub_color_values"><item>#FFFFFFFF</item><item>#FFFFEB3B</item><item>#FF00E5FF</item><item>#FF76FF03</item><item>#FFFF80AB</item><item>#FFBDBDBD</item></string-array>
     <string-array name="sub_bg_entries"><item>Outline</item><item>Drop shadow</item><item>Semi-transparent box</item><item>Black box</item></string-array>
     <string-array name="sub_bg_values"><item>outline</item><item>shadow</item><item>semi</item><item>black</item></string-array>
-    <string-array name="decoder_entries"><item>Hardware first (recommended)</item><item>Software only</item></string-array>
+    <string-array name="decoder_entries"><item>Hardware first (recommended)</item><item>Software first</item></string-array>
     <string-array name="decoder_values"><item>hw</item><item>sw</item></string-array>
     <string-array name="buffer_entries"><item>Low (saves data)</item><item>Normal</item><item>High (smoother on slow networks)</item></string-array>
     <string-array name="buffer_values"><item>low</item><item>normal</item><item>high</item></string-array>

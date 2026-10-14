@@ -33,7 +33,7 @@
         </PreferenceCategory>
     <PreferenceCategory app:title="Advanced" app:iconSpaceReserved="false">
         <SwitchPreferenceCompat app:key="background_audio" app:title="Background audio" app:summary="Keep audio playing when you leave the player (shows a media notification)" app:defaultValue="false" app:iconSpaceReserved="false" />
-        <ListPreference app:key="decoder" app:title="Video decoder" app:entries="@array/decoder_entries" app:entryValues="@array/decoder_values" app:defaultValue="hw" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
+        <ListPreference app:key="decoder" app:title="Video decoder" app:dialogTitle="If a video can&apos;t be decoded, Vela switches decoder for that video only" app:entries="@array/decoder_entries" app:entryValues="@array/decoder_values" app:defaultValue="hw" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
         <ListPreference app:key="buffer" app:title="Network buffer" app:entries="@array/buffer_entries" app:entryValues="@array/buffer_values" app:defaultValue="normal" app:useSimpleSummaryProvider="true" app:iconSpaceReserved="false" />
         </PreferenceCategory>
 </PreferenceScreen>
