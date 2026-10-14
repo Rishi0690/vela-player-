@@ -78,7 +78,10 @@ import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
+import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.CaptionStyleCompat
@@ -163,6 +166,8 @@ class PlayerActivity : AppCompatActivity() {
 
     private var videoDecoder: String? = null
     private var audioDecoder: String? = null
+    /** v2.19: media id whose "no decoder for this codec" notice was already shown (once per video). */
+    private var codecNoticeFor: String? = null
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
     // Seek preview (local files only), accessed on the io thread.
@@ -777,6 +782,7 @@ class PlayerActivity : AppCompatActivity() {
             externalSubs = null; externalActive = false; externalName = null; shownExternal = emptyList()
             b.subtitleView.setCues(emptyList())
             videoDecoder = null; audioDecoder = null
+            applyDecoderPolicy(mediaItem)
             io.execute { retriever?.release(); retriever = null; retrieverUri = null }
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && mediaItem != null && Prefs.resume(this@PlayerActivity)) {
                 val p = resumePosition(mediaItem.mediaId)
@@ -794,6 +800,7 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun onTracksChanged(tracks: Tracks) {
             val id = player.currentMediaItem?.mediaId ?: return
+            checkUnsupportedCodecs(id, tracks)
             if (tracksAppliedFor == id || tracks.groups.isEmpty()) return
             tracksAppliedFor = id
             applyRememberedTracks(tracks)
@@ -806,7 +813,11 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
 
-        override fun onPlayerError(error: PlaybackException) { showError(error) }
+        override fun onPlayerError(error: PlaybackException) {
+            // v2.19: a decoder problem first retries this video with the other decoder kind (once per kind), then errors.
+            if (tryDecoderFallback(error)) return
+            showError(error)
+        }
 
         override fun onCues(cueGroup: CueGroup) { if (!externalActive) b.subtitleView.setCues(cueGroup.cues) }
 
@@ -850,8 +861,7 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
             PlaybackException.ERROR_CODE_DECODING_FAILED,
             PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ->
-                "This device can't decode this video's codec. Try switching the decoder in Settings."
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> decoderErrorMessage(e)
             PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED -> "Couldn't start audio output."
             PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> "Fell behind the live stream."
             PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR,
@@ -863,7 +873,10 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
             PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-            PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            // v2.19: decoder failures reach here only after the automatic hardware/software switch had nothing left to try
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FAILED) || (isDecoderError(e) && e.errorCode == PlaybackException.ERROR_CODE_UNSPECIFIED)
         if (skippable && player.hasNextMediaItem()) {
             val name = titleOf(player.currentMediaItem)
             notice(R.drawable.ic_skip_next, "Skipped \"$name\": ${msg.substringBefore('.')}")
@@ -874,6 +887,155 @@ class PlayerActivity : AppCompatActivity() {
         b.errorPanel.isVisible = true
         b.loading.isVisible = false
         setControlsVisible(true)
+    }
+
+    // ------------------------------------------------------------------ v2.19 smart decoder switching
+
+    /**
+     * The player moved to [item]: use the user's decoder preference, or this video's session override. Codecs created
+     * (or kept for reuse) under another ordering are re-created by a quick re-prepare at the same position. This only
+     * happens next to a video that needed an automatic switch; normal playback never re-prepares.
+     */
+    private fun applyDecoderPolicy(item: MediaItem?) {
+        val changed = PlayerHolder.decoders.activate(item?.mediaId)
+        if (!changed || item == null || player.playbackState == Player.STATE_IDLE) return
+        try {
+            val index = player.currentMediaItemIndex
+            val pos = player.currentPosition.coerceAtLeast(0L)
+            player.stop()
+            player.seekTo(index, pos)
+            player.prepare() // playWhenReady is kept, so a playing queue keeps playing
+        } catch (_: Exception) { }
+    }
+
+    private fun isDecoderError(e: PlaybackException): Boolean {
+        when (e.errorCode) {
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> return true
+        }
+        // Only renderer errors can come from a codec; never treat network/parsing/audio-output errors as decoder ones.
+        if (e.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+            e.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED) return false
+        var c: Throwable? = e.cause
+        var depth = 0
+        while (c != null && depth++ < 8) {
+            if (c is MediaCodecDecoderException || c is MediaCodecRenderer.DecoderInitializationException ||
+                c is android.media.MediaCodec.CodecException) return true
+            c = c.cause
+        }
+        return false
+    }
+
+    /** The codec mime of the failing decoder (codec's own mime first; the track's sample mime otherwise). */
+    private fun decoderMime(e: PlaybackException): String? {
+        var c: Throwable? = e.cause
+        var depth = 0
+        while (c != null && depth++ < 8) {
+            when (c) {
+                is MediaCodecDecoderException -> c.codecInfo?.mimeType?.let { return it }
+                is MediaCodecRenderer.DecoderInitializationException -> (c.codecInfo?.mimeType ?: c.mimeType)?.let { return it }
+            }
+            c = c.cause
+        }
+        return (e as? ExoPlaybackException)?.rendererFormat?.sampleMimeType
+    }
+
+    /** Video (true) or audio (false) renderer, from the renderer's format, else the codec mime. */
+    private fun isVideoDecoderError(e: PlaybackException, mime: String?): Boolean {
+        val m = (e as? ExoPlaybackException)?.rendererFormat?.sampleMimeType ?: mime
+        return m == null || !MimeTypes.isAudio(m)
+    }
+
+    private fun failingDecoderKind(e: PlaybackException, video: Boolean, mime: String?): DecoderPolicy.Kind? {
+        var c: Throwable? = e.cause
+        var depth = 0
+        while (c != null && depth++ < 8) {
+            when (c) {
+                is MediaCodecDecoderException -> c.codecInfo?.let { return DecoderPolicy.kindOf(it) }
+                is MediaCodecRenderer.DecoderInitializationException -> c.codecInfo?.let { return DecoderPolicy.kindOf(it) }
+            }
+            c = c.cause
+        }
+        return PlayerHolder.decoders.kindOfName(if (video) videoDecoder else audioDecoder, mime)
+    }
+
+    /**
+     * Retries the current video with the other decoder kind, at the same position, keeping play/pause. Never writes the
+     * saved "decoder" setting. Returns false when this isn't a decoder error or both kinds were already tried.
+     */
+    private fun tryDecoderFallback(e: PlaybackException): Boolean {
+        return try {
+            if (!isDecoderError(e)) return false
+            val item = player.currentMediaItem ?: return false
+            val mime = decoderMime(e)
+            val video = isVideoDecoderError(e, mime)
+            val policy = PlayerHolder.decoders
+            val failing = failingDecoderKind(e, video, mime)
+            val target = policy.onDecoderError(item.mediaId, video, failing) { policy.hasKind(mime, it) } ?: return false
+            val index = player.currentMediaItemIndex
+            val pos = player.currentPosition.coerceAtLeast(0L)
+            if (video) videoDecoder = null else audioDecoder = null
+            b.errorPanel.isVisible = false
+            player.seekTo(index, pos)
+            player.prepare()
+            notice(R.drawable.ic_tune, "Switched to ${target.label} decoder for this video")
+            true
+        } catch (_: Exception) { false }
+    }
+
+    private fun decoderErrorMessage(e: PlaybackException): String {
+        val mime = decoderMime(e)
+        val video = isVideoDecoderError(e, mime)
+        val what = if (video) "video" else "audio"
+        return if (PlayerHolder.decoders.exhausted(player.currentMediaItem?.mediaId, video))
+            "Couldn't decode this $what with the hardware or the software decoder on this device."
+        else "This device can't decode this $what's codec."
+    }
+
+    /**
+     * A video/audio track that NO decoder on this device supports is simply not played by ExoPlayer (no error), so say so
+     * once per video. Nothing playable at all: skip to the next video in a queue, otherwise show the error panel.
+     */
+    private fun checkUnsupportedCodecs(id: String, tracks: Tracks) {
+        if (codecNoticeFor == id || tracks.groups.isEmpty()) return
+        val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+        val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val videoOk = video.isEmpty() || video.any { it.isSupported(true) }
+        val audioOk = audio.isEmpty() || audio.any { it.isSupported(true) }
+        if (videoOk && audioOk) return
+        codecNoticeFor = id
+        fun codecOf(g: List<Tracks.Group>) = g.firstOrNull()?.takeIf { it.length > 0 }?.getTrackFormat(0)?.let { f ->
+            (f.codecs ?: f.sampleMimeType)?.let { " ($it)" } } ?: ""
+        val anyPlayable = (video.isNotEmpty() && videoOk) || (audio.isNotEmpty() && audioOk)
+        when {
+            anyPlayable && !videoOk -> notice(R.drawable.ic_info, "No decoder for this video's codec${codecOf(video)}. Playing audio only.")
+            anyPlayable -> notice(R.drawable.ic_info, "No decoder for this audio format${codecOf(audio)}. Playing without sound.")
+            player.hasNextMediaItem() -> {
+                notice(R.drawable.ic_skip_next, "Skipped \"${titleOf(player.currentMediaItem)}\": no decoder for its codec")
+                handler.post { if (player.currentMediaItem?.mediaId == id && player.hasNextMediaItem()) player.seekToNextMediaItem() }
+            }
+            else -> {
+                player.stop() // stays IDLE, so READY can't hide the panel; Retry re-prepares
+                b.errorText.text = "This device has no decoder for this video's codec${codecOf(video.ifEmpty { audio })}."
+                b.errorPanel.isVisible = true
+                b.loading.isVisible = false
+                setControlsVisible(true)
+            }
+        }
+    }
+
+    /** Stats sheet: decoder name + kind, tagged "(auto fallback)" when this video isn't using the preferred kind. */
+    private fun decoderLine(name: String?, video: Boolean): String? {
+        name ?: return null
+        val policy = PlayerHolder.decoders
+        val mime = (if (video) player.videoFormat else player.audioFormat)?.sampleMimeType
+        val kind = policy.kindOfName(name, mime)
+        val auto = policy.isOverridden(player.currentMediaItem?.mediaId, video) ||
+            (video && kind != null && kind != policy.preferred)
+        return name + (kind?.let { " · ${it.label}" } ?: "") + (if (auto) " (auto fallback)" else "")
     }
 
     private fun retry() {
@@ -2002,7 +2164,7 @@ class PlayerActivity : AppCompatActivity() {
             line("Container", vf.containerMimeType)
             if (vf.bitrate > 0) line("Video bitrate", "${vf.bitrate / 1000} kbps")
         }
-        line("Video decoder", videoDecoder)
+        line("Video decoder", decoderLine(videoDecoder, true))
         sb.append('\n')
         if (af != null) {
             line("Audio codec", af.codecs ?: af.sampleMimeType)
@@ -2011,7 +2173,7 @@ class PlayerActivity : AppCompatActivity() {
             line("Audio language", af.language?.let { Locale.forLanguageTag(it).displayName })
             if (af.bitrate > 0) line("Audio bitrate", "${af.bitrate / 1000} kbps")
         }
-        line("Audio decoder", audioDecoder)
+        line("Audio decoder", decoderLine(audioDecoder, false))
         sb.append('\n')
         line("Display mode", aspect.label)
         line("Speed", formatSpeed(player.playbackParameters.speed))
