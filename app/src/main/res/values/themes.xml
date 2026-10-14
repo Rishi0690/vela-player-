@@ -28,6 +28,14 @@
         <item name="glassHighlight">@color/glass_highlight</item>
         <item name="glassScrim">@color/glass_scrim</item>
         <item name="glassTint">@color/glass_tint</item>
+        <!-- v2.19 floating glass (dialogs, sheets, popups over the Android 12+ window blur). -->
+        <item name="glassFloat">@color/glass_float</item>
+        <item name="glassFloatStroke">@color/glass_float_stroke</item>
+        <item name="glassBlurWindows">true</item>
+        <!-- v2.19: transient messages as floating glass too (theme text colours instead of the inverse M3 bar). -->
+        <item name="snackbarStyle">@style/Widget.Vela.Snackbar</item>
+        <item name="snackbarTextViewStyle">@style/Widget.Vela.Snackbar.TextView</item>
+        <item name="snackbarButtonStyle">@style/Widget.Vela.Snackbar.Button</item>
         <!-- v2.12 Midnight Glass tokens (defaults; each theme overlay replaces them). -->
         <item name="glassSurfaceElevated">@color/glass_surface_elevated</item>
         <item name="atmoTop">@color/atmo_top</item>
@@ -51,6 +59,9 @@
         <item name="listPopupWindowStyle">@style/Widget.Vela.Glass.ListPopupWindow</item>
         <item name="actionOverflowMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Overflow</item>
         <item name="android:popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Framework</item>
+        <item name="android:listPopupWindowStyle">@style/Widget.Vela.Glass.ListPopupWindow.Framework</item>
+        <item name="android:dropDownListViewStyle">@style/Widget.Vela.DropDownListView</item>
+        <item name="android:spinnerStyle">@style/Widget.Vela.Spinner</item>
     </style>
 
     <style name="VelaWindowAnim" parent="@android:style/Animation.Activity">
@@ -95,7 +106,7 @@
     <style name="VelaFloatingSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/VelaFloatingSheetStyle</item>
         <item name="android:windowAnimationStyle">@style/VelaFloatingSheetAnim</item>
-        <item name="android:backgroundDimAmount">0.42</item>
+        <item name="android:backgroundDimAmount">@dimen/vela_dim_floating_flat</item>
     </style>
     <style name="VelaFloatingSheetStyle" parent="Widget.Material3.BottomSheet.Modal">
         <item name="backgroundTint">@android:color/transparent</item>
@@ -133,7 +144,7 @@
         <item name="alertDialogStyle">@style/MaterialAlertDialog.Vela</item>
     </style>
     <style name="VelaDialog" parent="VelaDialog.Base">
-        <item name="android:backgroundDimAmount">0.45</item>
+        <item name="android:backgroundDimAmount">@dimen/vela_dim_dialog_flat</item>
     </style>
     <style name="MaterialAlertDialog.Vela" parent="MaterialAlertDialog.Material3">
         <item name="backgroundTint">?attr/glassSurfaceStrong</item>
@@ -176,8 +187,12 @@
         <item name="chipStyle">@style/VelaChip</item>
         <item name="materialCardViewStyle">@style/Widget.Vela.Glass.Card</item>
         <item name="materialButtonOutlinedStyle">@style/Widget.Vela.Glass.Button.Outlined</item>
-        <item name="popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu</item>
+        <item name="popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Player</item>
         <item name="android:popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu.FrameworkDark</item>
+        <!-- v2.19: floating glass = the same fixed dark glass, and no window blur over live video. -->
+        <item name="glassFloat">#EB141418</item>
+        <item name="glassFloatStroke">#24FFFFFF</item>
+        <item name="glassBlurWindows">false</item>
     </style>
 
     <style name="PlayerIcon">
@@ -259,17 +274,50 @@
         <item name="android:background">@android:color/transparent</item>
     </style>
 
+    <!-- v2.19: every app popup (PopupMenu, toolbar / ActionMode overflow, ListPopupWindow, dropdowns) uses the floating
+         glass drawable (frosted over the Android 12+ blur, near-opaque below). The player keeps .Player (unchanged). -->
     <style name="Widget.Vela.Glass.PopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">@drawable/glass_popup_float</item>
+    </style>
+    <style name="Widget.Vela.Glass.PopupMenu.Player" parent="Widget.Material3.PopupMenu">
         <item name="android:popupBackground">@drawable/glass_popup</item>
     </style>
     <style name="Widget.Vela.Glass.ListPopupWindow" parent="Widget.Material3.PopupMenu.ListPopupWindow">
-        <item name="android:popupBackground">@drawable/glass_popup</item>
+        <item name="android:popupBackground">@drawable/glass_popup_float</item>
     </style>
     <style name="Widget.Vela.Glass.PopupMenu.Overflow" parent="Widget.Material3.PopupMenu.Overflow">
-        <item name="android:popupBackground">@drawable/glass_popup</item>
+        <item name="android:popupBackground">@drawable/glass_popup_float</item>
     </style>
     <style name="Widget.Vela.Glass.PopupMenu.Framework" parent="@android:style/Widget.Material.PopupMenu">
-        <item name="android:popupBackground">@drawable/glass_popup</item>
+        <item name="android:popupBackground">@drawable/glass_popup_float</item>
+    </style>
+    <style name="Widget.Vela.Glass.ListPopupWindow.Framework" parent="@android:style/Widget.Material.ListPopupWindow">
+        <item name="android:popupBackground">@drawable/glass_popup_float</item>
+    </style>
+    <!-- Dropdown rows sit on the glass: no own background/divider so the frost shows through. -->
+    <style name="Widget.Vela.DropDownListView" parent="@android:style/Widget.Material.ListView.DropDown">
+        <item name="android:divider">@null</item>
+        <item name="android:cacheColorHint">@android:color/transparent</item>
+    </style>
+    <style name="Widget.Vela.Spinner" parent="Widget.AppCompat.Spinner">
+        <item name="android:popupBackground">@drawable/glass_popup_float</item>
+    </style>
+
+    <!-- v2.19 snackbar = floating glass (no blur is possible inside the window, so the near-opaque level 3). -->
+    <style name="Widget.Vela.Snackbar" parent="Widget.Material3.Snackbar">
+        <item name="backgroundTint">?attr/glassSurfaceStrong</item>
+        <item name="shapeAppearance">@style/GlassShapeSnackbar</item>
+    </style>
+    <style name="GlassShapeSnackbar">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">14dp</item>
+    </style>
+    <style name="Widget.Vela.Snackbar.TextView" parent="Widget.Material3.Snackbar.TextView">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:alpha">1.0</item>
+    </style>
+    <style name="Widget.Vela.Snackbar.Button" parent="Widget.Material3.Button.TextButton.Snackbar">
+        <item name="android:textColor">?attr/colorPrimary</item>
     </style>
     <style name="Widget.Vela.Glass.PopupMenu.FrameworkDark" parent="@android:style/Widget.Material.PopupMenu">
         <item name="android:popupBackground">@drawable/glass_popup_dark</item>

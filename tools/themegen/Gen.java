@@ -185,6 +185,10 @@ public class Gen {
             item(sb, "glassSurfaceElevated", alpha(w, 0x1C));
             item(sb, "glassSurfaceStrong", alpha(mix(0xFF10131F, n, 0.18f * s), 0xF2));
             item(sb, "glassStroke", alpha(mix(0xFFFFFFFF, n, 0.30f * s), 0x1F));
+            // v2.19 floating glass (dialogs, sheets, popup menus over the Android 12+ window blur). Dark keeps the
+            // level-3 fill and hairline exactly (it already reads as glass on the dark backdrop).
+            item(sb, "glassFloat", alpha(mix(0xFF10131F, n, 0.18f * s), 0xF2));
+            item(sb, "glassFloatStroke", alpha(mix(0xFFFFFFFF, n, 0.30f * s), 0x1F));
             item(sb, "glassHighlight", alpha(0xFFFFFFFF, 0x1A));
             item(sb, "glassScrim", alpha(mix(0xFF000000, n, 0.10f), 0x99));
             item(sb, "glassTint", alpha(mix(0xFFFFFFFF, n, 0.6f), 0x1F));
@@ -221,6 +225,11 @@ public class Gen {
             item(sb, "glassSurfaceElevated", alpha(0xFFFFFFFF, 0xD1));
             item(sb, "glassSurfaceStrong", alpha(mix(0xFFFCFDFF, n, 0.02f * s), 0xF5));
             item(sb, "glassStroke", alpha(mix(0xFF1A2033, n, 0.30f), 0x14));
+            // v2.19 floating glass in light mode: frosted white at ~82% so the blurred screen behind shows through
+            // (glassSurfaceStrong at 96% hid the blur completely), plus a darker ink hairline so the edge reads on
+            // pale backdrops. Used only where the window behind is blurred; otherwise code falls back to glassSurfaceStrong.
+            item(sb, "glassFloat", alpha(mix(0xFFFDFDFF, n, 0.03f * s), 0xD1));
+            item(sb, "glassFloatStroke", alpha(mix(0xFF1A2033, n, 0.30f), 0x2B));
             item(sb, "glassHighlight", alpha(0xFFFFFFFF, 0xE6));
             item(sb, "glassScrim", 0x55101420);
             item(sb, "glassTint", alpha(mix(0xFF000000, n, 0.7f), 0x14));

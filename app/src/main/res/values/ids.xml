@@ -4,4 +4,5 @@
     <item name="tag_light_sweep" type="id" />
     <item name="vela_blur_anim" type="id" />
     <item name="vela_add_anim" type="id" />
+    <item name="tag_glass_popup" type="id" />
 </resources>

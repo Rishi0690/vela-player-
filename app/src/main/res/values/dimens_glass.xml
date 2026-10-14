@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.19: dim behind floating glass, per mode. Light mode dims less: a heavy black film over a pale UI turns the
+     frosted glass muddy grey. "_blur" = Android 12+ with window blur on, "_flat" = no blur (older Android, blur
+     disabled by the system, e.g. battery saver). Dark values are the v2.18 ones (values-night). -->
+<resources>
+    <item name="vela_dim_dialog_flat" format="float" type="dimen">0.32</item>
+    <item name="vela_dim_dialog_blur" format="float" type="dimen">0.16</item>
+    <item name="vela_dim_sheet_blur" format="float" type="dimen">0.16</item>
+    <item name="vela_dim_floating_flat" format="float" type="dimen">0.30</item>
+    <item name="vela_dim_floating_blur" format="float" type="dimen">0.18</item>
+    <!-- Blur radius behind popup menus / dropdowns (dialogs and sheets use 20dp in values-v31/themes.xml). -->
+    <dimen name="vela_popup_blur_radius">16dp</dimen>
+</resources>

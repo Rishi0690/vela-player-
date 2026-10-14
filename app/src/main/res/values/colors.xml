@@ -12,6 +12,8 @@
     <color name="glass_highlight">#CCFFFFFF</color>
     <color name="glass_scrim">#66000000</color>
     <color name="glass_tint">#14000000</color>
+    <color name="glass_float">#D1FCFDFF</color>
+    <color name="glass_float_stroke">#2B1A2033</color>
 
     <!-- Player glass: always dark, never blurred (live video sits underneath). -->
     <color name="player_glass">#E0101014</color>

@@ -1,18 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 12+ frosted glass: the screen behind dialogs and sheets is blurred (when the phone allows window blur).
-     Static overlays only: the player uses the *Plain styles (no blur over live video). -->
+<!-- Android 12+ frosted glass: the screen behind dialogs, sheets and popup menus is blurred (when the phone allows
+     window blur), in Light AND Dark mode. v2.19: the floating windows use ?attr/glassFloat (light: frosted white ~82%
+     so the blur actually shows; it was near-opaque 96% white before, which hid the blur in Light mode) and the
+     dim behind them comes from values(-night)/dimens_glass.xml (lighter in Light mode).
+     If the system turns blur off at runtime (battery saver, unsupported GPU) Glass.bindWindowBlur swaps the fill back
+     to glassSurfaceStrong and uses the "_flat" dim.
+     Static overlays only: the player uses the *Plain styles (no blur over live video); its glassFloat equals its
+     glassSurfaceStrong, so player dialogs look exactly as before. -->
 <resources>
     <style name="VelaDialog" parent="VelaDialog.Base">
         <item name="android:windowBlurBehindEnabled">true</item>
         <item name="android:windowBlurBehindRadius">20dp</item>
-        <item name="android:backgroundDimAmount">0.30</item>
+        <item name="android:backgroundDimAmount">@dimen/vela_dim_dialog_blur</item>
+    </style>
+
+    <style name="MaterialAlertDialog.Vela" parent="MaterialAlertDialog.Material3">
+        <item name="backgroundTint">?attr/glassFloat</item>
+        <item name="shapeAppearance">@style/DialogShape</item>
     </style>
 
     <style name="VelaBottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/VelaBottomSheetStyle</item>
         <item name="android:windowBlurBehindEnabled">true</item>
         <item name="android:windowBlurBehindRadius">20dp</item>
-        <item name="android:backgroundDimAmount">0.28</item>
+        <item name="android:backgroundDimAmount">@dimen/vela_dim_sheet_blur</item>
+    </style>
+
+    <style name="VelaBottomSheetStyle" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="shapeAppearance">@style/SheetShape</item>
+        <item name="backgroundTint">?attr/glassFloat</item>
     </style>
 
     <style name="VelaFloatingSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
@@ -20,6 +36,6 @@
         <item name="android:windowAnimationStyle">@style/VelaFloatingSheetAnim</item>
         <item name="android:windowBlurBehindEnabled">true</item>
         <item name="android:windowBlurBehindRadius">20dp</item>
-        <item name="android:backgroundDimAmount">0.30</item>
+        <item name="android:backgroundDimAmount">@dimen/vela_dim_floating_blur</item>
     </style>
 </resources>

@@ -15,6 +15,14 @@
     <attr name="glassScrim" format="color" />
     <!-- Faint hue of the theme for placeholders and selected glass. -->
     <attr name="glassTint" format="color" />
+    <!-- v2.19 floating glass: fill + hairline for windows that float over a BLURRED screen (dialogs, sheets, popup
+         menus on Android 12+). Light = frosted white ~82% with a darker ink hairline; dark = same as glassSurfaceStrong.
+         Where the window behind is not blurred (Android 11-, blur off in battery saver, player) code and the pre-31
+         styles use glassSurfaceStrong instead, so text never sits on see-through glass without blur. -->
+    <attr name="glassFloat" format="color" />
+    <attr name="glassFloatStroke" format="color" />
+    <!-- v2.19: false in the player theme: its dialogs/popups keep the fixed dark glass and never blur live video. -->
+    <attr name="glassBlurWindows" format="boolean" />
 
     <!-- v2.12 Midnight Glass design tokens (set per theme by the generated overlays). -->
     <!-- Glass level 2: grouped panels (settings groups, headers, floating clusters). Level 1 = glassSurface, level 3 = glassSurfaceStrong. -->

@@ -324,6 +324,17 @@ abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
         // Settings' hidden back-stack screens and left the main list stuck when the user came back).
         if (!isPlayerTheme && backdropVersion != Backdrop.version(this)) { backdropVersion = Backdrop.version(this); Atmosphere.refresh(this) }
     }
+    /**
+     * v2.19: a popup menu / overflow / dropdown just took focus from this screen: give it the Android 12+ blur behind
+     * (or the opaque fallback when the system has blur off). Theme-level, so no call site changes; never the player.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && !isPlayerTheme && android.os.Build.VERSION.SDK_INT >= 31) {
+            Glass.blurPopupWindows(this)
+            window.decorView.post { if (!isFinishing) Glass.blurPopupWindows(this) }
+        }
+    }
     /** v2.18: a screen that just changed the backdrop itself re-applies it live instead of recreating. */
     protected fun backdropChangedHere() { backdropVersion = Backdrop.version(this); Atmosphere.refresh(this) }
 }
