@@ -49,8 +49,16 @@ class PlaybackChip(
      * icon, text and bar (used for the volume boost range). [sticky] keeps it up until [hideSoon]/[hide] is called.
      */
     fun show(iconRes: Int, msg: CharSequence, level: Int? = null, accent: Int? = null,
-             durationMs: Long = SHORT, sticky: Boolean = false) {
+             durationMs: Long = SHORT, sticky: Boolean = false, onTap: (() -> Unit)? = null) {
         handler.removeCallbacks(hideRunnable)
+        // v2.19.1: error chips can be tapped / long-pressed (copy the full error). Every other chip stays touch-transparent.
+        if (onTap != null) {
+            chip.setOnClickListener { onTap() }
+            chip.setOnLongClickListener { onTap(); true }
+        } else if (chip.isClickable || chip.isLongClickable) {
+            chip.setOnClickListener(null); chip.setOnLongClickListener(null)
+            chip.isClickable = false; chip.isLongClickable = false
+        }
         if (iconRes != 0) icon.setImageResource(iconRes)
         icon.isVisible = iconRes != 0
         text.text = msg
