@@ -7,7 +7,7 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, targetSdk 34, AGP 8.3.2, Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.18.2`, `versionCode 39` (last updated 2026-10-14)
+- Current version: `versionName 2.19`, `versionCode 41` (last updated 2026-10-14)
 - Repo: `Rishi0690/vela-player-` (private, branch `main`). Owner works from an Android phone only (no PC); keep instructions simple.
 
 ## Golden rules
@@ -48,7 +48,7 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 | `Motion.kt` | v2.12 motion system: curves (`emphasized`, `emphasizedAccel`, `decelerate`, `standard`, springs `spring`/`springSoft` via `SpringInterpolator`), durations (`MICRO` 90, `SHORT` 150, `MEDIUM` 240, `LONG` 320, `XLONG` 460, `STAGGER` 22 ms), `enabled()` (reduced motion = animator scale 0 → every helper jumps to its end state), `pressable`, `bounce`, `enter/exit/reveal`, `blurIn` (RenderEffect blur-to-sharp on API 31+, no-op ≤30), `zoomThrough` (screen zoom-in/out + blur), `crossSwap` (snapshot cross-dissolve, used for grid↔list and theme preview), `iconSwap`, `stagger`, `depthPulse`, `lightSweep` (accent light band on a view overlay) |
 | `Atmosphere.kt` | v2.12 window backdrop: `AtmosphereDrawable` (3-stop vertical gradient + 2 radial glows + static 96 px grain against banding), `Atmosphere.of()` (preset attrs or `fromSeed` for custom themes), `applyTo(activity)` (window background, transparent status bar, nav bar tint; called by `ThemedActivity`), `viewBackground(view)` (window-aligned copy for opaque animated layers, e.g. settings screens) |
 | `PillNavGroup.kt` | v2.12 floating pill navigation: a `ChipGroup` subclass (same chips/ids/listener as before) that draws the near-white selected pill sliding with a "liquid" spring (leading edge first) and blends each chip's text colour by pill overlap. `slideToChecked()` from the tab listener; `snap()` on layout |
-| `SearchMorph.kt` | v2.12 home search morph: circular reveal of the glass search field from the search icon, back-arrow spin-in, accent light sweep, library depth pulse + nav dim; exact reverse on close (collapse is intercepted, animated, then completed), toolbar icons stagger back in. Toolbar order untouched |
+| `SearchMorph.kt` | v2.19 full-width home/Vault search: while open the toolbar menu strip is hidden and content insets zeroed so the field fills the toolbar (restored on every collapse path); glass pill grows from the icon (emphasized), blurIn contents, focus rim + underline glow, reverse on close, reduced motion = instant; Home saves query across recreate. Toolbar order untouched |
 | `VelaItemAnimator.kt` | v2.12 DefaultItemAnimator with staggered "rise" for added rows (search results, filters, playlist edits); used by home list and settings search |
 | `SkeletonView.kt` | v2.12 loading skeleton rows with a light sweep (home first load) |
 | `SettingsPanels.kt` | v2.12 `SettingsPanelDecoration`: every preference group (rows between category headers) drawn inside ONE level-2 glass panel with hairline dividers; attached in `prepareNavScreen` |
