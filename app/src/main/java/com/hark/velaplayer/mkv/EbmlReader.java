@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Vela Player: unmodified copy of androidx.media3.extractor.mkv.EbmlReader (media3 1.3.1), package changed only
-// because it is package-private and used by VelaMatroskaExtractor.
+// Vela Player: copy of androidx.media3.extractor.mkv.EbmlReader (media3 1.3.1), package changed because it is
+// package-private and used by VelaMatroskaExtractor. v2.19.3: added setStrict, setSeekSkipAllowed and consumePendingSeekPosition (marked VELA).
 package com.hark.velaplayer.mkv;
 
 import androidx.media3.common.ParserException;
@@ -54,4 +54,24 @@ import java.io.IOException;
    * @throws IOException If an error occurs reading from the input.
    */
   boolean read(ExtractorInput input) throws IOException;
+
+  /**
+   * VELA: in strict mode invalid data is a {@link ParserException} instead of a byte-by-byte resync to the next
+   * level 1 element (used while reading a seek index reached by a seek, where a resync means the index is garbage).
+   */
+  default void setStrict(boolean strict) {}
+
+  /**
+   * VELA: whether a big unknown/Void element may be skipped with a seek (local files); &gt; 2 GiB elements are
+   * always seek-skipped when the input length is known.
+   */
+  default void setSeekSkipAllowed(boolean allowed) {}
+
+  /**
+   * VELA: a position the extractor must seek to (an unknown/Void element too big to read through was skipped), or
+   * {@code C.INDEX_UNSET}. Clears it.
+   */
+  default long consumePendingSeekPosition() {
+    return -1;
+  }
 }

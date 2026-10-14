@@ -295,6 +295,24 @@ class PlayerActivity : AppCompatActivity() {
     private val hidePipSeekRunnable = Runnable { fadeOut(b.p22PipSeek); pipSeekAccum = 0L }
     /** True while the player itself opened another screen (picker, settings, vault): that is not "going to the background". */
     private var openedInAppScreen = false
+    /** v2.19.3: media ids already handed to the system engine in this process (each gets one try, never a loop). */
+    private val systemEngineTried = HashSet<String>()
+    /** The ExoPlayer error that sent the current item to the system engine (shown/skipped as before if it fails too). */
+    private var systemEngineError: PlaybackException? = null
+    private val systemEngine = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val e = systemEngineError ?: return@registerForActivityResult
+        systemEngineError = null
+        when (r.resultCode) {
+            SystemPlayerActivity.RESULT_COMPLETED ->
+                if (player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() } else finish()
+            SystemPlayerActivity.RESULT_FAILED -> {
+                val why = r.data?.getStringExtra(SystemPlayerActivity.EXTRA_ERROR) ?: "failed"
+                showError(e, allowSystemEngine = false, systemEngineNote = "System engine: $why")
+            }
+            // Back from the system engine: stay on this video (error panel, "System player" button), no auto-skip.
+            else -> showError(e, allowSystemEngine = false, allowSkip = false)
+        }
+    }
     private val requestWrite = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) captureFrame() else notice(R.drawable.ic_info, "Storage permission is needed to save screenshots")
     }
@@ -853,7 +871,8 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun showError(e: PlaybackException) {
+    private fun showError(e: PlaybackException, allowSystemEngine: Boolean = true, allowSkip: Boolean = true,
+                          systemEngineNote: String? = null) {
         val msg = when (e.errorCode) {
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Network problem. Check your connection and retry."
@@ -879,8 +898,13 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_DRM_UNSPECIFIED -> "This video is DRM-protected and can't be played here."
             else -> "${e.errorCodeName}: playback error."
         }
-        val detail = errorDetail(e)
+        val detail = errorDetail(e) + (systemEngineNote?.let { "\n$it" } ?: "")
         lastErrorDetail = "${titleOf(player.currentMediaItem)}\n$detail"
+        // v2.19.3: a LOCAL file ExoPlayer can't open (after the repair retry / both decoders) gets one try with the
+        // platform MediaPlayer (the Gallery's engine) in SystemPlayerActivity before it is skipped or shown as an error.
+        if (allowSystemEngine && trySystemEngine(e)) return
+        val canSystemEngine = systemEngineEligible(e, ignoreTried = true)
+        b.btnSystemEngine.isVisible = canSystemEngine
         // In a queue (Play all / playlist), skip a video that can't be opened instead of stopping everything.
         val skippable = e.errorCode in intArrayOf(
             PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
@@ -890,12 +914,13 @@ class PlayerActivity : AppCompatActivity() {
             // v2.19: decoder failures reach here only after the automatic hardware/software switch had nothing left to try
             PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
             PlaybackException.ERROR_CODE_DECODING_FAILED) || (isDecoderError(e) && e.errorCode == PlaybackException.ERROR_CODE_UNSPECIFIED)
-        if (skippable && player.hasNextMediaItem()) {
+        if (allowSkip && skippable && player.hasNextMediaItem()) {
             val name = titleOf(player.currentMediaItem)
             // v2.19.1: the code goes first (the chip truncates long text); tap/long-press the chip copies the full error.
+            // v2.19.3: plus the root cause, short ("IO_UNSPECIFIED (EOFException) · Skipped …"); full text in the copy.
             if (!isInPipSafe() && ::chip.isInitialized)
-                chip.show(R.drawable.ic_skip_next, "${shortCode(e)} · Skipped \"$name\"", durationMs = PlaybackChip.LONG) { copyLastError() }
-            else toast("Skipped \"$name\": ${shortCode(e)}")
+                chip.show(R.drawable.ic_skip_next, "${shortCode(e)}${causeHint(e)} · Skipped \"$name\"", durationMs = PlaybackChip.LONG) { copyLastError() }
+            else toast("Skipped \"$name\": ${shortCode(e)}${causeHint(e)}")
             player.seekToNextMediaItem(); player.prepare(); player.play()
             return
         }
@@ -908,6 +933,51 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun shortCode(e: PlaybackException) = e.errorCodeName.removePrefix("ERROR_CODE_")
+
+    /** v2.19.3: " (RootCauseClass: short message)" for the chip; empty when there is no cause. */
+    private fun causeHint(e: PlaybackException): String {
+        val root = rootCause(e) ?: return ""
+        val cls = root.javaClass.simpleName.ifEmpty { root.javaClass.name }
+            .replace("ArrayIndexOutOfBoundsException", "ArrayIndexOutOfBounds")
+        val m = root.message?.takeIf { it.isNotBlank() }?.let { if (it.length > 28) it.take(27) + "…" else it }
+        return " ($cls" + (m?.let { ": $it" } ?: "") + ")"
+    }
+
+    private fun rootCause(e: Throwable): Throwable? {
+        var c: Throwable? = e.cause ?: return null
+        var depth = 0
+        while (c?.cause != null && c.cause !== c && depth++ < 10) c = c.cause
+        return c
+    }
+
+    /** v2.19.3: local item, not missing/forbidden, a source/parsing/IO error or an exhausted decoder error. */
+    private fun systemEngineEligible(e: PlaybackException, ignoreTried: Boolean = false): Boolean {
+        val item = player.currentMediaItem ?: return false
+        val scheme = item.localConfiguration?.uri?.scheme
+        if (scheme != "content" && scheme != "file") return false
+        if (isInPipSafe() || isFinishing || !activityStarted) return false // can't start a screen from the background
+        if (!ignoreTried && item.mediaId in systemEngineTried) return false
+        if (e.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND || e.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION) return false
+        val source = (e as? ExoPlaybackException)?.type == ExoPlaybackException.TYPE_SOURCE
+        val parsing = e.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+            e.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+            e.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+        return source || parsing || isDecoderError(e)
+    }
+
+    private fun trySystemEngine(e: PlaybackException, force: Boolean = false): Boolean {
+        return try {
+            if (!systemEngineEligible(e, ignoreTried = force)) return false
+            val item = player.currentMediaItem ?: return false
+            val uri = item.localConfiguration?.uri ?: return false
+            systemEngineTried += item.mediaId
+            systemEngineError = e
+            b.errorPanel.isVisible = false
+            systemEngine.launch(SystemPlayerActivity.intent(this, uri, titleOf(item),
+                secure = vaultMode && !VaultAuth.allowScreenshots(this)))
+            true
+        } catch (_: Exception) { systemEngineError = null; false }
+    }
 
     /** "ERROR_CODE_X (2000)" + the cause chain (class: message), so the real reason is never hidden. */
     private fun errorDetail(e: PlaybackException): String {
@@ -923,6 +993,16 @@ class PlayerActivity : AppCompatActivity() {
             val next = t.cause
             c = if (next === t) null else next
             depth++
+        }
+        // v2.19.3: where the root cause was thrown: top 3 frames + the first extractor/app frame below them.
+        rootCause(e)?.stackTrace?.let { frames ->
+            val picked = frames.take(3).toMutableList()
+            frames.drop(3).firstOrNull { f ->
+                (f.className.contains("Extractor") && !f.className.endsWith("ExtractorInput")) ||
+                    f.className.contains("EbmlReader") || f.className.startsWith("com.hark.")
+            }?.let { picked += it }
+            for (f in picked) sb.append("\n  at ").append(f.className.substringAfterLast('.')).append('.')
+                .append(f.methodName).append(':').append(f.lineNumber)
         }
         return sb.toString()
     }
@@ -1169,6 +1249,8 @@ class PlayerActivity : AppCompatActivity() {
         b.btnPip.setOnClickListener { enterPip() }
         b.btnRetry.setOnClickListener { retry() }
         b.btnErrorClose.setOnClickListener { finish() }
+        // v2.19.3: manual "System player" (only visible for local files the system engine could try)
+        b.btnSystemEngine.setOnClickListener { player.playerError?.let { trySystemEngine(it, force = true) } }
         b.btnRewind.contentDescription = "Rewind ${seekIntervalMs / 1000} seconds"
         b.btnForward.contentDescription = "Forward ${seekIntervalMs / 1000} seconds"
 

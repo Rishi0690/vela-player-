@@ -47,4 +47,4 @@ def nocues(src,dst):
     for i,qq,h2,s2 in kids(b,p,h,s):
         if i==CUES: b[qq:qq+h2+s2]=void(h2+s2)
     open(dst,'wb').write(b)
-nested(sys.argv[1],sys.argv[2]); nocues(sys.argv[3],sys.argv[4])
+if __name__=="__main__": nested(sys.argv[1],sys.argv[2]); nocues(sys.argv[3],sys.argv[4])

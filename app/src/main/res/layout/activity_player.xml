@@ -604,6 +604,16 @@
                 android:layout_marginEnd="12dp"
                 android:text="Close" />
 
+            <!-- v2.19.3: open this local file with the platform MediaPlayer (SystemPlayerActivity) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSystemEngine"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:text="System player"
+                android:visibility="gone" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRetry"
                 android:layout_width="wrap_content"

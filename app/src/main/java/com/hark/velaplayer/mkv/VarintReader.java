@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Vela Player: unmodified copy of androidx.media3.extractor.mkv.VarintReader (media3 1.3.1), package changed only
-// because it is package-private and used by VelaMatroskaExtractor.
+// Vela Player: copy of androidx.media3.extractor.mkv.VarintReader (media3 1.3.1), package changed (package-private,
+// used by VelaMatroskaExtractor). v2.19.3: an invalid first byte returns RESULT_MAX_LENGTH_EXCEEDED (marked VELA).
 package com.hark.velaplayer.mkv;
 
 import androidx.media3.common.C;
@@ -88,7 +88,11 @@ import java.io.IOException;
       int firstByte = scratch[0] & 0xFF;
       length = parseUnsignedVarintLength(firstByte);
       if (length == C.LENGTH_UNSET) {
-        throw new IllegalStateException("No valid varint length mask found");
+        // VELA: a 0x00 byte (zeroed/garbage region) is invalid data, not a programming error: report it like an
+        // over-long varint so the EBML reader resyncs (or fails with a ParserException in strict mode) instead
+        // of an IllegalStateException surfacing as UnexpectedLoaderException / ERROR_CODE_IO_UNSPECIFIED.
+        state = STATE_BEGIN_READING;
+        return C.RESULT_MAX_LENGTH_EXCEEDED;
       }
       state = STATE_READ_CONTENTS;
     }

@@ -29,7 +29,16 @@
  * SeekMap.Unseekable: a seek interpolates a byte position, scans forward for a Cluster (ID 0x1F43B675 followed by its
  * Timestamp 0xE7), narrows the range and resumes reading at the start of the last Cluster whose timestamp is at or
  * before the target (keyframe accuracy; ExoPlayer drops samples before the target / until the next keyframe).
- * Files that had Cues keep the exact ChunkIndex behaviour. All changes are marked "VELA:". Checker-framework
+ * Files that had Cues keep the exact ChunkIndex behaviour.
+ * Third change (v2.19.3, tail-damaged files): a seek index that can't be used no longer fails playback. Cues/SeekHead
+ * targets at or beyond the end of the input are ignored; the element found at a Cues/nested-SeekHead target must
+ * start with the expected ID; an EOF, a malformed element or garbage (resync) while reading that index abandons it,
+ * seeks back to the first Cluster and uses the no-Cues SeekMap (binary search, or unseekable) instead of an
+ * IO/parsing error (plain Media3 1.3.1 throws EOFException → ERROR_CODE_IO_UNSPECIFIED, or loops). Cue points at or
+ * past the end of the input are dropped. With FLAG_LOCAL_INPUT (set by VelaExtractorsFactory for content/file URIs
+ * only), an EOFException in the middle of an element after the SeekMap was sent (file cut inside the last Cluster)
+ * ends the stream normally instead of failing; network inputs keep Media3's retry behaviour.
+ * All changes are marked "VELA:". Checker-framework
  * nullness annotations were removed (not on the app classpath).
  */
 package com.hark.velaplayer.mkv;
@@ -79,6 +88,7 @@ import androidx.media3.extractor.TrueHdSampleRechunker;
 import androidx.media3.extractor.text.SubtitleParser;
 import androidx.media3.extractor.text.SubtitleTranscodingExtractorOutput;
 import com.google.common.collect.ImmutableList;
+import java.io.EOFException;
 import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
@@ -134,6 +144,12 @@ public class VelaMatroskaExtractor implements Extractor {
    * transcoded to {@link MimeTypes#APPLICATION_MEDIA3_CUES} during extraction.
    */
   public static final int FLAG_EMIT_RAW_SUBTITLE_DATA = 1 << 1; // 2
+
+  /**
+   * VELA: the input is a local file (content/file URI), so an end of input is the real end of the file: an
+   * EOFException inside an element after the SeekMap was sent ends the stream instead of failing playback.
+   */
+  public static final int FLAG_LOCAL_INPUT = 1 << 16;
 
   /**
    * @deprecated Use {@link #newFactory(SubtitleParser.Factory)} instead.
@@ -484,6 +500,18 @@ public class VelaMatroskaExtractor implements Extractor {
   private long currentSeekHeadEndPosition = C.INDEX_UNSET;
   private long inputLength = C.LENGTH_UNSET;
 
+  // VELA (v2.19.3): tail-damaged files.
+  private final boolean localInput;
+  private boolean readingCuesDetour;
+  private long detourElementPosition = C.INDEX_UNSET;
+  private int detourElementId;
+  private final byte[] detourIdBytes = new byte[4];
+  /** Why the file's seek index was ignored, or null. For diagnostics/tests. */
+  @Nullable private String abandonedIndexReason;
+  /** Position at which a local file ended in the middle of an element, or C.INDEX_UNSET. */
+  private long truncatedAtPosition = C.INDEX_UNSET;
+  private boolean checkedLeadingBytes;
+
   // VELA: cluster binary-search seeking for files without usable Cues.
   private static final int CLUSTER_SCAN_BYTES = 128 * 1024;
   private static final long CLUSTER_SEEK_MIN_RANGE = 16 * 1024;
@@ -578,6 +606,8 @@ public class VelaMatroskaExtractor implements Extractor {
     this.reader.init(new InnerEbmlProcessor());
     this.subtitleParserFactory = subtitleParserFactory;
     seekForCuesEnabled = (flags & FLAG_DISABLE_SEEK_FOR_CUES) == 0;
+    localInput = (flags & FLAG_LOCAL_INPUT) != 0; // VELA
+    reader.setSeekSkipAllowed(localInput); // VELA: big Void/unknown elements in local files are skipped by a seek
     parseSubtitlesDuringExtraction = (flags & FLAG_EMIT_RAW_SUBTITLE_DATA) == 0;
     varintReader = new VarintReader();
     tracks = new SparseArray<>();
@@ -619,6 +649,9 @@ public class VelaMatroskaExtractor implements Extractor {
     for (int i = 0; i < tracks.size(); i++) {
       tracks.valueAt(i).reset();
     }
+    if (position == 0) {
+      checkedLeadingBytes = false; // VELA: restarting from byte 0 skips leading junk again
+    }
     // VELA: a non-zero seek with the cluster binary-search SeekMap starts a search on the next read().
     clusterSeekTargetUs = C.TIME_UNSET;
     if (clusterSeekMap != null && timeUs > 0) {
@@ -647,9 +680,57 @@ public class VelaMatroskaExtractor implements Extractor {
     if (clusterSeekTargetUs != C.TIME_UNSET) { // VELA
       return continueClusterSeek(input, seekPosition);
     }
+    if (!checkedLeadingBytes) { // VELA
+      checkedLeadingBytes = true;
+      skipLeadingJunk(input);
+    }
     boolean continueReading = true;
     while (continueReading && !haveOutputSample) {
-      continueReading = reader.read(input);
+      // VELA: reading a Cues element / nested SeekHead reached by a seek (an index detour): any damage there
+      // (wrong target, truncated or zeroed tail, garbage) abandons the index instead of failing playback.
+      boolean detour = readingCuesDetour || parsingNestedSeekHead;
+      reader.setStrict(detour);
+      if (detour) {
+        if (detourElementPosition != C.INDEX_UNSET && input.getPosition() == detourElementPosition) {
+          detourElementPosition = C.INDEX_UNSET;
+          if (!peekElementId(input, detourElementId)) {
+            return abandonIndexDetour(
+                seekPosition,
+                "no " + (detourElementId == ID_CUES ? "Cues" : "SeekHead") + " element at "
+                    + input.getPosition());
+          }
+        }
+        try {
+          continueReading = reader.read(input);
+        } catch (EOFException | ParserException e) {
+          return abandonIndexDetour(
+              seekPosition, e.getClass().getSimpleName() + " at " + input.getPosition() + ": " + e.getMessage());
+        }
+        if (!continueReading) {
+          return abandonIndexDetour(seekPosition, "end of input inside the index at " + input.getPosition());
+        }
+      } else {
+        try {
+          continueReading = reader.read(input);
+        } catch (EOFException e) {
+          // VELA: a local file cut inside an element (usually the last Cluster) ends here, like a clean end.
+          if (!localInput || !sentSeekMap || inputLength == C.LENGTH_UNSET) {
+            throw e;
+          }
+          truncatedAtPosition = input.getPosition();
+          Log.w(TAG, "File ends inside an element at " + truncatedAtPosition + " of " + inputLength
+              + ": treating it as the end of the stream");
+          continueReading = false;
+        }
+      }
+      if (continueReading) {
+        // VELA: a big unknown/Void element is skipped with a seek (no (int) size cast, no read-through).
+        long skipTo = reader.consumePendingSeekPosition();
+        if (skipTo != C.INDEX_UNSET) {
+          seekPosition.position = skipTo;
+          return Extractor.RESULT_SEEK;
+        }
+      }
       if (continueReading && maybeSeekForCues(seekPosition, input.getPosition())) {
         return Extractor.RESULT_SEEK;
       }
@@ -885,7 +966,12 @@ public class VelaMatroskaExtractor implements Extractor {
               "Mandatory element SeekID or SeekPosition not found", /* cause= */ null);
         }
         if (seekEntryId == ID_CUES) {
-          cuesContentPosition = seekEntryPosition;
+          if (inputLength != C.LENGTH_UNSET && seekEntryPosition >= inputLength) { // VELA
+            Log.w(TAG, "Ignoring Cues position " + seekEntryPosition + " past the end of the input (" + inputLength + ")");
+            abandonedIndexReason = "Cues listed at " + seekEntryPosition + ", past the end (" + inputLength + ")";
+          } else {
+            cuesContentPosition = seekEntryPosition;
+          }
         } else if (seekEntryId == ID_SEEK_HEAD) { // VELA
           maybeRecordNestedSeekHead(seekEntryPosition);
         }
@@ -908,7 +994,9 @@ public class VelaMatroskaExtractor implements Extractor {
         }
         break;
       case ID_CUES:
+        readingCuesDetour = false; // VELA
         if (!sentSeekMap) {
+          dropCuePointsPastEnd(); // VELA
           SeekMap cuesSeekMap = buildSeekMap(cueTimesUs, cueClusterPositions);
           if (!cuesSeekMap.isSeekable() && firstClusterContentPosition != C.INDEX_UNSET) {
             cuesSeekMap = seekMapWithoutCues(); // VELA: incomplete Cues
@@ -2020,6 +2108,8 @@ public class VelaMatroskaExtractor implements Extractor {
       seekPosition.position = nestedSeekHeadPosition;
       seekForNestedSeekHead = false;
       parsingNestedSeekHead = true;
+      detourElementPosition = nestedSeekHeadPosition; // VELA
+      detourElementId = ID_SEEK_HEAD;
       return true;
     }
     if (seekForCues) {
@@ -2029,6 +2119,9 @@ public class VelaMatroskaExtractor implements Extractor {
       }
       seekPosition.position = cuesContentPosition;
       seekForCues = false;
+      readingCuesDetour = true; // VELA
+      detourElementPosition = cuesContentPosition;
+      detourElementId = ID_CUES;
       return true;
     }
     // After parsing Cues, seek back to original position if available. We will not do this unless
@@ -2039,6 +2132,127 @@ public class VelaMatroskaExtractor implements Extractor {
       return true;
     }
     return false;
+  }
+
+  /**
+   * VELA: the Sniffer accepts an EBML header anywhere in the first 1024 bytes, but the reader started parsing at
+   * byte 0, so leading junk was read as EBML elements (with garbage sizes). Skip to the EBML header instead.
+   */
+  private void skipLeadingJunk(ExtractorInput input) throws IOException {
+    if (input.getPosition() != 0) {
+      return;
+    }
+    long length = input.getLength();
+    int window = (int) (length == C.LENGTH_UNSET ? 1024 : min(1024, length));
+    byte[] head = new byte[window];
+    input.resetPeekPosition();
+    int got = 0;
+    while (got < window) {
+      int n = input.peek(head, got, window - got);
+      if (n == C.RESULT_END_OF_INPUT) {
+        break;
+      }
+      got += n;
+    }
+    input.resetPeekPosition();
+    for (int i = 0; i + 4 <= got; i++) {
+      if ((head[i] & 0xFF) == 0x1A && (head[i + 1] & 0xFF) == 0x45
+          && (head[i + 2] & 0xFF) == 0xDF && (head[i + 3] & 0xFF) == 0xA3) {
+        if (i > 0) {
+          Log.w(TAG, "Skipping " + i + " bytes before the EBML header");
+          input.skipFully(i);
+        }
+        return;
+      }
+    }
+  }
+
+  /** VELA: whether the 4 bytes at the current position are the element ID {@code id} (peek only). */
+  private boolean peekElementId(ExtractorInput input, int id) throws IOException {
+    input.resetPeekPosition();
+    boolean ok;
+    try {
+      ok = input.peekFully(detourIdBytes, 0, 4, /* allowEndOfInput= */ true);
+    } catch (EOFException e) {
+      ok = false;
+    }
+    input.resetPeekPosition();
+    if (!ok) {
+      return false;
+    }
+    int found = ((detourIdBytes[0] & 0xFF) << 24) | ((detourIdBytes[1] & 0xFF) << 16)
+        | ((detourIdBytes[2] & 0xFF) << 8) | (detourIdBytes[3] & 0xFF);
+    return found == id;
+  }
+
+  /**
+   * VELA: the Cues / nested SeekHead reached by a seek can't be used (wrong target, truncated, zeroed or garbage
+   * tail). Forget the index, output the no-Cues SeekMap (cluster binary search when possible) and seek back to
+   * the first Cluster, exactly where the detour started.
+   */
+  private int abandonIndexDetour(PositionHolder seekPosition, String reason) throws ParserException {
+    Log.w(TAG, "Ignoring unusable seek index: " + reason);
+    abandonedIndexReason = reason;
+    reader.reset(); // also drops a pending skip seek
+    reader.setStrict(false);
+    varintReader.reset();
+    readingCuesDetour = false;
+    parsingNestedSeekHead = false;
+    seekForCues = false;
+    seekForNestedSeekHead = false;
+    detourElementPosition = C.INDEX_UNSET;
+    pendingNestedSeekHeads.clear();
+    cuesContentPosition = C.INDEX_UNSET;
+    currentSeekHeadEndPosition = C.INDEX_UNSET;
+    cueTimesUs = null;
+    cueClusterPositions = null;
+    if (!sentSeekMap) {
+      extractorOutput.seekMap(seekMapWithoutCues());
+      sentSeekMap = true;
+    }
+    long back =
+        seekPositionAfterBuildingCues != C.INDEX_UNSET
+            ? seekPositionAfterBuildingCues
+            : firstClusterContentPosition;
+    seekPositionAfterBuildingCues = C.INDEX_UNSET;
+    if (back == C.INDEX_UNSET) {
+      throw ParserException.createForMalformedContainer("Unusable seek index: " + reason, null);
+    }
+    seekPosition.position = back;
+    return Extractor.RESULT_SEEK;
+  }
+
+  /** VELA: drops cue points whose Cluster position is at or past the end of the input (truncated file). */
+  private void dropCuePointsPastEnd() {
+    if (inputLength == C.LENGTH_UNSET || cueTimesUs == null || cueClusterPositions == null
+        || segmentContentPosition == C.INDEX_UNSET
+        || cueTimesUs.size() != cueClusterPositions.size()) {
+      return;
+    }
+    LongArray times = new LongArray();
+    LongArray positions = new LongArray();
+    for (int i = 0; i < cueTimesUs.size(); i++) {
+      if (segmentContentPosition + cueClusterPositions.get(i) < inputLength) {
+        times.add(cueTimesUs.get(i));
+        positions.add(cueClusterPositions.get(i));
+      }
+    }
+    if (times.size() != cueTimesUs.size()) {
+      Log.w(TAG, "Dropped " + (cueTimesUs.size() - times.size()) + " cue points past the end of the input");
+      cueTimesUs = times;
+      cueClusterPositions = positions;
+    }
+  }
+
+  /** VELA: why the file's seek index was ignored (null if it wasn't). */
+  @Nullable
+  public String getAbandonedIndexReason() {
+    return abandonedIndexReason;
+  }
+
+  /** VELA: where a local file ended inside an element (C.INDEX_UNSET if it didn't). */
+  public long getTruncatedAtPosition() {
+    return truncatedAtPosition;
   }
 
   /**

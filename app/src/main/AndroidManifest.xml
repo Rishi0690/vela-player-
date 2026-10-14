@@ -66,6 +66,13 @@
             </intent-filter>
         </activity>
 
+        <!-- v2.19.3: last-resort platform MediaPlayer engine, started only from PlayerActivity's final error path -->
+        <activity
+            android:name=".SystemPlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation"
+            android:theme="@style/Theme.Vela.Player" />
+
         <activity
             android:name=".SettingsActivity"
             android:exported="false"

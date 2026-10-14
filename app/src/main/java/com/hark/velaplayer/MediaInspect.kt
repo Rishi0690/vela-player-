@@ -58,8 +58,52 @@ object MediaInspect {
                 }
                 if (mime.startsWith("video/") || mime.startsWith("audio/")) sb.append("  Decoders: ").append(decoders(f, mime)).append('\n')
             }
+        } catch (t: Throwable) {
+            sb.append("Android's reader couldn't open it (${t.javaClass.simpleName}: ${t.message})\n")
         } finally { try { ex.release() } catch (_: Throwable) {} }
+        // v2.19.3: Android's MediaExtractor silently drops tracks it can't read (e.g. some audio codecs in MKV), so
+        // the list above can miss tracks. Vela's own engine (ExoPlayer + VelaExtractorsFactory) lists every track,
+        // or the exact reason it can't open the file.
+        sb.append("\nVela engine:\n").append(velaTracks(ctx, uri))
         return sb.toString().trim()
+    }
+
+    /** Tracks as Vela's ExoPlayer extractors see them (all audio/subtitle tracks), or why it can't open the file. */
+    private fun velaTracks(ctx: Context, uri: Uri): String {
+        return try {
+            val factory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx, PlayerHolder.extractors())
+            val groups = androidx.media3.exoplayer.MetadataRetriever
+                .retrieveMetadata(factory, androidx.media3.common.MediaItem.fromUri(uri))
+                .get(20, java.util.concurrent.TimeUnit.SECONDS)
+            if (groups.length == 0) return "  No tracks found."
+            val sb = StringBuilder()
+            for (g in 0 until groups.length) {
+                val tg = groups[g]
+                for (i in 0 until tg.length) {
+                    val f = tg.getFormat(i)
+                    val mime = f.sampleMimeType ?: f.containerMimeType ?: "unknown"
+                    val kind = when (androidx.media3.common.MimeTypes.getTrackType(mime)) {
+                        androidx.media3.common.C.TRACK_TYPE_VIDEO -> "Video"
+                        androidx.media3.common.C.TRACK_TYPE_AUDIO -> "Audio"
+                        androidx.media3.common.C.TRACK_TYPE_TEXT -> "Subtitle"
+                        else -> "Track"
+                    }
+                    sb.append("  ").append(kind).append(": ").append(mime)
+                    f.codecs?.let { sb.append(" (").append(it).append(')') }
+                    if (f.width > 0 && f.height > 0) sb.append(", ").append(f.width).append('×').append(f.height)
+                    if (f.channelCount > 0) sb.append(", ").append(f.channelCount).append(" ch")
+                    if (f.sampleRate > 0) sb.append(", ").append(f.sampleRate).append(" Hz")
+                    f.language?.takeIf { it != "und" }?.let { sb.append(", ").append(it) }
+                    f.label?.let { sb.append(", \"").append(it).append('"') }
+                    sb.append('\n')
+                }
+            }
+            sb.toString().trimEnd()
+        } catch (t: Throwable) {
+            var c: Throwable = t
+            while (c.cause != null && c.cause !== c && (c is java.util.concurrent.ExecutionException || c.cause is Exception)) c = c.cause!!
+            "  Can't open: ${c.javaClass.simpleName}: ${c.message?.take(200)}"
+        }
     }
 
     private fun int(f: MediaFormat, k: String): Int? = try { if (f.containsKey(k)) f.getInteger(k) else null } catch (_: Throwable) { null }
@@ -70,7 +114,7 @@ object MediaInspect {
         val fr = try { if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) f.getNumber(MediaFormat.KEY_FRAME_RATE)?.toFloat() else null } catch (_: Throwable) { null }
         fr?.let { sb.append("  Frame rate: ").append(String.format("%.3f", it).trimEnd('0').trimEnd('.')).append(" fps\n") }
         int(f, "profile")?.let { p -> sb.append("  Profile: ").append(profileName(mime, p)).append('\n') }
-        int(f, "level")?.let { sb.append("  Level: ").append(it).append('\n') }
+        int(f, "level")?.let { sb.append("  Level: ").append(levelName(mime, it)).append('\n') }
         int(f, MediaFormat.KEY_BIT_RATE)?.let { sb.append("  Bitrate: ").append(it / 1000).append(" kb/s\n") }
         if (Build.VERSION.SDK_INT >= 24) {
             when (int(f, MediaFormat.KEY_COLOR_TRANSFER)) {
@@ -86,6 +130,15 @@ object MediaInspect {
         int(f, MediaFormat.KEY_SAMPLE_RATE)?.let { sb.append("  Sample rate: ").append(it).append(" Hz\n") }
         int(f, MediaFormat.KEY_BIT_RATE)?.let { sb.append("  Bitrate: ").append(it / 1000).append(" kb/s\n") }
         f.getString(MediaFormat.KEY_LANGUAGE)?.takeIf { it != "und" }?.let { sb.append("  Language: ").append(it).append('\n') }
+    }
+
+    /** v2.19.3: AVC levels were shown as the raw MediaCodec constant (e.g. 2048 = level 4.1). */
+    private fun levelName(mime: String, l: Int): String {
+        if (mime != "video/avc") return l.toString()
+        val names = mapOf(1 to "1", 2 to "1b", 4 to "1.1", 8 to "1.2", 16 to "1.3", 32 to "2", 64 to "2.1", 128 to "2.2",
+            256 to "3", 512 to "3.1", 1024 to "3.2", 2048 to "4", 4096 to "4.1", 8192 to "4.2", 16384 to "5",
+            32768 to "5.1", 65536 to "5.2", 131072 to "6", 262144 to "6.1", 524288 to "6.2")
+        return names[l]?.let { "$it (code $l)" } ?: l.toString()
     }
 
     private fun profileName(mime: String, p: Int): String = when (mime) {

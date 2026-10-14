@@ -41,7 +41,13 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    testOptions { unitTests { isIncludeAndroidResources = true } }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            // Robolectric's ParcelFileDescriptor shadow (content:// tests) reads FileDescriptor.fd reflectively.
+            all { it.jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED") }
+        }
+    }
     buildFeatures { viewBinding = true }
     lint {
         checkReleaseBuilds = false
