@@ -178,6 +178,8 @@ class MainActivity : ThemedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v2.19: an active search survives a recreate (e.g. system dark/light switch); the menu re-opens the field.
+        query = savedInstanceState?.getString(STATE_SEARCH_QUERY) ?: ""
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
         setSupportActionBar(b.toolbar)
@@ -295,6 +297,7 @@ class MainActivity : ThemedActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         rememberScroll(); saveUiState()
+        outState.putString(STATE_SEARCH_QUERY, query)
         super.onSaveInstanceState(outState)
     }
 
@@ -765,6 +768,7 @@ class MainActivity : ThemedActivity() {
         val sv = searchItem.actionView as SearchView
         sv.queryHint = "Search videos"
         SearchMorph.install(this, b.toolbar, searchItem, sv, depth = listOf(b.tabSwipe), dim = listOf(b.navWrap))
+        if (query.isNotBlank()) { val q = query; SearchMorph.expandInstant(searchItem); sv.setQuery(q, false); query = q }
         sv.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(q: String?): Boolean { sv.clearFocus(); return true }
             override fun onQueryTextChange(q: String?): Boolean {
@@ -1969,6 +1973,7 @@ class MainActivity : ThemedActivity() {
         private const val PAYLOAD_SEL = "sel"
         /** v2.14 widgets: open a library destination ("all", "folders", "favorites", "playlists", "continue"). */
         const val EXTRA_OPEN = "vela_open"
+        private const val STATE_SEARCH_QUERY = "vela_search_query"
         /** v2.14 widgets: with EXTRA_OPEN = "playlists", open this playlist when it still exists. */
         const val EXTRA_OPEN_PLAYLIST = "vela_open_playlist"
     }

@@ -509,9 +509,12 @@ class VaultActivity : ThemedActivity() {
         if (!Vault.isUnlocked()) { menuRef = null; return false }
         menuInflater.inflate(R.menu.vault_menu, menu)
         menuRef = menu
-        val sv = menu.findItem(R.id.vault_search).actionView as SearchView
+        val searchItem = menu.findItem(R.id.vault_search)
+        val sv = searchItem.actionView as SearchView
         sv.queryHint = "Search the vault"
-        if (query.isNotEmpty()) { menu.findItem(R.id.vault_search).expandActionView(); sv.setQuery(query, false) }
+        // v2.19: same full-width glass field + motion as Home (other toolbar items hide only while searching).
+        SearchMorph.install(this, toolbar, searchItem, sv, depth = listOf(list), dim = listOf(filters))
+        if (query.isNotEmpty()) { val q = query; SearchMorph.expandInstant(searchItem); sv.setQuery(q, false); query = q }
         sv.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(q: String?): Boolean { sv.clearFocus(); return true }
             override fun onQueryTextChange(q: String?): Boolean {

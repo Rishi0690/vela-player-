@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.19: view tag for the SearchMorph controller attached to a toolbar SearchView. -->
+<resources>
+    <item name="tag_search_morph" type="id" />
+</resources>
