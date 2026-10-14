@@ -57,7 +57,8 @@ class ItemSheet(private val activity: Activity) {
             override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
         }.apply {
             orientation = LinearLayout.VERTICAL
-            background = Glass.floatingPanel(c, Tokens.RADIUS_XL)
+            // v2.19: floating glass: frosted over the Android 12+ blur (Light and Dark), opaque level 3 without blur.
+            background = Glass.floatingWindowPanel(c, Tokens.RADIUS_XL)
             elevation = Tokens.ELEV_DIALOG * d
             setPadding(0, dp(8), 0, dp(10))
             isClickable = true
@@ -135,6 +136,10 @@ class ItemSheet(private val activity: Activity) {
         host.addView(card, FrameLayout.LayoutParams(
             minOf(c.resources.displayMetrics.widthPixels - dp(20), maxW), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM))
         sheet.setContentView(host)
+        Glass.bindWindowBlur(sheet) { blurred ->
+            Glass.setPanelFill(card.background, Glass.floatFill(c, blurred))
+            sheet.window?.setDimAmount(Glass.dim(c, floating = true, blurred = blurred))
+        }
         sheet.behavior.skipCollapsed = true
         sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         // Vault (and anything else that hides screenshots) keeps FLAG_SECURE on the sheet window too.
