@@ -124,8 +124,8 @@ object Backdrop {
         return f.delete() || !f.exists()
     }
 
-    /** Restore to default: theme background + default appearance (Blurred glass, default blur and dim). Photos are kept. */
-    fun restoreDefaults(c: Context) = update(c, source = "", style = STYLE_GLASS, blur = DEFAULT_BLUR, dim = DEFAULT_DIM)
+    /** Restore to default (v2.18.2): ONLY blur and dim go back to their defaults; photo, style and theme are kept. */
+    fun restoreDefaults(c: Context) = update(c, blur = DEFAULT_BLUR, dim = DEFAULT_DIM)
     fun builtin(id: String) = BUILTINS.firstOrNull { it.id == id }
 
     /** A photo is selected and still available. */
@@ -155,9 +155,12 @@ object Backdrop {
         val s = spec(c)
         if (!active(c)) return null
         synchronized(lock) {
-            if (cacheKey == s.key) cache?.let { return it }
+            val (sw, sh) = screenSize(c)
+            val key = s.key + "|" + sw + "x" + sh
+            if (cacheKey == key) cache?.let { return it }
+            cache = null // release the old photo before decoding the new one
             val p = try { process(c.applicationContext, s) } catch (_: Throwable) { null } ?: return null
-            cacheKey = s.key; cache = p
+            cacheKey = key; cache = p
             return p
         }
     }
@@ -165,21 +168,92 @@ object Backdrop {
     /** Warms the cache off the main thread (app start, after a change). */
     fun prewarm(c: Context) { val app = c.applicationContext; Thread { processed(app) }.start() }
 
+    /** EXIF rotation of an imported photo (built-ins are stored upright). */
+    private fun rotationOf(c: Context, s: Spec): Int {
+        if (!isCustom(s.source)) return 0
+        val f = fileFor(c, s.source) ?: return 0
+        return try {
+            when (android.media.ExifInterface(f.path).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90, android.media.ExifInterface.ORIENTATION_TRANSPOSE -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270, android.media.ExifInterface.ORIENTATION_TRANSVERSE -> 270
+                else -> 0
+            }
+        } catch (_: Exception) { 0 }
+    }
+
+    private fun open(c: Context, s: Spec, opts: BitmapFactory.Options): Bitmap? =
+        if (isCustom(s.source)) fileFor(c, s.source)?.let { BitmapFactory.decodeFile(it.path, opts) }
+        else builtin(s.source.removePrefix("b:"))?.let { BitmapFactory.decodeResource(c.resources, it.res, opts) }
+
+    private fun rotate(b: Bitmap, deg: Int): Bitmap {
+        if (deg == 0) return b
+        val out = Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(deg.toFloat()) }, true)
+        if (out !== b) b.recycle()
+        return out
+    }
+
+    /** Upright photo with its long side at least [maxSide] (power-of-two subsampling only, never below it). */
     private fun decodeSource(c: Context, s: Spec, maxSide: Int): Bitmap? {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        fun open(opts: BitmapFactory.Options): Bitmap? = if (isCustom(s.source)) fileFor(c, s.source)?.let { BitmapFactory.decodeFile(it.path, opts) }
-            else builtin(s.source.removePrefix("b:"))?.let { BitmapFactory.decodeResource(c.resources, it.res, opts) }
-        open(o)
+        open(c, s, o)
         if (o.outWidth <= 0 || o.outHeight <= 0) return null
         var sample = 1
         while (max(o.outWidth, o.outHeight) / (sample * 2) >= maxSide) sample *= 2
-        return open(BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888; inScaled = false })
+        val b = open(c, s, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888; inScaled = false }) ?: return null
+        return rotate(b, rotationOf(c, s))
+    }
+
+    /** Full physical screen size in the current orientation (the backdrop runs under the transparent bars). */
+    fun screenSize(c: Context): Pair<Int, Int> {
+        val dm = android.util.DisplayMetrics()
+        try {
+            @Suppress("DEPRECATION")
+            (c.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.getRealMetrics(dm)
+        } catch (_: Exception) { }
+        var w = dm.widthPixels; var h = dm.heightPixels
+        if (w <= 0 || h <= 0) { w = c.resources.displayMetrics.widthPixels; h = c.resources.displayMetrics.heightPixels }
+        val portrait = c.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        return if (portrait) Pair(min(w, h), max(w, h)) else Pair(max(w, h), min(w, h))
+    }
+
+    /**
+     * Clear mode: the photo at the screen's real resolution. Decodes only as much as needed (power-of-two subsample
+     * that never drops below the cover size), then ONE high-quality filtered scale + centre crop to exactly the screen
+     * (aspect preserved, no stretching, no gaps). Small photos are kept as they are and only scaled up when drawn.
+     */
+    private fun processClear(c: Context, s: Spec): Bitmap? {
+        val (sw, sh) = screenSize(c)
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        open(c, s, o)
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null
+        val rot = rotationOf(c, s)
+        val bw = if (rot % 180 == 0) o.outWidth else o.outHeight
+        val bh = if (rot % 180 == 0) o.outHeight else o.outWidth
+        val cover = max(sw.toFloat() / bw, sh.toFloat() / bh)
+        var sample = 1
+        if (cover < 1f) while (sample * 2 <= (1f / cover)) sample *= 2
+        // Keep the decode within a safe bitmap size (very large panoramas).
+        while ((o.outWidth / sample).toLong() * (o.outHeight / sample) > 36_000_000L) sample *= 2
+        val dec = rotate(open(c, s, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888; inScaled = false }) ?: return null, rot)
+        val k = max(sw.toFloat() / dec.width, sh.toFloat() / dec.height)
+        if (k >= 1f) {
+            // Smaller than the screen: crop to the screen's aspect at native resolution; the drawable scales it up.
+            val cw = min(dec.width, (sw / k).roundToInt().coerceAtLeast(1)); val ch = min(dec.height, (sh / k).roundToInt().coerceAtLeast(1))
+            if (cw == dec.width && ch == dec.height) return dec
+            val out = Bitmap.createBitmap(dec, (dec.width - cw) / 2, (dec.height - ch) / 2, cw, ch)
+            if (out !== dec) dec.recycle()
+            return out
+        }
+        val cw = min(dec.width, (sw / k).roundToInt()); val ch = min(dec.height, (sh / k).roundToInt())
+        val out = Bitmap.createBitmap(dec, (dec.width - cw) / 2, (dec.height - ch) / 2, cw, ch, Matrix().apply { setScale(k, k) }, true)
+        if (out !== dec) dec.recycle()
+        return out
     }
 
     private fun process(c: Context, s: Spec): Processed? {
         if (!s.glass) {
-            val dm = c.resources.displayMetrics
-            val full = decodeSource(c, s, max(dm.widthPixels, dm.heightPixels).coerceAtLeast(1280)) ?: return null
+            val full = processClear(c, s) ?: return null
             return Processed(full, luminance(full))
         }
         val srcKey = "${s.source}|${s.stamp}"
@@ -298,41 +372,23 @@ object Backdrop {
     // ------------------------------------------------------------------ custom photo import
 
     /** Copies a gallery photo into private storage (downscaled to ≤1600 px, EXIF rotation applied). Run off the main thread. */
+    /**
+     * v2.18.2: copies the gallery photo into private storage BYTE FOR BYTE (no re-encode, no downscale), so Clear mode
+     * shows the original quality. Rotation comes from its EXIF at display time. Run off the main thread.
+     */
     fun importCustom(c: Context, uri: Uri): String? {
+        val d = dir(c); d.mkdirs()
+        val tmp = File(d, "import.tmp")
         return try {
-            val cr = c.contentResolver
+            c.contentResolver.openInputStream(uri)?.use { input -> tmp.outputStream().use { input.copyTo(it, 64 * 1024) } } ?: return null
             val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
-            if (o.outWidth <= 0 || o.outHeight <= 0) return null
-            var sample = 1
-            while (max(o.outWidth, o.outHeight) / (sample * 2) >= 1600) sample *= 2
-            var bmp = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return null
-            val rot = try {
-                cr.openInputStream(uri)?.use {
-                    when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
-                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                        else -> 0f
-                    }
-                } ?: 0f
-            } catch (_: Exception) { 0f }
-            val longSide = max(bmp.width, bmp.height)
-            val sc = if (longSide > 1600) 1600f / longSide else 1f
-            if (rot != 0f || sc < 1f) {
-                val m = Matrix().apply { postScale(sc, sc); postRotate(rot) }
-                val out = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-                if (out !== bmp) bmp.recycle()
-                bmp = out
-            }
-            val name = "c_${System.currentTimeMillis()}.jpg"
-            val f = File(dir(c), name); f.parentFile?.mkdirs()
-            val tmp = File(f.parentFile, "custom.tmp")
-            tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
-            bmp.recycle()
+            BitmapFactory.decodeFile(tmp.path, o)
+            if (o.outWidth <= 0 || o.outHeight <= 0) { tmp.delete(); return null }
+            val name = "c_${System.currentTimeMillis()}.jpg" // name only; BitmapFactory reads any format it supports
+            val f = File(d, name)
             if (!tmp.renameTo(f)) { tmp.copyTo(f, overwrite = true); tmp.delete() }
             "c:$name"
-        } catch (_: Throwable) { null }
+        } catch (_: Throwable) { tmp.delete(); null }
     }
 
     /** Small thumbnail for the picker tiles. */
@@ -351,22 +407,18 @@ class BackdropDrawable(c: Context, private val atmo: Atmosphere.Atmo, private va
     }
     private val scrim = Paint(Paint.DITHER_FLAG)
     private val bands = Paint(Paint.DITHER_FLAG)
-    private val glow = Paint(Paint.DITHER_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val grain = Paint().apply { shader = BitmapShader(AtmosphereDrawable.grainBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }
     private val m = Matrix()
     private var offsetY = 0
     private var frameH = 0
     private val density = c.resources.displayMetrics.density
 
-    /** Scrim strength 0..1: the user's Dim, but never below what this photo's brightness needs for readable text. */
-    private val scrimAlpha: Float = run {
-        val user = spec.dim / 100f
-        val l = photo.luminance.coerceIn(0.01f, 0.99f)
-        val need = if (atmo.dark) (1f - 0.34f / l).coerceAtLeast(0f) else ((0.74f - l) / (1f - l)).coerceAtLeast(0f)
-        val base = max(user, need + if (spec.glass) 0.04f else 0f)
-        base.coerceIn(0.06f, 0.92f)
-    }
-    private val scrimColor: Int = if (atmo.dark) Atmosphere.mix(0xFF04050A.toInt(), atmo.top, 0.55f) else Atmosphere.mix(0xFFF7F8FC.toInt(), atmo.top, 0.5f)
+    /**
+     * v2.18.2: the photo alone controls the background. The scrim is NEUTRAL (black in dark mode, white in light mode;
+     * never the theme's atmosphere colours or glows) and exactly the user's Dim, so Dim 0 shows the photo untouched.
+     */
+    private val scrimAlpha: Float = (spec.dim / 100f).coerceIn(0f, 0.9f)
+    private val scrimColor: Int = if (atmo.dark) Color.BLACK else Color.WHITE
 
     fun align(offset: Int, windowHeight: Int) { offsetY = offset; frameH = windowHeight; onBoundsChange(bounds); invalidateSelf() }
 
@@ -380,21 +432,18 @@ class BackdropDrawable(c: Context, private val atmo: Atmosphere.Atmo, private va
         val oy = -offsetY.toFloat() + b.top
         scrim.color = Atmosphere.alpha(scrimColor, (scrimAlpha * 255).roundToInt())
         // A little extra under the toolbar and above the nav bar, where text and icons sit on the photo.
-        val edge = Atmosphere.alpha(scrimColor, ((if (atmo.dark) 0.30f else 0.26f) * 255).roundToInt())
+        // Thin neutral bands under the status bar / above the nav bar for their icons; lighter when Dim is low.
+        val edge = Atmosphere.alpha(scrimColor, ((0.10f + 0.20f * (scrimAlpha / 0.9f)) * 255).roundToInt())
         val clear = Atmosphere.alpha(scrimColor, 0)
-        bands.shader = LinearGradient(0f, oy, 0f, oy + h, intArrayOf(edge, clear, clear, edge), floatArrayOf(0f, 0.2f, 0.82f, 1f), Shader.TileMode.CLAMP)
-        // Blurred glass: a soft theme glow so the frosted photo belongs to the current theme.
-        glow.shader = if (spec.glass) RadialGradient(b.left + w * 0.15f, oy + h * 0.85f, max(w, h) * 0.7f,
-            Atmosphere.alpha(atmo.glowA, (Color.alpha(atmo.glowA) * 0.55f).roundToInt()), Atmosphere.alpha(atmo.glowA, 0), Shader.TileMode.CLAMP) else null
+        bands.shader = LinearGradient(0f, oy, 0f, oy + h, intArrayOf(edge, clear, clear, edge), floatArrayOf(0f, 0.08f, 0.92f, 1f), Shader.TileMode.CLAMP)
     }
 
     override fun draw(c: Canvas) {
         val b = bounds
         c.save(); c.clipRect(b)
         c.drawBitmap(photo.bitmap, m, photoPaint)
-        c.drawRect(b, scrim)
+        if (scrimAlpha > 0f) c.drawRect(b, scrim)
         c.drawRect(b, bands)
-        if (glow.shader != null) c.drawRect(b, glow)
         if (spec.glass) c.drawRect(b, grain)
         c.restore()
     }

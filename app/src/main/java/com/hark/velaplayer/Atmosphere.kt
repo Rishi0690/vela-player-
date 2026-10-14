@@ -83,9 +83,16 @@ object Atmosphere {
     fun applyTo(a: Activity) {
         val w = a.window ?: return
         val atmo = of(a)
-        w.setBackgroundDrawable(backdrop(a, atmo))
+        val bg = backdrop(a, atmo)
+        w.setBackgroundDrawable(bg)
         if (atmo.dark || Build.VERSION.SDK_INT >= 23) w.statusBarColor = android.graphics.Color.TRANSPARENT
-        if (atmo.dark) w.navigationBarColor = atmo.bottom
+        if (bg is BackdropDrawable) {
+            // v2.18.2: with a photo, nothing theme-coloured sits over it: the photo runs under the nav bar too.
+            if (atmo.dark || Build.VERSION.SDK_INT >= 27) {
+                w.navigationBarColor = android.graphics.Color.TRANSPARENT
+                if (Build.VERSION.SDK_INT >= 27) androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightNavigationBars = !atmo.dark
+            } else w.navigationBarColor = 0x66000000 // Android 7-8.0 light mode: white nav icons need some shade
+        } else if (atmo.dark) w.navigationBarColor = atmo.bottom
         else if (Build.VERSION.SDK_INT >= 27) {
             w.navigationBarColor = atmo.bottom
             androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightNavigationBars = true
@@ -97,6 +104,7 @@ object Atmosphere {
      * screens). It lines itself up with the window so its gradient continues the backdrop seamlessly.
      */
     fun viewBackground(v: View): Drawable {
+        layers[v] = true
         val d = backdrop(v.context, of(v.context))
         v.background = d
         v.post {
@@ -104,6 +112,26 @@ object Atmosphere {
             when (d) { is AtmosphereDrawable -> d.align(loc[1], v.rootView.height); is BackdropDrawable -> d.align(loc[1], v.rootView.height) }
         }
         return d
+    }
+
+    /** Views given a window-aligned backdrop copy (weak), so a background change can refresh them in place. */
+    private val layers = java.util.WeakHashMap<View, Boolean>()
+
+    /**
+     * v2.18.2: re-applies the current backdrop to this activity's window and every aligned layer it owns (settings
+     * screens, including hidden ones in the back stack) WITHOUT recreating it, so scroll positions, fragment back
+     * stacks and screen state stay exactly as they were.
+     */
+    fun refresh(a: Activity) {
+        applyTo(a)
+        val win = a.window?.decorView ?: return
+        layers.keys.toList().filter { it.rootView === win || it.context.findActivity() === a }.forEach { viewBackground(it) }
+    }
+
+    private fun Context.findActivity(): Activity? {
+        var c: Context? = this
+        while (c is android.content.ContextWrapper) { if (c is Activity) return c; c = c.baseContext }
+        return null
     }
 
     /** v2.18: the user's background photo ([Backdrop]) when one is set, otherwise the theme atmosphere. */

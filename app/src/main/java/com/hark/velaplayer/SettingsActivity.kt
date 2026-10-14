@@ -81,7 +81,31 @@ class SettingsActivity : ThemedActivity() {
             supportFragmentManager.beginTransaction().replace(R.id.container, RootFragment()).commit()
             intent.getStringExtra(EXTRA_SECTION)?.takeIf { XML.containsKey(it) }?.let { open(it, addToBack = false, highlight = intent.getStringExtra(EXTRA_HIGHLIGHT)) }
         }
+        if (savedInstanceState != null && supportFragmentManager.backStackEntryCount > 0) rebuildRestoredStack()
         updateTitle()
+    }
+
+    /** True while [rebuildRestoredStack] runs: screens switch instantly, no nav animations. */
+    var instantNav = false
+        private set
+
+    /**
+     * v2.18.2 root fix: after a recreate (theme change, background change, process death) Android restored the main
+     * screen as a HIDDEN fragment with a stale list state underneath the category screen. Coming back to it could
+     * leave the main list stuck (no scrolling either way). Instead of trusting that restored pair, rebuild the same
+     * path fresh: a new main screen, then the same category screen(s) on top, instantly. Back then behaves exactly
+     * like a normal visit and the main list scrolls freely.
+     */
+    private fun rebuildRestoredStack() {
+        val fm = supportFragmentManager
+        val sections = (0 until fm.backStackEntryCount).mapNotNull { fm.getBackStackEntryAt(it).name }.filter { XML.containsKey(it) }
+        instantNav = true
+        try {
+            fm.popBackStackImmediate(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+            fm.beginTransaction().setReorderingAllowed(true).replace(R.id.container, RootFragment()).commitNow()
+            for (sec in sections) { lastNavAt = 0L; open(sec); fm.executePendingTransactions() }
+        } catch (_: IllegalStateException) {
+        } finally { instantNav = false; lastNavAt = 0L }
     }
 
     override fun onResume() {
@@ -207,6 +231,8 @@ class SettingsActivity : ThemedActivity() {
         override fun onHiddenChanged(hidden: Boolean) {
             super.onHiddenChanged(hidden)
             if (!hidden) (activity as? SettingsActivity)?.onScreenShown(true)
+            // v2.18.2: coming back, the list must be free to scroll: no stale fling, no leftover lift, fresh layout.
+            if (!hidden) listView?.let { l -> l.stopScroll(); l.isNestedScrollingEnabled = true; l.requestLayout() }
         }
         override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? =
             navAnim(this, nextAnim)
@@ -608,6 +634,7 @@ private fun navAnim(f: androidx.fragment.app.Fragment, nextAnim: Int): android.v
     val v = f.view
     navAnimZ(v, nextAnim)
     if (nextAnim == 0) return null
+    if ((f.activity as? SettingsActivity)?.instantNav == true) { v?.translationZ = 0f; return null }
     val ctx = f.context ?: return null
     val scale = android.provider.Settings.Global.getFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     if (scale == 0f) return android.view.animation.AlphaAnimation(1f, 1f).apply { duration = 0 }

@@ -320,9 +320,10 @@ abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (themeVersion != ThemeManager.version(this)) { themeVersion = ThemeManager.version(this); recreate(); return }
-        // v2.18: background photo changed on another screen -> rebuild so every layer (window + settings pages) matches.
-        if (!isPlayerTheme && backdropVersion != Backdrop.version(this)) { backdropVersion = Backdrop.version(this); recreate() }
+        // v2.18.2: background photo changed on another screen -> refresh it IN PLACE (no recreate: recreating restored
+        // Settings' hidden back-stack screens and left the main list stuck when the user came back).
+        if (!isPlayerTheme && backdropVersion != Backdrop.version(this)) { backdropVersion = Backdrop.version(this); Atmosphere.refresh(this) }
     }
     /** v2.18: a screen that just changed the backdrop itself re-applies it live instead of recreating. */
-    protected fun backdropChangedHere() { backdropVersion = Backdrop.version(this); Atmosphere.applyTo(this) }
+    protected fun backdropChangedHere() { backdropVersion = Backdrop.version(this); Atmosphere.refresh(this) }
 }

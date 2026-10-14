@@ -106,7 +106,7 @@ class BackgroundActivity : ThemedActivity() {
         val (dimHead, dv) = sliderHeader("Dim"); dimValue = dv
         dimSlider = Slider(this).apply { valueFrom = 0f; valueTo = 90f; stepSize = 1f; contentDescription = "Dim" }
         panel.addView(dimHead); panel.addView(dimSlider)
-        panel.addView(note("Vela always adds just enough shade to keep text and icons readable.").apply { setPadding(0, 0, 0, dp(6f)) })
+        panel.addView(note("Dim 0 shows your photo exactly as it is. Raise Dim if text is hard to read.").apply { setPadding(0, 0, 0, dp(6f)) })
         appearanceBlock.addView(panel)
         col.addView(appearanceBlock)
 
@@ -219,14 +219,14 @@ class BackgroundActivity : ThemedActivity() {
 
     private fun confirmRestore() {
         VelaDialogBuilder(this)
-            .setTitle("Restore default background?")
-            .setMessage("Vela goes back to its original theme background with the default appearance. Your photos stay in the collection.")
+            .setTitle("Restore default settings?")
+            .setMessage("Blur and Dim go back to their default values. Your background photo and theme stay as they are.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Restore") { _, _ ->
                 Backdrop.restoreDefaults(this)
                 syncControls()
                 applyNow()
-                Toast.makeText(this, "Default background restored", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Blur and Dim restored", Toast.LENGTH_SHORT).show()
             }.show()
     }
 
