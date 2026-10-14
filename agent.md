@@ -217,3 +217,7 @@ Original 2026-10-13 ask, mostly delivered: full UI/UX + motion polish across the
 ## Open work (not done yet)
 - Search redesign remainder (asked 2026-10-13): dedicated results layout with richer thumbnails/metadata, initial (no-query) state, richer empty state, recent searches only if backed by real data, fuller open/close choreography beyond the circular reveal.
 - Nothing is device-tested in CI; there is no emulator in the build sandbox. Owner tests on the phone and reports back.
+
+## v2.18.3 (versionCode 40)
+- Main Settings stuck-scroll hardening: RootFragment.restoreScrollable() runs on show + onResume (stop fling, unsuppress layout, reset edge-effect stretch, VelaScroller.reset, top padding re-applied, dropStaleScreens() hides any lingering closing screen). Closing screen no longer gets translationZ (it was first in line for touches). Search-field padding now always targets RootFragment (after a restore the main list had no top padding).
+- Robolectric tests: app/src/test/.../SettingsScrollTest.kt (Back from Background with each option, recreate/process restore). Run: build.sh <tree> testDebugUnitTest. Needs ConscryptMode OFF (aarch64), android-all jar resolved via `robolectricRuntime` config.

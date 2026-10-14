@@ -67,7 +67,9 @@ class SettingsActivity : ThemedActivity() {
                 val h = bottom - top
                 b.searchResults.setPadding(0, h, 0, b.searchResults.paddingBottom)
                 b.searchEmpty.setPadding(b.searchEmpty.paddingLeft, h, b.searchEmpty.paddingRight, b.searchEmpty.paddingBottom)
-                (supportFragmentManager.findFragmentById(R.id.container) as? RootFragment)?.padForSearch(h)
+                // v2.18.3: pad the MAIN list even while a category screen is on top (after a restore the field was
+                // measured then, and the main list never got its top padding).
+                supportFragmentManager.fragments.filterIsInstance<RootFragment>().firstOrNull()?.padForSearch(h)
             }
         }
         b.search.addTextChangedListener(object : TextWatcher {
@@ -125,6 +127,20 @@ class SettingsActivity : ThemedActivity() {
     }
 
     fun searchBoxHeight() = b.searchBox.height
+
+    /**
+     * v2.18.3: a closing category screen whose exit animation never finished (its window stopped drawing mid-way,
+     * e.g. another screen opened) stays in the container, invisible, on top of the main list and swallows every
+     * swipe. Any container child that is no longer the view of a live fragment is taken out of touch and sight.
+     */
+    fun dropStaleScreens() {
+        val live = supportFragmentManager.fragments.filter { it.isAdded && !it.isRemoving }.mapNotNull { it.view }.toSet()
+        val c = findViewById<ViewGroup>(R.id.container) ?: return
+        for (i in 0 until c.childCount) {
+            val v = c.getChildAt(i)
+            if (v !in live) { v.clearAnimation(); v.translationZ = 0f; v.visibility = View.GONE }
+        }
+    }
 
     /** v2.8: cross-fades the toolbar title instead of swapping it instantly. */
     private fun setTitleAnimated(t: CharSequence) {
@@ -231,8 +247,31 @@ class SettingsActivity : ThemedActivity() {
         override fun onHiddenChanged(hidden: Boolean) {
             super.onHiddenChanged(hidden)
             if (!hidden) (activity as? SettingsActivity)?.onScreenShown(true)
-            // v2.18.2: coming back, the list must be free to scroll: no stale fling, no leftover lift, fresh layout.
-            if (!hidden) listView?.let { l -> l.stopScroll(); l.isNestedScrollingEnabled = true; l.requestLayout() }
+            if (!hidden) restoreScrollable()
+        }
+
+        override fun onResume() {
+            super.onResume()
+            if (!isHidden) restoreScrollable()
+        }
+
+        /**
+         * v2.18.3: the main list must always be fully scrollable when it shows again (Back from a category, or coming
+         * back from Background / Theme editor). Clears everything that can freeze a RecyclerView without changing its
+         * position: a stuck fling, a frozen layout, a stuck overscroll stretch, a scroll-thumb drag that never got its
+         * finger-up, a missing top padding, and a closing screen that is still on top catching touches.
+         */
+        fun restoreScrollable() {
+            val l = listView ?: return
+            val a = activity as? SettingsActivity
+            a?.let { padForSearch(it.searchBoxHeight()) }
+            l.stopScroll()
+            if (l.isLayoutSuppressed) l.suppressLayout(false)
+            l.edgeEffectFactory = RecyclerView.EdgeEffectFactory()
+            VelaScroller.reset(l)
+            l.isNestedScrollingEnabled = true
+            l.requestLayout()
+            view?.postDelayed({ if (isAdded && !isHidden) a?.dropStaleScreens() }, 600)
         }
         override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): android.view.animation.Animation? =
             navAnim(this, nextAnim)
@@ -626,7 +665,9 @@ private fun prepareNavScreen(f: PreferenceFragmentCompat, view: View) {
         VelaScroller.attach(l)
     }
 }
-private fun navAnimZ(view: View?, nextAnim: Int) { view?.translationZ = if (nextAnim == R.anim.nav_pop_exit) 0.5f else 0f }
+// v2.18.3: no Z lift for the closing screen any more. With hide/add it is already drawn above the main screen, and a
+// raised Z also made it first in line for touches, so a closing screen that lingered blocked the main list.
+private fun navAnimZ(view: View?, @Suppress("UNUSED_PARAMETER") nextAnim: Int) { view?.translationZ = 0f }
 
 /** v2.7: load the nav animation ourselves so the screen renders into a GPU layer while it moves/fades
  *  (alpha on a full RecyclerView otherwise redraws every row each frame = stutter), and honour reduced motion. */

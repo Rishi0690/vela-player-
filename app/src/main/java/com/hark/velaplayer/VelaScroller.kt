@@ -41,6 +41,10 @@ class VelaScroller private constructor(private val rv: RecyclerView) : RecyclerV
                 })
             }
         }
+        /** Ends a thumb drag that never received its finger-up (the list was hidden mid-drag). */
+        fun reset(rv: RecyclerView) {
+            (rv.getTag(R.id.vela_scroller) as? VelaScroller)?.let { s -> if (s.dragging) { s.dragging = false; s.scheduleHide() } }
+        }
     }
 
     private val d = rv.resources.displayMetrics.density
@@ -129,6 +133,8 @@ class VelaScroller private constructor(private val rv: RecyclerView) : RecyclerV
     }
 
     override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+        // v2.18.3: a new finger-down always starts fresh; a drag left over from a lost finger-up never captures it.
+        if (e.actionMasked == MotionEvent.ACTION_DOWN && dragging) { dragging = false; rv.parent?.requestDisallowInterceptTouchEvent(false) }
         if (e.actionMasked == MotionEvent.ACTION_DOWN && onThumb(e)) {
             dragging = true
             dragOffset = e.y - thumbTop()
