@@ -11,6 +11,22 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.metadata.MetadataRenderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.common.DataReader
+import androidx.media3.common.Format
+import androidx.media3.common.util.ParsableByteArray
+import androidx.media3.datasource.ByteArrayDataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.extractor.ChunkIndex
+import androidx.media3.extractor.DefaultExtractorInput
+import androidx.media3.extractor.Extractor
+import androidx.media3.extractor.ExtractorOutput
+import androidx.media3.extractor.PositionHolder
+import androidx.media3.extractor.SeekMap
+import androidx.media3.extractor.TrackOutput
+import androidx.media3.extractor.mkv.MatroskaExtractor
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import com.hark.velaplayer.mkv.VelaMatroskaExtractor
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -81,10 +97,10 @@ class StreamSeekabilityTest {
 
     private class Result(val mode: StreamPolicy.SeekMode, val durationMs: Long, val error: PlaybackException?, val afterSeekBuffered: Long)
 
-    private fun open(url: String, seekTo: Long = -1): Result {
+    private fun open(url: String, seekTo: Long = -1, extractors: ExtractorsFactory = PlayerHolder.extractors()): Result {
         val c = ApplicationProvider.getApplicationContext<android.content.Context>()
         val p = ExoPlayer.Builder(c, RenderersFactory { h, _, _, _, m -> arrayOf(MetadataRenderer(m, h.looper)) })
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(c, PlayerHolder.httpFactory()), PlayerHolder.extractors()))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(c, PlayerHolder.httpFactory()), extractors))
             .build()
         var err: PlaybackException? = null
         p.addListener(object : Player.Listener { override fun onPlayerError(error: PlaybackException) { err = error } })
@@ -134,5 +150,143 @@ class StreamSeekabilityTest {
         val r = open("$base/plain/s.ts", seekTo = 5_000)
         assertNull(r.error)
         assertEquals(StreamPolicy.SeekMode.SEEKABLE, r.mode)
+    }
+
+    // ---- v2.19.2 MKV: nested SeekHead (Cues only listed in an end-of-file SeekHead) and MKV without Cues ----
+
+    @Test fun mkvNestedSeekHeadFixtureIsUnseekableWithPlainMedia3() {
+        // Proves the fixture reproduces the reported bug: Media3 1.3.1 never finds the Cues.
+        val r = open("$base/chunkedrange/nested.mkv", extractors = PlayerHolder.defaultExtractors())
+        assertNull(r.error)
+        assertEquals(StreamPolicy.SeekMode.UNSEEKABLE, r.mode)
+    }
+
+    @Test fun mkvNestedSeekHeadIsSeekableOverHttpRanges() {
+        val r = open("$base/chunkedrange/nested.mkv", seekTo = 6_000)
+        assertNull(r.error)
+        assertEquals(StreamPolicy.SeekMode.SEEKABLE, r.mode)
+        assertTrue("duration ${r.durationMs}", r.durationMs in 9_000..11_000)
+        assertTrue("buffered after seek ${r.afterSeekBuffered}", r.afterSeekBuffered >= 9_000)
+    }
+
+    @Test fun mkvNormalStaysSeekable() {
+        val r = open("$base/chunkedrange/normal.mkv", seekTo = 6_000)
+        assertNull(r.error)
+        assertEquals(StreamPolicy.SeekMode.SEEKABLE, r.mode)
+        assertEquals(StreamPolicy.SeekMode.SEEKABLE, open("$base/plain/normal.mkv", extractors = PlayerHolder.defaultExtractors()).mode)
+    }
+
+    @Test fun mkvWithoutCuesFixtureIsUnseekableWithPlainMedia3() {
+        val r = open("$base/chunkedrange/nocues.mkv", extractors = PlayerHolder.defaultExtractors())
+        assertNull(r.error)
+        assertEquals(StreamPolicy.SeekMode.UNSEEKABLE, r.mode)
+    }
+
+    @Test fun mkvWithoutCuesIsSeekableOverHttpRanges() {
+        val r = open("$base/chunkedrange/nocues.mkv", seekTo = 14_000)
+        assertNull(r.error)
+        assertEquals(StreamPolicy.SeekMode.SEEKABLE, r.mode)
+        assertTrue("duration ${r.durationMs}", r.durationMs in 19_000..21_000)
+        assertTrue("buffered after seek ${r.afterSeekBuffered}", r.afterSeekBuffered >= 19_000)
+    }
+
+    @Test fun mkvWithoutCuesIsSeekableAsLocalFile() {
+        val f = java.io.File.createTempFile("nocues", ".mkv").apply { writeBytes(bytesOf("nocues.mkv")); deleteOnExit() }
+        val r = open(android.net.Uri.fromFile(f).toString(), seekTo = 12_000)
+        assertNull(r.error)
+        assertEquals(StreamPolicy.SeekMode.SEEKABLE, r.mode)
+    }
+
+    /** Extractor-level check (no player): where does reading resume after a seek? First sample time after seeking. */
+    private class Capture : ExtractorOutput {
+        var seekMap: SeekMap? = null
+        val times = ArrayList<Long>()
+        override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput {
+            override fun format(format: Format) {}
+            override fun sampleData(input: DataReader, length: Int, allowEndOfInput: Boolean, sampleDataPart: Int): Int {
+                val buf = ByteArray(length); return input.read(buf, 0, length)
+            }
+            override fun sampleData(data: ParsableByteArray, length: Int, sampleDataPart: Int) { data.skipBytes(length) }
+            override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int, cryptoData: TrackOutput.CryptoData?) {
+                if (flags and C.BUFFER_FLAG_KEY_FRAME != 0 || times.isEmpty()) times += timeUs
+            }
+        }
+        override fun endTracks() {}
+        override fun seekMap(seekMap: SeekMap) { this.seekMap = seekMap }
+    }
+
+    /** Drives [e] like ProgressiveMediaPeriod: reopens the input on RESULT_SEEK. Returns the number of reopen seeks. */
+    private fun drive(e: Extractor, bytes: ByteArray, start: Long, until: () -> Boolean): Int {
+        var pos = start
+        var seeks = 0
+        val holder = PositionHolder()
+        while (true) {
+            val src = ByteArrayDataSource(bytes)
+            src.open(DataSpec.Builder().setUri(android.net.Uri.EMPTY).setPosition(pos).build())
+            val input = DefaultExtractorInput(src, pos, bytes.size.toLong())
+            while (true) {
+                when (e.read(input, holder)) {
+                    Extractor.RESULT_CONTINUE -> if (until()) return seeks
+                    Extractor.RESULT_SEEK -> { pos = holder.position; seeks++; break }
+                    else -> return seeks
+                }
+            }
+            if (seeks > 200) throw AssertionError("too many seeks")
+        }
+    }
+
+    private fun firstSampleAfterSeek(e: Extractor, bytes: ByteArray, cap: Capture, targetUs: Long): Pair<Long, Int> {
+        val point = cap.seekMap!!.getSeekPoints(targetUs).first
+        e.seek(point.position, targetUs)
+        cap.times.clear()
+        val seeks = drive(e, bytes, point.position) { cap.times.isNotEmpty() }
+        return cap.times.first() to seeks
+    }
+
+    private fun prepared(e: Extractor, bytes: ByteArray): Capture {
+        val cap = Capture()
+        e.init(cap)
+        drive(e, bytes, 0) { cap.seekMap != null && cap.times.isNotEmpty() }
+        return cap
+    }
+
+    @Test fun velaMatroskaSeeksIntoNestedSeekHeadCues() {
+        val bytes = bytesOf("nested.mkv")
+        val plain = prepared(MatroskaExtractor(DefaultSubtitleParserFactory()), bytes)
+        assertTrue("plain media3 should be unseekable", !plain.seekMap!!.isSeekable)
+        val e = VelaMatroskaExtractor(DefaultSubtitleParserFactory())
+        val cap = prepared(e, bytes)
+        assertTrue(cap.seekMap is ChunkIndex) // the real Cues, not a fallback
+        for (t in longArrayOf(2_500_000, 6_000_000, 9_000_000)) {
+            val (first, _) = firstSampleAfterSeek(e, bytes, cap, t)
+            assertTrue("seek $t landed at $first", first in (t - 1_100_000)..t)
+        }
+    }
+
+    @Test fun velaMatroskaBinarySearchWithoutCues() {
+        val bytes = bytesOf("nocues.mkv")
+        assertTrue(!prepared(MatroskaExtractor(DefaultSubtitleParserFactory()), bytes).seekMap!!.isSeekable)
+        val e = VelaMatroskaExtractor(DefaultSubtitleParserFactory())
+        val cap = prepared(e, bytes)
+        val map = cap.seekMap!!
+        assertTrue(map.isSeekable)
+        assertTrue("duration ${map.durationUs}", map.durationUs in 19_000_000..21_000_000)
+        for (t in longArrayOf(1_500_000, 7_300_000, 12_000_000, 17_900_000, 19_900_000)) {
+            val (first, seeks) = firstSampleAfterSeek(e, bytes, cap, t)
+            assertTrue("seek $t landed at $first", first in (t - 1_100_000)..t)
+            assertTrue("seek $t took $seeks reopen seeks", seeks <= 12)
+        }
+        // Back to the start.
+        val (first, _) = firstSampleAfterSeek(e, bytes, cap, 0)
+        assertTrue("seek 0 landed at $first", first < 100_000)
+    }
+
+    @Test fun velaMatroskaNormalFileUsesCues() {
+        val bytes = bytesOf("normal.mkv")
+        val e = VelaMatroskaExtractor(DefaultSubtitleParserFactory())
+        val cap = prepared(e, bytes)
+        assertTrue(cap.seekMap is ChunkIndex)
+        val (first, _) = firstSampleAfterSeek(e, bytes, cap, 5_000_000)
+        assertTrue("landed at $first", first in 3_900_000..5_000_000)
     }
 }

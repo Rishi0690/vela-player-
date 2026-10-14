@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -37,8 +38,15 @@ object PlayerHolder {
      */
     val repaired: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
 
-    /** Normal extractors; constant-bitrate seeking lets MP3/AAC(ADTS)/AMR without a seek index still seek (streams too). */
-    fun extractors(repair: Boolean = false): DefaultExtractorsFactory = DefaultExtractorsFactory()
+    /**
+     * Normal extractors; constant-bitrate seeking lets MP3/AAC(ADTS)/AMR without a seek index still seek (streams too).
+     * v2.19.2: MKV/WebM go through [VelaExtractorsFactory] (VelaMatroskaExtractor: nested SeekHead → Cues, and a
+     * cluster binary search when there are no usable Cues) for both the normal and the MP4-repair factory.
+     */
+    fun extractors(repair: Boolean = false): ExtractorsFactory = VelaExtractorsFactory(defaultExtractors(repair))
+
+    /** The plain Media3 factory with Vela's settings (used inside [VelaExtractorsFactory]; tests compare against it). */
+    fun defaultExtractors(repair: Boolean = false): DefaultExtractorsFactory = DefaultExtractorsFactory()
         .setConstantBitrateSeekingEnabled(true)
         .apply {
             if (repair) {
