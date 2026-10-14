@@ -35,6 +35,8 @@ object ThumbLoader {
         val key = uri?.toString()
         iv.tag = key
         if (uri == null || key == null) { placeholder(iv); return }
+        // v2.19.1: network streams get a themed stream placeholder; nothing is fetched from the network for a thumbnail.
+        if (StreamPolicy.isNetwork(key)) { streamPlaceholder(iv); return }
         cache.get(key)?.let { show(iv, it); return }
         placeholder(iv)
         if (failed.contains(key)) return
@@ -80,6 +82,11 @@ object ThumbLoader {
 
     fun clearCache() { cache.evictAll(); failed.clear() }
 
+    private fun streamPlaceholder(iv: ImageView) {
+        iv.setImageResource(R.drawable.ic_link)
+        iv.imageTintList = android.content.res.ColorStateList.valueOf(ThemeManager.primary(iv.context))
+        iv.scaleType = ImageView.ScaleType.CENTER
+    }
     private fun placeholder(iv: ImageView) { iv.imageTintList = null; iv.setImageResource(R.drawable.ic_movie); iv.scaleType = ImageView.ScaleType.CENTER }
     private fun show(iv: ImageView, b: Bitmap) { iv.imageTintList = null; iv.scaleType = ImageView.ScaleType.CENTER_CROP; iv.setImageBitmap(b) }
 

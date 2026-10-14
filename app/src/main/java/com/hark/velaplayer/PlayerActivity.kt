@@ -155,6 +155,9 @@ class PlayerActivity : AppCompatActivity() {
     private var userSeeking = false
     private var userRotated = false
     private var isLocalMedia = false
+    /** v2.19.1: full text of the last playback error (also kept when a queue skipped the video), for Video info / copy. */
+    private var lastErrorDetail: String? = null
+    private val tlWindow = Timeline.Window()
     private var playerReady = false
 
     // External (SRT/VTT) subtitles rendered by us so the delay can be shifted.
@@ -717,7 +720,10 @@ class PlayerActivity : AppCompatActivity() {
         if (!playerReady) return
         val item = player.currentMediaItem ?: return
         val dur = player.duration
-        if (!player.isCurrentMediaItemSeekable || player.isCurrentMediaItemLive) return
+        // v2.19.1: network streams are saved only when they can be resumed (seekable on-demand, never live).
+        // Local files keep the old rule exactly.
+        if (StreamPolicy.isNetwork(item.mediaId)) { if (!StreamPolicy.canResume(seekMode())) return }
+        else if (!player.isCurrentMediaItemSeekable || player.isCurrentMediaItemLive) return
         val d = if (dur == C.TIME_UNSET) 0L else dur
         // Vault videos (and anything hidden meanwhile) keep their history in the vault, never in Continue Watching.
         if (vaultMode || Vault.isHidden(this, item.mediaId)) Vault.savePosition(this, item.mediaId, player.currentPosition, d)
@@ -816,6 +822,8 @@ class PlayerActivity : AppCompatActivity() {
         override fun onPlayerError(error: PlaybackException) {
             // v2.19: a decoder problem first retries this video with the other decoder kind (once per kind), then errors.
             if (tryDecoderFallback(error)) return
+            // v2.19.1: a local file the MP4 extractor rejects gets one retry with edit lists ignored.
+            if (tryContainerRepair(error)) return
             showError(error)
         }
 
@@ -828,6 +836,9 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) { updateNavButtons(); updateProgress(); updatePipParams() }
+
+        // v2.19.1: COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM follows the item's seekability (stream prepared, live window...).
+        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) { updateProgress(); updatePipParams() }
     }
 
     private val analyticsListener = object : AnalyticsListener {
@@ -866,8 +877,10 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> "Fell behind the live stream."
             PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR,
             PlaybackException.ERROR_CODE_DRM_UNSPECIFIED -> "This video is DRM-protected and can't be played here."
-            else -> "Playback error (${e.errorCodeName})."
+            else -> "${e.errorCodeName}: playback error."
         }
+        val detail = errorDetail(e)
+        lastErrorDetail = "${titleOf(player.currentMediaItem)}\n$detail"
         // In a queue (Play all / playlist), skip a video that can't be opened instead of stopping everything.
         val skippable = e.errorCode in intArrayOf(
             PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
@@ -879,14 +892,83 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackException.ERROR_CODE_DECODING_FAILED) || (isDecoderError(e) && e.errorCode == PlaybackException.ERROR_CODE_UNSPECIFIED)
         if (skippable && player.hasNextMediaItem()) {
             val name = titleOf(player.currentMediaItem)
-            notice(R.drawable.ic_skip_next, "Skipped \"$name\": ${msg.substringBefore('.')}")
+            // v2.19.1: the code goes first (the chip truncates long text); tap/long-press the chip copies the full error.
+            if (!isInPipSafe() && ::chip.isInitialized)
+                chip.show(R.drawable.ic_skip_next, "${shortCode(e)} · Skipped \"$name\"", durationMs = PlaybackChip.LONG) { copyLastError() }
+            else toast("Skipped \"$name\": ${shortCode(e)}")
             player.seekToNextMediaItem(); player.prepare(); player.play()
             return
         }
         b.errorText.text = msg
+        b.errorDetail.text = detail
+        b.errorDetail.isVisible = true
         b.errorPanel.isVisible = true
         b.loading.isVisible = false
         setControlsVisible(true)
+    }
+
+    private fun shortCode(e: PlaybackException) = e.errorCodeName.removePrefix("ERROR_CODE_")
+
+    /** "ERROR_CODE_X (2000)" + the cause chain (class: message), so the real reason is never hidden. */
+    private fun errorDetail(e: PlaybackException): String {
+        val sb = StringBuilder("${e.errorCodeName} (${e.errorCode})")
+        var c: Throwable? = e.cause
+        var depth = 0
+        while (c != null && depth < 4) {
+            val t: Throwable = c
+            val cls = t.javaClass.simpleName
+            sb.append("\n").append(if (cls.isEmpty()) t.javaClass.name else cls)
+            val m = t.message
+            if (!m.isNullOrBlank()) sb.append(": ").append(m.take(300))
+            val next = t.cause
+            c = if (next === t) null else next
+            depth++
+        }
+        return sb.toString()
+    }
+
+    private fun copyLastError() {
+        val text = lastErrorDetail ?: return
+        try {
+            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("Vela playback error", text))
+            if (Build.VERSION.SDK_INT < 33) toast("Error details copied")
+        } catch (_: Exception) { }
+    }
+
+    /**
+     * v2.19.1: some MP4s (odd/broken edit lists) fail to open in ExoPlayer but play elsewhere. A LOCAL file whose
+     * source failed to open/parse is re-opened ONCE with MP4/fMP4 edit lists ignored (PlayerHolder.repaired, per
+     * media id, in memory). Other videos, streams, decoder errors and missing/permission errors are never touched.
+     */
+    private fun tryContainerRepair(e: PlaybackException): Boolean {
+        return try {
+            val item = player.currentMediaItem ?: return false
+            val scheme = item.localConfiguration?.uri?.scheme
+            if (scheme != "content" && scheme != "file") return false
+            if (isDecoderError(e)) return false
+            val parsing = e.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                e.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+            // Unexpected extractor failures surface as generic source errors (e.g. IO_UNSPECIFIED, FAILED_RUNTIME_CHECK).
+            val source = (e as? ExoPlaybackException)?.type == ExoPlaybackException.TYPE_SOURCE && e.errorCode !in intArrayOf(
+                PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+                PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED)
+            if (!parsing && !source) return false
+            if (!PlayerHolder.repaired.add(item.mediaId)) return false // already retried once: show the real error
+            lastErrorDetail = "${titleOf(item)}\n(repair retry after) ${errorDetail(e)}"
+            val index = player.currentMediaItemIndex
+            val pos = player.currentPosition.coerceAtLeast(0L)
+            // Re-create the media source for this item only (replaceMediaItem may keep the old source).
+            val copy = item.buildUpon().build()
+            player.addMediaItem(index + 1, copy)
+            player.removeMediaItem(index)
+            resetShuffleOrder()
+            b.errorPanel.isVisible = false
+            player.seekTo(index, pos)
+            player.prepare()
+            notice(R.drawable.ic_tune, "Repaired playback for this file")
+            true
+        } catch (_: Exception) { false }
     }
 
     // ------------------------------------------------------------------ v2.19 smart decoder switching
@@ -1052,8 +1134,12 @@ class PlayerActivity : AppCompatActivity() {
         b.btnPlay.softShadow = false // v2.12: sits on its own glass orb; its icon morphs (AVD)
         b.btnPlay.setOnClickListener { Motion.bounce(it); togglePlayPause(); scheduleHide() }
         listOf(b.btnRewind, b.btnForward, b.btnPrev, b.btnNext, b.btnUnlock, b.btnUnlockRight).forEach { Motion.pressable(it, 0.88f) }
-        b.btnRewind.setOnClickListener { showSeekFeedback(-1, seekBy(-seekIntervalMs)); scheduleHide() }
-        b.btnForward.setOnClickListener { showSeekFeedback(1, seekBy(seekIntervalMs)); scheduleHide() }
+        b.btnRewind.setOnClickListener { if (seekAllowedOrExplain()) showSeekFeedback(-1, seekBy(-seekIntervalMs)); scheduleHide() }
+        b.btnForward.setOnClickListener { if (seekAllowedOrExplain()) showSeekFeedback(1, seekBy(seekIntervalMs)); scheduleHide() }
+        // v2.19.1: LIVE label of a live stream with a DVR window = jump back to the live edge.
+        b.durationText.setOnClickListener { if (seekMode() == StreamPolicy.SeekMode.LIVE_DVR) { player.seekToDefaultPosition(); updateProgress(); scheduleHide() } }
+        b.errorDetail.setOnLongClickListener { copyLastError(); true }
+        b.errorDetail.setOnClickListener { copyLastError() }
         b.btnPrev.setOnClickListener { savePosition(); player.seekToPreviousMediaItem(); scheduleHide() }
         b.btnNext.setOnClickListener { savePosition(); player.seekToNextMediaItem(); scheduleHide() }
         b.btnSpeed.setOnClickListener { showSpeedPanel(sliderOnly = false) }
@@ -1239,19 +1325,59 @@ class PlayerActivity : AppCompatActivity() {
         if (userSeeking) return
         val dur = player.duration
         val pos = player.currentPosition
-        if (dur != C.TIME_UNSET && dur > 0) {
-            b.seekBar.isEnabled = player.isCurrentMediaItemSeekable
+        val mode = seekMode()
+        if (dur != C.TIME_UNSET && dur > 0 && mode != StreamPolicy.SeekMode.LIVE) {
+            // v2.19.1: thumb + dragging only when the item can really seek (on-demand with a duration, or a live DVR window).
+            b.seekBar.isEnabled = mode.canSeek || (mode == StreamPolicy.SeekMode.LOADING && player.isCurrentMediaItemSeekable)
             b.seekBar.max = dur.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            b.seekBar.progress = pos.toInt()
-            b.seekBar.secondaryProgress = player.bufferedPosition.toInt()
-            b.durationText.text = Fmt.time(dur)
+            b.seekBar.progress = pos.coerceIn(0L, dur).toInt()
+            b.seekBar.secondaryProgress = player.bufferedPosition.coerceIn(0L, dur).toInt()
+            b.durationText.text = if (mode.isLive) liveLabel() else Fmt.time(dur)
         } else {
             b.seekBar.isEnabled = false
             b.seekBar.max = 1
-            b.seekBar.progress = 0
-            b.durationText.text = if (player.isCurrentMediaItemLive) "LIVE" else "--:--"
+            b.seekBar.progress = if (mode.isLive) 1 else 0
+            b.seekBar.secondaryProgress = 0
+            b.durationText.text = if (mode.isLive) liveLabel() else "--:--"
         }
         b.positionText.text = Fmt.time(pos)
+        // Skip buttons stay where they are (layout untouched) but read as unavailable when the stream can't seek.
+        val skipAlpha = if (mode == StreamPolicy.SeekMode.LIVE || mode == StreamPolicy.SeekMode.UNSEEKABLE) 0.35f else 1f
+        b.btnRewind.alpha = skipAlpha; b.btnForward.alpha = skipAlpha
+    }
+
+    /**
+     * v2.19.1: what seeking can do for the current item ([StreamPolicy.seekMode]); re-read on every progress update,
+     * timeline change and available-commands change, so it follows a stream as it prepares.
+     */
+    private fun seekMode(): StreamPolicy.SeekMode {
+        val tl = player.currentTimeline
+        val idx = player.currentMediaItemIndex
+        val placeholder = tl.isEmpty || idx !in 0 until tl.windowCount || tl.getWindow(idx, tlWindow).isPlaceholder
+        return StreamPolicy.seekMode(player.isCurrentMediaItemSeekable, player.isCurrentMediaItemLive, player.duration, placeholder)
+    }
+
+    /** "● LIVE" (accent red) at the live edge; plain "LIVE" while watching behind it inside a DVR window (tap = go live). */
+    private fun liveLabel(): CharSequence {
+        val behind = player.isCurrentMediaItemSeekable && player.currentLiveOffset.let { it != C.TIME_UNSET && it > 20_000L }
+        if (behind) return "LIVE"
+        val sp = android.text.SpannableString("\u25CF LIVE")
+        sp.setSpan(android.text.style.ForegroundColorSpan(0xFFFF4D4D.toInt()), 0, 1, 0)
+        return sp
+    }
+
+    /** True when seeking can run now; otherwise explains why (live / can't seek) in the chip. Loading = silently no. */
+    private fun seekAllowedOrExplain(): Boolean {
+        val mode = seekMode()
+        if (mode.canSeek) return true
+        when (mode) {
+            StreamPolicy.SeekMode.LIVE -> showIndicator(R.drawable.ic_info, "Live stream: seeking isn't available", null)
+            StreamPolicy.SeekMode.UNSEEKABLE -> showIndicator(R.drawable.ic_info,
+                if (StreamPolicy.isNetwork(player.currentMediaItem?.mediaId)) "This stream can't be seeked" else "This video can't be seeked", null)
+            else -> return player.isCurrentMediaItemSeekable // still preparing: old behaviour
+        }
+        hideIndicatorSoon()
+        return false
     }
 
     private fun tick() {
@@ -1600,8 +1726,11 @@ class PlayerActivity : AppCompatActivity() {
             x > w * 0.65f -> 1
             else -> 0
         }
-        if (side != 0 && Prefs.gesture(this, "gesture_double_tap_seek") && player.isCurrentMediaItemSeekable) {
+        val mode = seekMode()
+        if (side != 0 && Prefs.gesture(this, "gesture_double_tap_seek") && (mode.canSeek || (mode == StreamPolicy.SeekMode.LOADING && player.isCurrentMediaItemSeekable))) {
             showSeekFeedback(side, seekBy(side * seekIntervalMs))
+        } else if (side != 0 && Prefs.gesture(this, "gesture_double_tap_seek") && (mode == StreamPolicy.SeekMode.LIVE || mode == StreamPolicy.SeekMode.UNSEEKABLE)) {
+            seekAllowedOrExplain() // v2.19.1: say why instead of silently toggling the controls
         } else if (side == 0 && Prefs.gesture(this, "gesture_double_tap_center")) {
             togglePlayPause() // v2.2: no on-screen message
         } else {
@@ -1621,8 +1750,11 @@ class PlayerActivity : AppCompatActivity() {
             if (abs(tdx) < touchSlop * 1.5f && abs(tdy) < touchSlop * 1.5f) return
             // Zoomed or stretched video doesn't change what a single finger does (panning is a two-finger drag).
             drag = when {
-                abs(tdx) > abs(tdy) * 1.2f ->
-                    if (Prefs.gesture(this, "gesture_horizontal_seek") && player.isCurrentMediaItemSeekable && player.duration > 0) Drag.SEEK else Drag.IGNORE
+                abs(tdx) > abs(tdy) * 1.2f -> when {
+                    !Prefs.gesture(this, "gesture_horizontal_seek") -> Drag.IGNORE
+                    player.isCurrentMediaItemSeekable && player.duration > 0 && seekMode() != StreamPolicy.SeekMode.UNSEEKABLE -> Drag.SEEK
+                    else -> { seekAllowedOrExplain(); Drag.IGNORE } // v2.19.1: live / non-seekable stream: explain once per swipe
+                }
                 abs(tdy) > abs(tdx) * 1.2f -> verticalDragFor(e1.x, w)
                 else -> return
             }
@@ -2177,6 +2309,14 @@ class PlayerActivity : AppCompatActivity() {
         sb.append('\n')
         line("Display mode", aspect.label)
         line("Speed", formatSpeed(player.playbackParameters.speed))
+        line("Seeking", seekMode().let { m -> when (m) {
+            StreamPolicy.SeekMode.SEEKABLE -> null
+            StreamPolicy.SeekMode.LIVE_DVR -> "Live (within the live window)"
+            StreamPolicy.SeekMode.LIVE -> "Live (not seekable)"
+            StreamPolicy.SeekMode.UNSEEKABLE -> "Not supported by this stream"
+            StreamPolicy.SeekMode.LOADING -> "Loading"
+        } })
+        lastErrorDetail?.let { sb.append('\n').append("Last error:\n").append(it).append('\n') }
         dialog("Video info").setMessage(sb.toString().trim()).setPositiveButton("Close", null).show()
     }
 

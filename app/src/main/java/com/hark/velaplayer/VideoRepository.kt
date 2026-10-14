@@ -69,6 +69,8 @@ object VideoRepository {
     /** Same check for a saved entry (favorites, continue watching): by title, else by the uri's last path segment. */
     fun isTsEntry(e: Entry, item: VideoItem?): Boolean = when {
         item != null -> isTs(item.name, item.path)
+        // v2.19.1: "Hide .ts videos" is about library files; a user-entered stream URL (IPTV .ts) is never hidden by it.
+        StreamPolicy.isNetwork(e.uri) -> false
         Prefs.isTsName(e.title) -> true
         else -> Prefs.isTsName(android.net.Uri.parse(e.uri).lastPathSegment)
     }

@@ -573,6 +573,23 @@
             android:textColor="@android:color/white"
             android:textSize="15sp" />
 
+        <!-- v2.19.1: full error code + cause (tap or long-press copies it) -->
+        <TextView
+            android:id="@+id/errorDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:alpha="0.7"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:maxLines="6"
+            android:ellipsize="end"
+            android:maxWidth="360dp"
+            android:textColor="@android:color/white"
+            android:textIsSelectable="false"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

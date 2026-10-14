@@ -847,7 +847,7 @@ class MainActivity : ThemedActivity() {
                 val url = v.urlInput.text?.toString()?.trim().orEmpty()
                 val uri = Uri.parse(url)
                 if (uri.scheme == "http" || uri.scheme == "https") {
-                    val title = uri.lastPathSegment?.takeIf { it.isNotBlank() } ?: uri.host ?: "Stream"
+                    val title = StreamPolicy.titleFor(url) // v2.19.1: "master.m3u8?token=…" is not a title
                     play(listOf(Entry(url, title)), 0, source = PlayerSession.SOURCE_EXTERNAL, sourceId = null)
                 } else toast("Enter a link starting with http:// or https://")
             }
@@ -1141,9 +1141,12 @@ class MainActivity : ThemedActivity() {
     private fun onVideoOptions(row: Row.Video) {
         val item = row.item
         val a = ArrayList<Action>()
+        // v2.19.1: a saved resume point counts even when the duration is unknown (network streams: progress = 0).
+        val inContinue = row.progress > 0f || Store.position(this, row.entry.uri) > 0L
+        val stream = StreamPolicy.isNetwork(row.entry.uri)
         if (!row.unavailable) {
             a += Action("Play", R.drawable.ic_play) { play(listOf(row.entry), 0) }
-            if (row.progress > 0f) a += Action("Play from start", R.drawable.ic_replay) {
+            if (inContinue) a += Action("Play from start", R.drawable.ic_replay) {
                 Store.clearPosition(this, row.entry.uri); play(listOf(row.entry), 0)
             }
         }
@@ -1163,7 +1166,7 @@ class MainActivity : ThemedActivity() {
         if (!row.unavailable) a += Action(if (row.watched) "Mark as unwatched" else "Mark as watched", R.drawable.ic_check_circle) {
             Store.setWatched(this, row.entry.uri, !row.watched); refresh()
         }
-        if (row.progress > 0f) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
+        if (inContinue) a += Action("Remove from Continue watching", R.drawable.ic_close) { Store.clearPosition(this, row.entry.uri); refresh() }
         val shareable = !row.unavailable && Uri.parse(row.entry.uri).scheme.let { it == "content" || it == "file" }
         a += GROUP
         if (shareable) a += Action("Share", R.drawable.ic_share) { share(listOf(Uri.parse(row.entry.uri))) }
@@ -1173,9 +1176,9 @@ class MainActivity : ThemedActivity() {
             a += GROUP
             a += Action("Delete", R.drawable.ic_delete, danger = true) { confirmDelete(listOf(item), "Delete \"${item.name}\"?") }
         }
-        val sub = if (row.unavailable) "Unavailable — moved or deleted" else item?.let { listOfNotNull(it.durationMs.takeIf { d -> d > 0 }?.let { d -> Fmt.time(d) }, it.size.takeIf { z -> z > 0 }?.let { z -> Formatter.formatShortFileSize(this, z) }).joinToString(" · ") }
+        val sub = if (row.unavailable) "Unavailable — moved or deleted" else if (stream) "Network stream · ${Uri.parse(row.entry.uri).host ?: ""}".trimEnd(' ', '·') else item?.let { listOfNotNull(it.durationMs.takeIf { d -> d > 0 }?.let { d -> Fmt.time(d) }, it.size.takeIf { z -> z > 0 }?.let { z -> Formatter.formatShortFileSize(this, z) }).joinToString(" · ") }
         val thumbUri = if (row.unavailable) null else item?.uri ?: Uri.parse(row.entry.uri).takeIf { it.scheme == "content" || it.scheme == "file" }
-        showSheet(ItemSheet.Header(row.entry.title, sub?.takeIf { it.isNotEmpty() }, R.drawable.ic_movie,
+        showSheet(ItemSheet.Header(row.entry.title, sub?.takeIf { it.isNotEmpty() }, if (stream) R.drawable.ic_link else R.drawable.ic_movie,
             thumbUri?.let { u -> { iv: ImageView -> ThumbLoader.load(iv, u, item?.id ?: -1L, item?.durationMs ?: 0L) } }), a)
     }
 
