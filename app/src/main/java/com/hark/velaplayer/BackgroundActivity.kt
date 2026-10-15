@@ -67,7 +67,7 @@ class BackgroundActivity : ThemedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; fitsSystemWindows = true }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val toolbar = MaterialToolbar(this).apply {
             title = "Background"; setNavigationIcon(R.drawable.ic_arrow_back); setNavigationOnClickListener { finish() }
         }
@@ -77,6 +77,8 @@ class BackgroundActivity : ThemedActivity() {
         scroll.addView(col)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
+        EdgeToEdge.root(root) // v2.20 edge to edge
+        EdgeToEdge.list(scroll)
 
         col.addView(note("Your background shows behind every screen: library, folders, search, settings and the vault. Changes apply instantly."))
         // v2.18.1: Restore to default (theme background + default appearance).

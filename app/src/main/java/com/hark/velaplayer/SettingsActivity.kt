@@ -53,6 +53,10 @@ class SettingsActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         b = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(b.root)
+        // v2.20 edge to edge: category lists get their nav-bar/keyboard padding in prepareNavScreen.
+        EdgeToEdge.root(b.root)
+        EdgeToEdge.list(b.searchResults, ime = true)
+        EdgeToEdge.pad(b.searchEmpty, bottom = true, ime = true)
         b.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
         onBackPressedDispatcher.addCallback(this, clearSearchOnBack)
         b.searchResults.layoutManager = LinearLayoutManager(this)
@@ -662,6 +666,7 @@ private fun prepareNavScreen(f: PreferenceFragmentCompat, view: View) {
         l.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         l.clipToPadding = false
         l.setPadding(l.paddingLeft, l.paddingTop, l.paddingRight, (24 * l.resources.displayMetrics.density).toInt())
+        EdgeToEdge.list(l, ime = true) // v2.20: last rows scroll clear of the nav bar / keyboard
         VelaScroller.attach(l)
     }
 }

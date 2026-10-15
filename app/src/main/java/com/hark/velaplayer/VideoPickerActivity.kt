@@ -67,6 +67,9 @@ class VideoPickerActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         b = ActivityPickerBinding.inflate(layoutInflater)
         setContentView(b.root)
+        // v2.20 edge to edge: the bottom button bar clears the nav bar and rises above the keyboard (old adjustResize).
+        EdgeToEdge.root(b.root)
+        EdgeToEdge.pad(b.btnAdd.parent as android.view.View, bottom = true, ime = true)
         setSupportActionBar(b.toolbar)
         vaultPick = intent.getBooleanExtra(EXTRA_VAULT_PICK, false)
         playlist = if (vaultPick) "" else intent.getStringExtra(EXTRA_PLAYLIST) ?: run { finish(); return }

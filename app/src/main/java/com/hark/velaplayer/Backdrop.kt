@@ -207,11 +207,18 @@ object Backdrop {
     /** Full physical screen size in the current orientation (the backdrop runs under the transparent bars). */
     fun screenSize(c: Context): Pair<Int, Int> {
         val dm = android.util.DisplayMetrics()
-        try {
+        var w = 0; var h = 0
+        // v2.20: the window is edge to edge, so the backdrop covers the whole window including the bars. Android 11+:
+        // WindowMetrics (Display.getRealMetrics is deprecated and only valid from a visual context); older: real metrics.
+        if (android.os.Build.VERSION.SDK_INT >= 30) try {
+            val b = (c.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).maximumWindowMetrics.bounds
+            w = b.width(); h = b.height()
+        } catch (_: Exception) { }
+        if (w <= 0 || h <= 0) try {
             @Suppress("DEPRECATION")
             (c.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.getRealMetrics(dm)
+            w = dm.widthPixels; h = dm.heightPixels
         } catch (_: Exception) { }
-        var w = dm.widthPixels; var h = dm.heightPixels
         if (w <= 0 || h <= 0) { w = c.resources.displayMetrics.widthPixels; h = c.resources.displayMetrics.heightPixels }
         val portrait = c.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
         return if (portrait) Pair(min(w, h), max(w, h)) else Pair(max(w, h), min(w, h))

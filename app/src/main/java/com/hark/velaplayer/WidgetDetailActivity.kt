@@ -68,7 +68,7 @@ class WidgetDetailActivity : ThemedActivity() {
     }
 
     private fun build() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; fitsSystemWindows = true }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val bar = MaterialToolbar(this).apply {
             title = kind.title; subtitle = if (configuring) "Widget settings" else "Widget"
             setNavigationIcon(R.drawable.ic_arrow_back); setNavigationOnClickListener { finish() }; setNavigationContentDescription("Back")
@@ -148,6 +148,9 @@ class WidgetDetailActivity : ThemedActivity() {
         bottom.addView(primary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(bottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
+        // v2.20 edge to edge: the glass action panel runs behind the nav bar, its button stays above it.
+        EdgeToEdge.root(root)
+        EdgeToEdge.pad(bottom, bottom = true)
         Motion.pressable(primary, 0.97f)
 
         WidgetPreview.render(this, kind, cfg, frame.wDp, frame.hDp, frame, animate = true)

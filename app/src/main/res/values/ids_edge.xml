@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v2.20 EdgeToEdge: insets already added to a view's padding / margins. -->
+    <item name="e2e_padding" type="id" />
+    <item name="e2e_margin" type="id" />
+    <!-- ThemedActivity: status-guard clearing installed on AppCompat's sub-decor. -->
+    <item name="e2e_guard" type="id" />
+</resources>

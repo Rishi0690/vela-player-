@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -53,6 +54,11 @@ import java.util.concurrent.Executors
  * on its own background. Lists and adapters are emptied whenever the vault locks.
  */
 class VaultActivity : ThemedActivity() {
+
+    companion object {
+        /** v2.20: opened by the Home-title hold with motion on: play the vault_enter / vault_hold_exit transition. */
+        const val EXTRA_HOLD_OPEN = "vela_vault_hold_open"
+    }
 
     data class VRow(val item: Vault.Item, val video: VideoItem?, val progress: Float, val unavailable: Boolean, val lastPlayed: Long)
 
@@ -132,6 +138,10 @@ class VaultActivity : ThemedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v2.20: the Home-title hold's "vault rises, home sinks" transition on Android 14+ (replaces the deprecated
+        // overridePendingTransition the caller still uses below 34).
+        if (Build.VERSION.SDK_INT >= 34 && savedInstanceState == null && intent.getBooleanExtra(EXTRA_HOLD_OPEN, false))
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, R.anim.vault_enter, R.anim.vault_hold_exit)
         VaultAuth.applySecure(window, this)
         setContentView(R.layout.vault_activity)
         lockPane = findViewById(R.id.vaultLockPane)
@@ -142,6 +152,12 @@ class VaultActivity : ThemedActivity() {
         empty = findViewById(R.id.vaultEmpty)
         addFab = findViewById(R.id.vaultAdd)
         filters = findViewById(R.id.vaultFilters)
+        // v2.20 edge to edge (see EdgeToEdge): both panes below the status bar, lists behind the nav bar.
+        EdgeToEdge.root(lockPane); EdgeToEdge.root(content)
+        EdgeToEdge.list(lockHost)
+        EdgeToEdge.list(list, ime = true)
+        EdgeToEdge.pad(empty, bottom = true, ime = true)
+        EdgeToEdge.margin(addFab, left = true, right = true)
         header = ItemCollectionHeaderBinding.inflate(layoutInflater, findViewById(R.id.vaultHeader), true)
         header.cover.isVisible = false
         header.btnAdd.isVisible = false

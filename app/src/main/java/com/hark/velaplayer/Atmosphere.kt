@@ -78,24 +78,38 @@ object Atmosphere {
     /**
      * Puts the atmosphere behind the whole window and lets it show through the status bar (and, in dark mode, tints
      * the navigation bar to its bottom colour). Called by [ThemedActivity] for every non-player screen.
+     *
+     * v2.20: the window is edge to edge ([EdgeToEdge]), so the window background already runs behind both bars.
+     * Android 15+ ignores bar colours (always transparent, with the system's own contrast scrim behind 3-button
+     * navigation), so colours are only set below 35, where they keep the pre-2.20 look; icon colours (light/dark) are
+     * set through WindowInsetsControllerCompat on every version.
      */
-    @Suppress("DEPRECATION")
     fun applyTo(a: Activity) {
         val w = a.window ?: return
         val atmo = of(a)
         val bg = backdrop(a, atmo)
         w.setBackgroundDrawable(bg)
+        val ctl = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
+        if (Build.VERSION.SDK_INT >= 35) {
+            ctl.isAppearanceLightNavigationBars = !atmo.dark
+            return
+        }
+        legacyBarColors(w, atmo, bg is BackdropDrawable, ctl)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun legacyBarColors(w: android.view.Window, atmo: Atmo, photo: Boolean, ctl: androidx.core.view.WindowInsetsControllerCompat) {
         if (atmo.dark || Build.VERSION.SDK_INT >= 23) w.statusBarColor = android.graphics.Color.TRANSPARENT
-        if (bg is BackdropDrawable) {
+        if (photo) {
             // v2.18.2: with a photo, nothing theme-coloured sits over it: the photo runs under the nav bar too.
             if (atmo.dark || Build.VERSION.SDK_INT >= 27) {
                 w.navigationBarColor = android.graphics.Color.TRANSPARENT
-                if (Build.VERSION.SDK_INT >= 27) androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightNavigationBars = !atmo.dark
+                if (Build.VERSION.SDK_INT >= 27) ctl.isAppearanceLightNavigationBars = !atmo.dark
             } else w.navigationBarColor = 0x66000000 // Android 7-8.0 light mode: white nav icons need some shade
         } else if (atmo.dark) w.navigationBarColor = atmo.bottom
         else if (Build.VERSION.SDK_INT >= 27) {
             w.navigationBarColor = atmo.bottom
-            androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightNavigationBars = true
+            ctl.isAppearanceLightNavigationBars = true
         }
     }
 

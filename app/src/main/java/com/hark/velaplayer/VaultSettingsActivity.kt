@@ -56,6 +56,8 @@ class VaultSettingsActivity : ThemedActivity() {
         setContentView(R.layout.vault_settings)
         host = findViewById(R.id.vaultSetHost)
         toolbar = findViewById(R.id.vaultSetToolbar)
+        EdgeToEdge.root(host.parent as View) // v2.20 edge to edge
+        EdgeToEdge.list(host)
         toolbar.setNavigationOnClickListener { if (inSubPanel) showMain() else done() }
         onBackPressedDispatcher.addCallback(this, back)
         showMain()

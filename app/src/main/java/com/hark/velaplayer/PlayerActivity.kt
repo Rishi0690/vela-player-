@@ -332,11 +332,9 @@ class PlayerActivity : AppCompatActivity() {
         touchSlop = ViewConfiguration.get(this).scaledTouchSlop
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        if (Build.VERSION.SDK_INT >= 28) {
-            window.attributes = window.attributes.apply {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
-        }
+        // v2.20: Android 15+ draws every window into the cutout (ALWAYS); ask for the same on 11-14 so the video area
+        // behaves identically everywhere. Controls/overlays below are padded by bars + cutout.
+        EdgeToEdge.playerCutoutMode(this)
         ViewCompat.setOnApplyWindowInsetsListener(b.root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -363,6 +361,10 @@ class PlayerActivity : AppCompatActivity() {
             override fun afterTextChanged(e: android.text.Editable?) { b.p23ButtonRow.post { fitButtonRow() } }
         }) }
 
+        // Predictive back (target SDK 36: onBackPressed/KEYCODE_BACK are no longer delivered): the player always has
+        // work to do on Back (close a panel, show unlock, end Focus, or finish with its own cleanup), and a player that
+        // was opened from another app is the ROOT of the task, where the system default would only move the task to
+        // the back instead of finishing it (playback would carry on). So this callback stays enabled.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -1585,8 +1587,22 @@ class PlayerActivity : AppCompatActivity() {
         else -> "Auto rotation"
     }
 
+    /**
+     * v2.20: with target SDK 36, Android 16 ignores orientation requests on large screens (smallest width >= 600dp:
+     * tablets, foldables open, desktop windows), and every version ignores them in multi-window. The player then
+     * follows the window: no rotation is expected (so a real rotation is never mistaken for ours) and the rotate button
+     * explains instead of silently doing nothing. On phones nothing changes.
+     */
+    private fun orientationRequestsIgnored(): Boolean =
+        (Build.VERSION.SDK_INT >= 36 && resources.configuration.smallestScreenWidthDp >= 600) ||
+            isInMultiWindowMode
+
     /** Rotate button tap: next mode, save it (Settings shows it too), apply it, update the icon. */
     private fun cycleRotation() {
+        if (orientationRequestsIgnored()) {
+            showIndicator(R.drawable.ic_screen_rotation, "Rotation follows this screen", null); hideIndicatorSoon()
+            return
+        }
         val next = when (Prefs.orientation(this)) { "auto" -> "landscape"; "landscape" -> "portrait"; else -> "auto" }
         Prefs.setOrientation(this, next) // the prefs listener applies it; apply directly too in case it fires late
         lastAppliedOrientation = next
@@ -1614,6 +1630,13 @@ class PlayerActivity : AppCompatActivity() {
      */
     private fun requestOrientationProgrammatic(req: Int) {
         val landscapeNow = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        if (orientationRequestsIgnored()) {
+            // Android 16 large screen / multi-window: the request is ignored, so no rotation will follow. Keep it set (it
+            // applies again on a phone-sized display) but don't expect a rotation.
+            autoOrientPending = false; handler.removeCallbacks(clearAutoOrientRunnable)
+            if (requestedOrientation != req) requestedOrientation = req
+            renderRotateButton(); return
+        }
         val wantsLand = req == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE || req == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         val wantsPort = req == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT || req == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if ((wantsLand && !landscapeNow) || (wantsPort && landscapeNow)) {

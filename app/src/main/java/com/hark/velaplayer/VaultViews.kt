@@ -155,14 +155,27 @@ class VaultPinPad(context: Context) : LinearLayout(context) {
     private fun press(l: String) {
         when (l) {
             "⌫" -> if (sb.isNotEmpty()) sb.deleteCharAt(sb.length - 1)
-            "✓" -> { if (sb.length >= 4) { val pin = sb.toString(); onPin?.invoke(pin) } else dots.announceForAccessibility("Enter at least 4 digits") ; return }
+            "✓" -> { if (sb.length >= 4) { val pin = sb.toString(); onPin?.invoke(pin) } else announceHint("Enter at least 4 digits") ; return }
             else -> if (sb.length < 12) sb.append(l)
         }
         render()
     }
 
     private var shown = 0
+    /** v2.20: Android 16 deprecates announceForAccessibility; there the dots become a polite live region whose state
+     *  description carries the hint (cleared on the next key). Older versions keep the direct announcement. */
+    private fun announceHint(msg: String) {
+        if (android.os.Build.VERSION.SDK_INT >= 36) {
+            dots.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            androidx.core.view.ViewCompat.setStateDescription(dots, msg)
+        } else @Suppress("DEPRECATION") dots.announceForAccessibility(msg)
+    }
+
     private fun render() {
+        if (android.os.Build.VERSION.SDK_INT >= 36) {
+            dots.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_NONE
+            androidx.core.view.ViewCompat.setStateDescription(dots, null)
+        }
         // v2.12: each new dot pops in with a small spring.
         if (sb.length > shown && Motion.enabled(context)) { dots.scaleX = 1.12f; dots.scaleY = 1.12f; dots.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(Motion.spring).start() }
         shown = sb.length

@@ -46,7 +46,7 @@ class WidgetsActivity : ThemedActivity() {
         val dp = resources.displayMetrics.density
         fun px(v: Float) = (v * dp).toInt()
 
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; fitsSystemWindows = true }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val bar = MaterialToolbar(this).apply {
             title = "Widgets"; setNavigationIcon(R.drawable.ic_arrow_back); setNavigationOnClickListener { finish() }
             setNavigationContentDescription("Back")
@@ -57,6 +57,8 @@ class WidgetsActivity : ThemedActivity() {
         scroll.addView(col)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
+        EdgeToEdge.root(root) // v2.20 edge to edge
+        EdgeToEdge.list(scroll)
 
         // Hero: theme-tinted Vela artwork in a glass panel.
         val hero = FrameLayout(this).apply {

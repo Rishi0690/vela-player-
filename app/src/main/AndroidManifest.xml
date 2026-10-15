@@ -25,11 +25,17 @@
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.Vela">
+        android:theme="@style/Theme.Vela"
+        android:enableOnBackInvokedCallback="true">
+        <!-- v2.20 (target SDK 36): predictive back on Android 13+ too (Android 16 makes it the default for SDK 36).
+             Every Back path goes through OnBackPressedDispatcher callbacks; nothing overrides onBackPressed or
+             handles KEYCODE_BACK. Screens with a text field use adjustResize: edge to edge, the keyboard arrives
+             as IME insets that each screen pads for (EdgeToEdge). -->
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -76,14 +82,15 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
+            android:windowSoftInputMode="adjustResize"
             android:label="Settings" />
 
-        <activity android:name=".ThemeActivity" android:exported="false" android:label="Theme editor" />
+        <activity android:name=".ThemeActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:label="Theme editor" />
         <activity android:name=".BackgroundActivity" android:exported="false" android:label="Background" />
         <activity android:name=".FocusActivity" android:exported="false" android:label="Focus stats" />
-        <activity android:name=".VideoPickerActivity" android:exported="false" android:label="Add videos" />
+        <activity android:name=".VideoPickerActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:label="Add videos" />
         <!-- v2.2 Hidden Vault: authenticates itself before showing anything (FLAG_SECURE, singleTop for repeated launches). -->
-        <activity android:name=".VaultActivity" android:exported="false" android:launchMode="singleTop" android:label="Hidden Vault" />
+        <activity android:name=".VaultActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:launchMode="singleTop" android:label="Hidden Vault" />
         <!-- v2.3: vault settings, opened only from inside an unlocked vault. -->
         <activity android:name=".VaultSettingsActivity" android:exported="false" android:label="Vault settings" />
 

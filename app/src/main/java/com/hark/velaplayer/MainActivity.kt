@@ -182,6 +182,12 @@ class MainActivity : ThemedActivity() {
         query = savedInstanceState?.getString(STATE_SEARCH_QUERY) ?: ""
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
+        // v2.20 edge to edge: toolbar below the status bar, list scrolls behind the nav bar (and clears the keyboard
+        // while searching), FAB above the nav bar. Snackbars place themselves (Material reads the same insets).
+        EdgeToEdge.root(b.root)
+        EdgeToEdge.list(b.list, ime = true)
+        EdgeToEdge.pad(b.emptyView, bottom = true, ime = true)
+        EdgeToEdge.margin(b.fab)
         setSupportActionBar(b.toolbar)
         // v2.3: the app name is the HoldTitleView inside the toolbar (same look), not the action bar title.
         supportActionBar?.setDisplayShowTitleEnabled(false)
@@ -1966,9 +1972,12 @@ class MainActivity : ThemedActivity() {
         b.l23AppTitle.onHoldComplete = {
             if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
                 try {
-                    startActivity(Intent(this, VaultActivity::class.java))
-                    // v2.12: the vault rises out of the dark while home sinks away.
-                    if (Motion.enabled(this)) @Suppress("DEPRECATION") overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold_exit)
+                    // v2.12: the vault rises out of the dark while home sinks away. v2.20: Android 14+ sets this with
+                    // overrideActivityTransition in the vault itself (EXTRA_HOLD_OPEN); older versions keep
+                    // overridePendingTransition here.
+                    val anim = Motion.enabled(this)
+                    startActivity(Intent(this, VaultActivity::class.java).putExtra(VaultActivity.EXTRA_HOLD_OPEN, anim))
+                    if (anim && Build.VERSION.SDK_INT < 34) @Suppress("DEPRECATION") overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold_exit)
                 } catch (_: Exception) { }
             }
         }

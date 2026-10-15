@@ -43,6 +43,9 @@ class ThemeActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         b = ActivityThemeBinding.inflate(layoutInflater)
         setContentView(b.root)
+        // v2.20 edge to edge: Save/Apply bar clears the nav bar and rises above the keyboard (hex field).
+        EdgeToEdge.root(b.root)
+        EdgeToEdge.pad(b.btnSave.parent as View, bottom = true, ime = true)
         ThemeSwitch.playIfPending(this)
         b.toolbar.setNavigationOnClickListener { finish() }
         b.preview.detailed = true

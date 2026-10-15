@@ -2,6 +2,7 @@ package com.hark.velaplayer
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 
@@ -28,9 +29,15 @@ class WidgetLaunchActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v2.20: no flash for this invisible trampoline. Android 14+: overrideActivityTransition (open + close of this
+        // activity); older versions: the deprecated overridePendingTransition after finish().
+        if (Build.VERSION.SDK_INT >= 34) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
         try { handle(intent) } catch (_: Exception) { open("home", null) }
         finish()
-        overridePendingTransition(0, 0)
+        if (Build.VERSION.SDK_INT < 34) @Suppress("DEPRECATION") overridePendingTransition(0, 0)
     }
 
     private fun handle(i: Intent) {

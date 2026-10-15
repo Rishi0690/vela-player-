@@ -71,13 +71,15 @@ class PlaybackChip(
             fill.backgroundTintList = if (accent != null) ColorStateList.valueOf(ColorUtils.blendARGB(accent, 0xFFFFC46B.toInt(), 0.45f)) else null
             fill.scaleX = level.coerceIn(0, 100) / 100f
         } else track.isVisible = false
+        // v2.20: announceForAccessibility is deprecated in Android 16; the chip is a polite live region for real
+        // messages instead (levels change many times a second while swiping, so they are not announced).
+        val announce = level == null && msg != lastText
+        chip.accessibilityLiveRegion = if (announce) View.ACCESSIBILITY_LIVE_REGION_POLITE else View.ACCESSIBILITY_LIVE_REGION_NONE
         chip.contentDescription = msg
         val wasShown = chip.isVisible && !hiding && chip.alpha > 0.05f
         hiding = false
         chip.isVisible = true
         chip.post { place(animateIn = !wasShown) }
-        // Levels change many times a second while swiping: announce only real messages.
-        if (level == null && msg != lastText) chip.announceForAccessibility(msg)
         lastText = msg
         if (!sticky) handler.postDelayed(hideRunnable, durationMs)
     }

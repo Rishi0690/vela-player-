@@ -22,6 +22,8 @@ class FocusActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         b = ActivityFocusBinding.inflate(layoutInflater)
         setContentView(b.root)
+        EdgeToEdge.root(b.root) // v2.20 edge to edge
+        EdgeToEdge.list(b.content.parent as android.view.View)
         b.toolbar.setNavigationOnClickListener { finish() }
         // v2.12: the dashboard's cards rise in one after another.
         if (savedInstanceState == null) Motion.stagger((0 until minOf(8, b.content.childCount)).map { b.content.getChildAt(it) }, 14f, 60, 0.96f)

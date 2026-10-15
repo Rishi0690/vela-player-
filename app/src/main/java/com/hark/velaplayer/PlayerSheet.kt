@@ -59,7 +59,8 @@ class PlayerSheet(private val host: FrameLayout, private val onClosed: () -> Uni
         host.addView(s, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val p = object : LinearLayout(c) {
-            val maxH = if (landscape) hostH - dp(32) else (hostH * 0.62f).toInt()
+            val maxH = (if (landscape) hostH - dp(32) else (hostH * 0.62f).toInt()) -
+                (androidx.core.view.ViewCompat.getRootWindowInsets(host)?.getInsets(EdgeToEdge.SAFE)?.let { it.top + it.bottom } ?: 0)
             override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
         }.apply {
             orientation = LinearLayout.VERTICAL
@@ -151,8 +152,16 @@ class PlayerSheet(private val host: FrameLayout, private val onClosed: () -> Uni
         val scroll = ScrollView(c).apply { isVerticalScrollBarEnabled = true; addView(list); isFillViewport = false }
         p.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        val lp = if (landscape) FrameLayout.LayoutParams(minOf(dp(400), (hostW * 0.46f).toInt()), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(16) }
-        else FrameLayout.LayoutParams(minOf(hostW - dp(16), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(8) }
+        // v2.20: the player is edge to edge into the cutout (Android 15+ enforces it): keep the panel clear of the
+        // display cutout and of the system bars when they are showing (0 while immersive).
+        val safe = androidx.core.view.ViewCompat.getRootWindowInsets(host)?.getInsets(EdgeToEdge.SAFE) ?: androidx.core.graphics.Insets.NONE
+        val lp = if (landscape) FrameLayout.LayoutParams(minOf(dp(400), (hostW * 0.46f).toInt()), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            marginEnd = dp(16) + if (host.layoutDirection == View.LAYOUT_DIRECTION_RTL) safe.left else safe.right
+            topMargin = safe.top; bottomMargin = safe.bottom
+        }
+        else FrameLayout.LayoutParams(minOf(hostW - dp(16) - safe.left - safe.right, dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            bottomMargin = dp(8) + safe.bottom; topMargin = safe.top
+        }
         host.addView(p, lp)
         scrim = s; panel = p
 

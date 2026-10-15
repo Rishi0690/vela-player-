@@ -288,13 +288,16 @@ object ThemeManager {
      * light icons on the dark theme. Light/Dark/System changes recreate the activity, so this re-runs then.
      * The navigation bar is left as the system/theme draws it.
      */
-    @Suppress("DEPRECATION")
     fun styleStatusBar(a: Activity) {
         val w = a.window ?: return
         val light = isLight(a)
         // v2.12: the bar is transparent so the atmosphere runs behind it (set in Atmosphere.applyTo).
         // Before Android 6 icons are always white, so keep a dark bar there in light mode.
-        w.statusBarColor = if (light && Build.VERSION.SDK_INT < 23) 0xFF000000.toInt() else android.graphics.Color.TRANSPARENT
+        // v2.20: Android 15+ always draws the status bar transparent (setStatusBarColor is a no-op there), so the
+        // colour is only set below 35; the icon colour goes through WindowInsetsControllerCompat on every version.
+        if (Build.VERSION.SDK_INT < 35) @Suppress("DEPRECATION") {
+            w.statusBarColor = if (light && Build.VERSION.SDK_INT < 23) 0xFF000000.toInt() else android.graphics.Color.TRANSPARENT
+        }
         androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).isAppearanceLightStatusBars = light && Build.VERSION.SDK_INT >= 23
     }
 }
@@ -314,6 +317,8 @@ abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
         themeVersion = ThemeManager.version(this)
         backdropVersion = Backdrop.version(this)
         super.onCreate(savedInstanceState)
+        // v2.20: edge to edge on every version (Android 15+ enforces it); each screen pads its own content (EdgeToEdge).
+        if (!isPlayerTheme) EdgeToEdge.enable(this)
         if (!isPlayerTheme) Atmosphere.applyTo(this)
         if (styleSystemBars && !isPlayerTheme) ThemeManager.styleStatusBar(this)
     }
@@ -333,6 +338,27 @@ abstract class ThemedActivity : androidx.appcompat.app.AppCompatActivity() {
         if (!hasFocus && !isPlayerTheme && android.os.Build.VERSION.SDK_INT >= 31) {
             Glass.blurPopupWindows(this)
             window.decorView.post { if (!isFinishing) Glass.blurPopupWindows(this) }
+        }
+    }
+    /**
+     * v2.20: edge to edge, AppCompat paints a solid "status guard" (black, or near-white in light mode) behind the
+     * status bar while an action mode bar is shown (multi-select, reorder). Before 2.20 the window wasn't edge to edge
+     * and the guard never appeared, so the atmosphere / photo stayed visible there; keep that look by clearing the
+     * guard's colour whenever AppCompat (re)applies it. Only the plain guard View AppCompat adds to its sub-decor
+     * is touched, so nothing happens if a future AppCompat drops it.
+     */
+    override fun onSupportActionModeStarted(mode: androidx.appcompat.view.ActionMode) {
+        super.onSupportActionModeStarted(mode)
+        val sub = findViewById<android.view.ViewGroup>(androidx.appcompat.R.id.action_bar_root) ?: return
+        if (sub.getTag(R.id.e2e_guard) != null) return
+        sub.setTag(R.id.e2e_guard, true)
+        sub.viewTreeObserver.addOnPreDrawListener {
+            for (i in 0 until sub.childCount) {
+                val c = sub.getChildAt(i)
+                if (c.javaClass == android.view.View::class.java && c.background is android.graphics.drawable.ColorDrawable &&
+                    (c.background as android.graphics.drawable.ColorDrawable).color != android.graphics.Color.TRANSPARENT) c.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            }
+            true
         }
     }
     /** v2.18: a screen that just changed the backdrop itself re-applies it live instead of recreating. */

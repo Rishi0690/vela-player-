@@ -45,7 +45,9 @@ object ThemeSwitch {
         if (anchor != null) Motion.haptic(anchor)
         pending = shot?.let { Pending(it, cx, cy, toDark) }
         Prefs.sp(a).edit().putString("theme", if (toDark) "dark" else "light").apply()
-        a.overridePendingTransition(0, 0)
+        // The recreate that follows has no activity open/close to attach overrideActivityTransition to, so the
+        // (deprecated but still working on 36) overridePendingTransition stays: it only suppresses a stray window anim.
+        @Suppress("DEPRECATION") a.overridePendingTransition(0, 0)
         Prefs.applyTheme(a) // AppCompat recreates every open screen in the new mode
     }
 
