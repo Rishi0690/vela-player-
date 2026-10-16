@@ -883,7 +883,11 @@ class PlayerActivity : AppCompatActivity() {
                 "The server refused this stream" + (if (code != null) " (HTTP $code)." else ".")
             }
             PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "File not found. It may have been moved or deleted."
-            PlaybackException.ERROR_CODE_IO_NO_PERMISSION -> "No permission to read this file."
+            PlaybackException.ERROR_CODE_IO_NO_PERMISSION ->
+                // v2.20.1: a file shared/opened from another app is readable only while that grant lasts.
+                if (::player.isInitialized && player.currentMediaItem?.mediaId?.let { it.startsWith("content://") && !it.startsWith("content://media/") } == true)
+                    "Vela no longer has access to this file. Share or open it again from the other app."
+                else "No permission to read this file."
             PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "Plain HTTP is blocked for this address."
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "This file type isn't supported."
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,

@@ -72,6 +72,34 @@
             </intent-filter>
         </activity>
 
+        <!-- v2.20.1: the ONE Sharesheet target (a single component = a single "Vela Player" entry). Invisible trampoline:
+             parses EXTRA_STREAM / ClipData / shared links, forwards to PlayerActivity with the read grants, finishes. -->
+        <activity
+            android:name=".ShareReceiverActivity"
+            android:exported="true"
+            android:label="Vela Player"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="application/x-mpegURL" />
+                <data android:mimeType="application/x-mpegurl" />
+                <data android:mimeType="application/vnd.apple.mpegurl" />
+                <data android:mimeType="application/dash+xml" />
+                <data android:mimeType="application/x-matroska" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+
         <!-- v2.19.3: last-resort platform MediaPlayer engine, started only from PlayerActivity's final error path -->
         <activity
             android:name=".SystemPlayerActivity"

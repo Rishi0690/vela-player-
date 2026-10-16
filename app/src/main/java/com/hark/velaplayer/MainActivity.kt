@@ -1256,7 +1256,10 @@ class MainActivity : ThemedActivity() {
         val i = if (uris.size == 1) Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
         else Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
         i.type = "video/*"; i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        try { startActivity(Intent.createChooser(i, "Share")) } catch (_: Exception) { toast("No app to share with") }
+        // v2.20.1: Vela is a Sharesheet target itself now; keep it out of its own Share menu.
+        val chooser = Intent.createChooser(i, "Share")
+            .putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(android.content.ComponentName(this, ShareReceiverActivity::class.java)))
+        try { startActivity(chooser) } catch (_: Exception) { toast("No app to share with") }
     }
 
     /** Old Android (10 and below) edits files directly and needs the storage permission first. */
