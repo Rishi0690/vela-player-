@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.21: 360dp and wider = exactly AppCompat's defaults (look unchanged). -->
+<resources>
+    <dimen name="vela_action_btn_min">48dp</dimen>
+    <dimen name="vela_action_btn_pad">12dp</dimen>
+    <dimen name="vela_action_overflow_min">36dp</dimen>
+    <dimen name="vela_action_overflow_pad_start">6dp</dimen>
+    <dimen name="vela_action_overflow_pad_end">10dp</dimen>
+</resources>

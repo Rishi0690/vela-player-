@@ -25,6 +25,7 @@
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp"
                 android:maxLines="1"
+                android:ellipsize="end"
                 android:text="Vela Player"
                 android:textAppearance="@style/TextAppearance.Vela.Headline"
                 android:textColor="?attr/colorOnSurface" />
@@ -177,7 +178,8 @@
 
                     <ImageView
                         android:id="@+id/emptyArt"
-                        android:layout_width="280dp"
+                        android:layout_width="match_parent"
+                        android:maxWidth="280dp"
                         android:layout_height="132dp"
                         android:layout_gravity="center"
                         android:alpha="0.7"

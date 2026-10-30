@@ -1,6 +1,9 @@
 package com.hark.velaplayer
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import androidx.media3.session.MediaSession
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.datasource.DefaultDataSource
@@ -26,6 +29,14 @@ import java.util.Locale
  */
 object PlayerHolder {
     var player: ExoPlayer? = null
+        private set
+
+    /**
+     * v2.21: the ONE media session (Bluetooth / headset buttons, lock screen, notification). Lives exactly as long as
+     * [player], whether or not background audio is on; [PlaybackService] only adopts it for the notification.
+     * Released with the player so other apps get their media buttons back as soon as Vela's player closes.
+     */
+    var session: MediaSession? = null
         private set
 
     /** v2.19: decoder ordering + per-video fallback overrides; lives for the app process so overrides survive a new player. */
@@ -135,12 +146,31 @@ object PlayerHolder {
             .setHandleAudioBecomingNoisy(true)
             .build()
         player = p
+        session = createSession(c, p)
         WidgetUpdater.attach(c, p) // v2.14: Now Playing widgets follow this player
         return p
     }
 
+    /** Builds the session around [SessionPlayer] (see MediaButtons.kt). Never throws: playback works without it. */
+    fun createSession(c: Context, p: ExoPlayer): MediaSession? = try {
+        val wrapped = SessionPlayer(p)
+        val open = PendingIntent.getActivity(
+            c, 0, Intent(c, PlayerActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        MediaSession.Builder(c, wrapped)
+            .setId(SESSION_ID)
+            .setSessionActivity(open)
+            .setCallback(MediaButtons.Callback(MediaKeys.forMainLooper(wrapped)))
+            .build()
+    } catch (e: Exception) { android.util.Log.w("Vela", "media session unavailable", e); null }
+
+    const val SESSION_ID = "vela_player"
+
     fun release() {
         if (player != null) WidgetUpdater.detach()
+        // Session first (it still talks to the player while releasing), then the engine.
+        session?.let { s -> PlaybackService.instance?.dropSession(s); runCatching { s.release() } }
+        session = null
         player?.release()
         player = null
     }

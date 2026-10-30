@@ -958,7 +958,7 @@ class MainActivity : ThemedActivity() {
     private fun updateActionMode() {
         val m = actionMode ?: return
         val n = selected.size
-        m.title = if (n == 0) "Select items" else "$n selected"
+        m.title = SelectionMenu.title(n)
         val total = selectableRows().size
         m.subtitle = if (total > 0) "of $total" else null
         m.invalidate()
@@ -974,10 +974,12 @@ class MainActivity : ThemedActivity() {
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean { mode.menuInflater.inflate(R.menu.selection_menu, menu); return true }
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            val any = selected.isNotEmpty()
-            val allSelected = selected.size >= selectableRows().size && any
-            menu.findItem(R.id.sel_all).apply { title = if (allSelected) "Deselect all" else "Select all" }
-            for (id in SEL_IDS) menu.findItem(id).isVisible = selActionVisible(id)
+            // v2.21: Select all, Add to playlist and ⋮ stay in fixed positions from the start (see SelectionMenu).
+            val pl = selectingPlaylists()
+            SelectionMenu.applyFixed(menu, SelectionMenu.State(selected.size, selectableRows().size, if (pl) "playlists" else "videos"),
+                R.id.sel_all, R.id.sel_playlist, R.id.sel_hint, R.id.sel_invert, R.id.sel_clear,
+                primaryReady = playlistTargets().isNotEmpty())
+            for (id in SEL_IDS) if (id != R.id.sel_playlist && id != R.id.sel_clear) menu.findItem(id).isVisible = selActionVisible(id)
             return true
         }
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean { runSelAction(item.itemId); return true }
@@ -991,6 +993,29 @@ class MainActivity : ThemedActivity() {
 
     private val SEL_IDS = intArrayOf(R.id.sel_playlist, R.id.sel_play, R.id.sel_share, R.id.sel_fav, R.id.sel_unfav, R.id.sel_watched,
         R.id.sel_unwatched, R.id.sel_remove, R.id.sel_delete, R.id.sel_delete_playlists, R.id.sel_clear)
+
+    /** v2.21: what the bar's Add to playlist acts on: the selected videos, or the videos of the selected playlists. */
+    private fun playlistTargets(): List<Entry> =
+        if (selectingPlaylists()) {
+            val pls = Store.playlists(this)
+            selectedPlaylists().flatMap { pls[it] ?: emptyList() }.distinctBy { it.uri }
+        } else selectedVideos().map { it.entry }
+
+    /** v2.21: Add to playlist tapped with nothing to add. */
+    private fun playlistHint() {
+        val pl = selectingPlaylists()
+        val d = VelaDialogBuilder(this).setTitle("Add to playlist")
+            .setMessage(if (pl) "Select one or more playlists first. Their videos will be added to the playlist you pick next."
+                else "Select the videos you want to add first (tap them), then tap this button again.")
+            .setNegativeButton("OK", null)
+        if (selectableRows().isNotEmpty()) d.setPositiveButton("Select all") { _, _ ->
+            selected.clear(); selected.addAll(selectableRows().mapNotNull { selKey(it) })
+            adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL); updateActionMode()
+            playlistTargets().takeIf { it.isNotEmpty() }?.let { addManyToPlaylistDialog(it) }
+        }
+        if (!pl) d.setNeutralButton("New playlist") { _, _ -> actionMode?.finish(); newPlaylistDialog(null, openPickerAfter = true) }
+        d.show()
+    }
 
     /** v2.17.1: single source of truth for which bulk actions apply to the CURRENT selection (action bar + long-press sheet). */
     private fun selActionVisible(id: Int): Boolean {
@@ -1024,6 +1049,12 @@ class MainActivity : ThemedActivity() {
                     adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL); updateActionMode()
                 }
                 R.id.sel_clear -> { mode.finish() }
+                R.id.sel_invert -> {
+                    val keys = selectableRows().mapNotNull { selKey(it) }
+                    val inv = SelectionMenu.invert(keys, selected.toSet())
+                    selected.clear(); selected.addAll(inv)
+                    adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_SEL); updateActionMode()
+                }
                 R.id.sel_play -> {
                     if (selectingPlaylists()) {
                         val pls = Store.playlists(this@MainActivity)
@@ -1032,7 +1063,12 @@ class MainActivity : ThemedActivity() {
                         play(entries, 0, source = PlayerSession.SOURCE_PLAYLIST, sourceId = names.singleOrNull())
                     } else play(vids.filter { !it.unavailable }.map { it.entry }, 0)
                 }
-                R.id.sel_playlist -> addManyToPlaylistDialog(vids.map { it.entry })
+                R.id.sel_playlist -> {
+                    // v2.21: always on the bar. Videos → add them; playlists → add their videos to another playlist;
+                    // nothing selected → explain, offer Select all / New playlist (never a silent no-op).
+                    val targets = playlistTargets()
+                    if (targets.isNotEmpty()) addManyToPlaylistDialog(targets) else playlistHint()
+                }
                 R.id.sel_share -> share(vids.mapNotNull { Uri.parse(it.entry.uri).takeIf { u -> u.scheme == "content" || u.scheme == "file" } })
                 R.id.sel_fav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, true); toast("Added ${vids.size} to favorites"); refresh() }
                 R.id.sel_unfav -> { Store.setFavorites(this@MainActivity, vids.map { it.entry }, false); toast("Removed ${vids.size} from favorites"); refresh() }

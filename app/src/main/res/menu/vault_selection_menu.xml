@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- v2.21: Select all, Play and ⋮ are ALWAYS shown, in fixed positions, from the moment selection starts (even with
+     nothing selected). Everything else lives in ⋮, so the bar never jumps when the count changes. -->
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item android:id="@+id/vsel_all" android:icon="@drawable/ic_select_all" android:title="Select all" app:showAsAction="always" />
-    <item android:id="@+id/vsel_play" android:icon="@drawable/ic_play" android:title="Play selected" app:showAsAction="ifRoom" />
-    <item android:id="@+id/vsel_unhide" android:icon="@drawable/vault_ic_unhide" android:title="Unhide (remove from vault)" app:showAsAction="ifRoom" />
-    <item android:id="@+id/vsel_private" android:title="Move to private storage" app:showAsAction="never" />
+    <item android:id="@+id/vsel_play" android:icon="@drawable/ic_play" android:title="Play selected" app:showAsAction="always" />
+    <item android:id="@+id/vsel_hint" android:title="Select videos to see more actions" android:enabled="false" app:showAsAction="never" />
+    <item android:id="@+id/vsel_unhide" android:icon="@drawable/vault_ic_unhide" android:title="Unhide (remove from vault)" app:showAsAction="never" />
+    <item android:id="@+id/vsel_private" android:title="Hide from Gallery too" app:showAsAction="never" />
     <item android:id="@+id/vsel_shuffle" android:icon="@drawable/ic_shuffle" android:title="Shuffle selected" app:showAsAction="never" />
     <item android:id="@+id/vsel_watched" android:title="Mark as watched" app:showAsAction="never" />
     <item android:id="@+id/vsel_unwatched" android:title="Mark as unwatched" app:showAsAction="never" />
     <item android:id="@+id/vsel_restart" android:title="Clear resume points" app:showAsAction="never" />
+    <item android:id="@+id/vsel_invert" android:title="Invert selection" app:showAsAction="never" />
+    <item android:id="@+id/vsel_clear" android:title="Clear selection" app:showAsAction="never" />
 </menu>

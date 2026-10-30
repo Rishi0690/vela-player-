@@ -10,5 +10,6 @@
     <item android:id="@+id/vault_add" android:icon="@drawable/ic_add" android:title="Add videos" app:showAsAction="never" />
     <item android:id="@+id/vault_reorder" android:icon="@drawable/l23_ic_drag_handle" android:title="Edit order" app:showAsAction="never" />
     <item android:id="@+id/vault_lock" android:icon="@drawable/ic_lock" android:title="Lock vault" app:showAsAction="never" />
+    <item android:id="@+id/vault_recover" android:title="Recover hidden videos" app:showAsAction="never" />
     <item android:id="@+id/vault_settings" android:icon="@drawable/vault_ic_settings" android:title="Vault settings" app:showAsAction="never" />
 </menu>

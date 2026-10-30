@@ -58,6 +58,10 @@
         <item name="popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu</item>
         <item name="listPopupWindowStyle">@style/Widget.Vela.Glass.ListPopupWindow</item>
         <item name="actionOverflowMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Overflow</item>
+        <!-- v2.21: toolbar / selection-bar icons a little narrower below 360dp (values-w360dp keeps 48dp) so every
+             Home toolbar item (theme, search, grid/list, sort, ⋮) stays visible with room for the title. -->
+        <item name="actionButtonStyle">@style/Widget.Vela.ActionButton</item>
+        <item name="actionOverflowButtonStyle">@style/Widget.Vela.ActionButton.Overflow</item>
         <item name="android:popupMenuStyle">@style/Widget.Vela.Glass.PopupMenu.Framework</item>
         <item name="android:listPopupWindowStyle">@style/Widget.Vela.Glass.ListPopupWindow.Framework</item>
         <item name="android:dropDownListViewStyle">@style/Widget.Vela.DropDownListView</item>
@@ -361,6 +365,17 @@
     </style>
 
     <!-- Floating action button: soft accent pill-circle with a low glow shadow, no heavy elevation. -->
+    <style name="Widget.Vela.ActionButton" parent="Widget.AppCompat.ActionButton">
+        <item name="android:minWidth">@dimen/vela_action_btn_min</item>
+        <item name="android:paddingStart">@dimen/vela_action_btn_pad</item>
+        <item name="android:paddingEnd">@dimen/vela_action_btn_pad</item>
+    </style>
+    <style name="Widget.Vela.ActionButton.Overflow" parent="Widget.AppCompat.ActionButton.Overflow">
+        <item name="android:minWidth">@dimen/vela_action_overflow_min</item>
+        <item name="android:paddingStart">@dimen/vela_action_overflow_pad_start</item>
+        <item name="android:paddingEnd">@dimen/vela_action_overflow_pad_end</item>
+    </style>
+
     <style name="Widget.Vela.Fab" parent="Widget.Material3.FloatingActionButton.Primary">
         <item name="shapeAppearanceOverlay">@style/PillShape</item>
         <item name="elevation">6dp</item>

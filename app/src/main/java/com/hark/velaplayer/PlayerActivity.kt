@@ -246,6 +246,20 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
     private val hideUnlockRunnable = Runnable { setUnlockVisible(false) }
+
+    /**
+     * v2.21 media session hooks (MediaButtons.kt). Headset/Bluetooth play is allowed while the player is visible
+     * (incl. PiP) or background audio is on; a locked vault never resumes from a button.
+     */
+    private val sessionHooks = object : MediaButtons.Hooks {
+        override fun beforeQueueJump() { savePosition() }
+        override fun playAllowed(): Boolean {
+            if (isFinishing || isDestroyed) return false
+            if (vaultMode && !Vault.isUnlocked()) return false
+            return activityStarted || Prefs.backgroundAudio(this@PlayerActivity)
+        }
+        override fun seekIntervalMs(): Long = seekIntervalMs
+    }
     private val ticker = object : Runnable {
         override fun run() {
             tick()
@@ -354,11 +368,20 @@ class PlayerActivity : AppCompatActivity() {
             insets
         }
         setFullscreen(true)
-        b.p23ButtonRow.addOnLayoutChangeListener { _, l, _, r, _, ol, _, or, _ -> if (r - l != or - ol) b.p23ButtonRow.post { fitButtonRow() } }
+        // v2.21: the bottom row always fits (RowFitter re-checks after every layout: width, insets, visibility, pill text).
+        rowFitter = RowFitter(b.p23ButtonRow, listOf(b.btnSpeed, b.btnAspectLabel),
+            icons = listOf(b.btnLock, b.btnRotate, b.btnPip, b.btnLockRight),
+            droppable = listOf(b.btnPip, b.btnLock, b.btnRotate)) { gone -> rowOverflow = gone }
+        // v2.21: the top bar (back · title · Focus · Browse · Subtitles · Audio · Options) fits narrow widths too: icons
+        // shrink to 36dp, then Browse and Focus (both also in Player options) step aside. Options/Subtitles/Audio stay.
+        topFitter = RowFitter(b.topBar, emptyList(), icons = listOf(b.btnBack, b.btnFocus, b.btnBrowse, b.btnSubtitle, b.btnAudio, b.btnMore),
+            droppable = listOf(b.btnBrowse, b.btnFocus))
+        // v2.21: centre buttons (prev · rewind · play · forward · next = 344dp) shrink on narrow portrait screens.
+        b.controls.addOnLayoutChangeListener { _, l, _, r, _, ol, _, or, _ -> if (r - l != or - ol) b.controls.post { fitCenterControls() } }
         listOf(b.btnSpeed, b.btnAspectLabel).forEach { p -> p.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
-            override fun afterTextChanged(e: android.text.Editable?) { b.p23ButtonRow.post { fitButtonRow() } }
+            override fun afterTextChanged(e: android.text.Editable?) { b.p23ButtonRow.post { rowFitter.fit() } }
         }) }
 
         // Predictive back (target SDK 36: onBackPressed/KEYCODE_BACK are no longer delivered): the player always has
@@ -407,8 +430,9 @@ class PlayerActivity : AppCompatActivity() {
         setupGestures()
         setupSpeedPanel()
         setupBrowser()
-        if (!pipSupported()) b.btnPip.isVisible = false
+        if (!pipSupported()) rowFitter.setWanted(b.btnPip, false)
         ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
+        MediaButtons.hooks = sessionHooks // v2.21: Bluetooth / headset buttons (PlayerHolder's media session)
 
         // Recreated by the system (process death / restore from Recents): restore the video paused at its
         // saved position instead of starting playback on its own.
@@ -509,6 +533,7 @@ class PlayerActivity : AppCompatActivity() {
         handler.removeCallbacksAndMessages(null)
         if (::chip.isInitialized) chip.release()
         try { unregisterReceiver(pipReceiver) } catch (_: Exception) { }
+        if (MediaButtons.hooks === sessionHooks) MediaButtons.hooks = null
         if (playerReady) {
             savePosition()
             updateSessionPosition()
@@ -1355,32 +1380,47 @@ class PlayerActivity : AppCompatActivity() {
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
 
     /**
-     * v2.16.1 fix — right lock button pushed off-screen in portrait. Root cause: the bottom button row is a
-     * horizontal LinearLayout of fixed 48dp icons + two wrap_content pills + a weighted Space. On narrow portrait
-     * widths (after cutout/system insets) the children's total width exceeded the row, the Space can't go below 0,
-     * so LinearLayout simply laid the last child (btnLockRight) past the right edge. Now the row adapts to whatever
-     * width it really gets: first the pills drop their icons, then the icon buttons shrink (48 → down to 36dp,
-     * still a comfortable target). Runs on every row size change (rotation, insets, multi-window) and pill text change.
+     * v2.16.1 → v2.21: the bottom button row (lock · speed · aspect · gap · rotate · PiP · lock) must never push
+     * btnLockRight off-screen. [RowFitter] measures the real children on every layout and degrades step by step
+     * (pill icons off → icons 48→36dp → compact pills → smaller pill text → hide PiP, then the left lock, then rotate
+     * → last resort 32dp icons + ellipsized pills). Hidden buttons are offered in the player options sheet ([rowOverflow]).
      */
-    private var pillIcons: Pair<android.graphics.drawable.Drawable?, android.graphics.drawable.Drawable?>? = null
-    private fun fitButtonRow() {
-        val row = b.p23ButtonRow
-        val avail = row.width - row.paddingLeft - row.paddingRight
+    private lateinit var rowFitter: RowFitter
+    private lateinit var topFitter: RowFitter
+    /** v2.21: scale of the centre buttons on screens too narrow for them even in their compact size (1 = as designed). */
+    private var centerFit = 1f
+    private var centerCompact = false
+
+    /** Compact sizes first (48/44/64dp, tighter gaps), then a uniform scale; never past the screen edges. */
+    private fun fitCenterControls() {
+        val c = b.controls
+        val avail = c.width - c.paddingLeft - c.paddingRight - dp(16)
         if (avail <= 0) return
-        val icons = pillIcons ?: (b.btnSpeed.icon to b.btnAspectLabel.icon).also { pillIcons = it }
-        val iconBtns = (0 until row.childCount).map { row.getChildAt(it) }.filter { it is ShadowImageButton && it.isVisible }
-        val pills = listOf(b.btnSpeed, b.btnAspectLabel).filter { it.isVisible }
+        val cc = b.centerControls
         val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        fun pillsWidth(): Int = pills.sumOf { p -> p.measure(unspec, View.MeasureSpec.makeMeasureSpec(dp(48), View.MeasureSpec.EXACTLY)); p.measuredWidth + (p.layoutParams as ViewGroup.MarginLayoutParams).let { it.leftMargin + it.rightMargin } }
-        var showIcons = true
-        if (b.btnSpeed.icon == null) { b.btnSpeed.icon = icons.first; b.btnAspectLabel.icon = icons.second }
-        var pw = pillsWidth()
-        if (pw + iconBtns.size * dp(48) > avail) { showIcons = false; b.btnSpeed.icon = null; b.btnAspectLabel.icon = null; pw = pillsWidth() }
-        val each = if (iconBtns.isEmpty()) dp(48) else ((avail - pw) / iconBtns.size).coerceIn(dp(36), dp(48))
-        var changed = false
-        iconBtns.forEach { v -> val lp = v.layoutParams; if (lp.width != each) { lp.width = each; v.layoutParams = lp; changed = true } }
-        if (!showIcons || changed) row.requestLayout()
+        fun need(): Int { cc.measure(unspec, unspec); return cc.measuredWidth }
+        fun size(v: View, w: Int, ms: Int, me: Int) {
+            val lp = v.layoutParams as ViewGroup.MarginLayoutParams
+            lp.width = dp(w); lp.height = dp(w); lp.marginStart = dp(ms); lp.marginEnd = dp(me); v.layoutParams = lp
+        }
+        fun apply(compact: Boolean) {
+            centerCompact = compact
+            if (compact) {
+                size(b.btnPrev, 44, 0, 4); size(b.btnRewind, 48, 0, 8); size(b.btnPlay, 64, 0, 0); size(b.btnForward, 48, 8, 0); size(b.btnNext, 44, 4, 0)
+                b.btnPlay.setPadding(dp(16), dp(16), dp(16), dp(16))
+            } else {
+                size(b.btnPrev, 56, 0, 8); size(b.btnRewind, 56, 0, 16); size(b.btnPlay, 72, 0, 0); size(b.btnForward, 56, 16, 0); size(b.btnNext, 56, 8, 0)
+                b.btnPlay.setPadding(dp(18), dp(18), dp(18), dp(18))
+            }
+        }
+        apply(false)
+        var n = need()
+        if (n > avail) { apply(true); n = need() }
+        centerFit = if (n > avail) avail.toFloat() / n else 1f
+        if (cc.animation == null && controlsVisible) { cc.scaleX = centerFit; cc.scaleY = centerFit }
     }
+    /** v2.21: row buttons hidden for lack of space (offered in "Player options" instead). */
+    private var rowOverflow: Set<View> = emptySet()
 
     /** v2.12: last icon state of the play button, so a real change morphs (▶ ⇄ ‖) instead of swapping. */
     private var playIconPause: Boolean? = null
@@ -1401,6 +1441,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun updateNavButtons() {
         val multi = player.mediaItemCount > 1
+        if (multi != b.btnPrev.isVisible) b.controls.post { fitCenterControls() } // v2.21: prev/next change the centre width
         b.btnPrev.isVisible = multi
         b.btnNext.isVisible = multi
         b.btnPrev.isEnabled = player.hasPreviousMediaItem()
@@ -1497,13 +1538,13 @@ class PlayerActivity : AppCompatActivity() {
             if (!b.controls.isVisible) {
                 b.controls.alpha = 0f
                 b.topBar.translationY = -slide; b.bottomBar.translationY = slide
-                b.centerControls.scaleX = 0.88f; b.centerControls.scaleY = 0.88f
+                b.centerControls.scaleX = 0.88f * centerFit; b.centerControls.scaleY = 0.88f * centerFit
             }
             b.controls.isVisible = true
             b.controls.animate().alpha(1f).setDuration(220).setInterpolator(Motion.emphasized).start()
             b.topBar.animate().translationY(0f).setDuration(340).setInterpolator(Motion.emphasized).start()
             b.bottomBar.animate().translationY(0f).setDuration(340).setInterpolator(Motion.emphasized).start()
-            b.centerControls.animate().scaleX(1f).scaleY(1f).setDuration(340).setInterpolator(Motion.emphasized).start()
+            b.centerControls.animate().scaleX(centerFit).scaleY(centerFit).setDuration(340).setInterpolator(Motion.emphasized).start()
             updateProgress(); updatePlayButton(); updateNavButtons()
             scheduleHide()
         } else {
@@ -1511,7 +1552,7 @@ class PlayerActivity : AppCompatActivity() {
             b.seekPreview.isVisible = false
             b.topBar.animate().translationY(-slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
             b.bottomBar.animate().translationY(slide).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
-            b.centerControls.animate().scaleX(0.92f).scaleY(0.92f).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
+            b.centerControls.animate().scaleX(0.92f * centerFit).scaleY(0.92f * centerFit).setDuration(220).setInterpolator(Motion.emphasizedAccel).start()
             b.controls.animate().alpha(0f).setDuration(220).setInterpolator(Motion.emphasizedAccel).withEndAction {
                 if (!controlsVisible) b.controls.isVisible = false
             }.start()
@@ -2432,6 +2473,8 @@ class PlayerActivity : AppCompatActivity() {
     private fun showMoreMenu(@Suppress("UNUSED_PARAMETER") anchor: View) {
         handler.removeCallbacks(hideControlsRunnable)
         val o = ArrayList<PlayerSheet.Option>()
+        // v2.21: buttons the bottom row had no room for on this screen (RowFitter) are offered here, first.
+        if (b.btnRotate in rowOverflow) o += PlayerSheet.Option("Rotate screen", rotationLabel(Prefs.orientation(this)), icon = R.drawable.ic_screen_rotation) { cycleRotation() }
         o += PlayerSheet.Option("Playback speed", null, icon = R.drawable.ic_speed, trailing = formatSpeed(player.playbackParameters.speed)) { showSpeedDialog() }
         if (Prefs.focusFeature(this)) o += PlayerSheet.Option("Focus Mode", if (focus.active) "Focused ${FocusFmt.clock(focus.elapsedMs())}" else "Track real watching time, fewer distractions",
             icon = R.drawable.ic_focus, trailing = if (focus.active) "On" else "Off") { if (focus.active) endFocus(false) else startFocus(true) }
@@ -2454,7 +2497,7 @@ class PlayerActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ Focus Mode
 
     private fun setupFocus() {
-        b.btnFocus.isVisible = Prefs.focusFeature(this)
+        topFitter.setWanted(b.btnFocus, Prefs.focusFeature(this))
         b.breakKeep.setOnClickListener { handler.removeCallbacks(hideBreakRunnable); fadeOut(b.breakCard) }
         b.breakPause.setOnClickListener {
             handler.removeCallbacks(hideBreakRunnable); fadeOut(b.breakCard)
@@ -2556,7 +2599,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun renderFocusUi() {
         if (!::focus.isInitialized) return
         val on = focus.active
-        b.btnFocus.isVisible = Prefs.focusFeature(this)
+        topFitter.setWanted(b.btnFocus, Prefs.focusFeature(this))
         b.btnFocus.alpha = if (on) 1f else 0.85f
         b.btnFocus.imageTintList = android.content.res.ColorStateList.valueOf(if (on) ThemeManager.primary(this) else 0xFFFFFFFF.toInt())
         b.btnFocus.contentDescription = if (on) "Focus Mode on. Tap to end the session" else "Start Focus Mode"
@@ -2569,10 +2612,10 @@ class PlayerActivity : AppCompatActivity() {
         // Minimal controls: hide only the distracting extra (quick video browser). PiP, rotation and lock stay
         // available in Focus Mode — they are watching tools, not distractions.
         val minimal = on && Prefs.focusMinimal(this)
-        b.btnBrowse.isVisible = !minimal && !vaultMode // the library browser never opens over vault playback
-        b.btnLockRight.isVisible = true
-        b.btnRotate.isVisible = true
-        b.btnPip.isVisible = pipSupported()
+        topFitter.setWanted(b.btnBrowse, !minimal && !vaultMode) // the library browser never opens over vault playback
+        rowFitter.setWanted(b.btnLockRight, true)
+        rowFitter.setWanted(b.btnRotate, true)
+        rowFitter.setWanted(b.btnPip, pipSupported())
         if (!on) { handler.removeCallbacks(hideBreakRunnable); b.breakCard.isVisible = false }
     }
 

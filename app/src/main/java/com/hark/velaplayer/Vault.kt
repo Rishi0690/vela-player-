@@ -11,9 +11,13 @@ import org.json.JSONObject
  * Two storage modes per item (v2.5):
  *  - MODE_APP ("Hide in Vela only"): only Vela's lists change. The file is NOT moved, deleted or encrypted and stays
  *    visible to Gallery, file managers and other apps.
- *  - MODE_PRIVATE ("Move to private storage"): the file was copied into Vela's private app storage (files/vault/),
- *    the copy was checked, and the user allowed Android to delete the original. Other apps can't see it, but it is
- *    NOT encrypted, and Android deletes it when Vela is uninstalled or its storage is cleared. See [VaultStorage].
+ *  - MODE_FOLDER (v2.21 "Hide from Gallery too"): the video itself lives in the shared-storage folder
+ *    Movies/Vela Hidden/ (with a .nomedia file, a recovery index and a README), so Gallery apps don't list it, but it
+ *    SURVIVES uninstalling Vela or clearing its data. [uri] is the file's address there (SAF document uri on
+ *    Android 11+, file:// below). See [VaultStorage] / [HiddenFolder].
+ *  - MODE_PRIVATE (v2.5 "Move to private storage", no longer created): a copy in Vela's private app storage
+ *    (files/vault/), deleted by Android on uninstall. v2.21 migrates these to MODE_FOLDER (copy, verify size + SHA-256,
+ *    update the record, only then delete the private copy).
  *
  * Data lives in its own prefs file ("vela_vault"), separate from [Store]. Do not change these signatures;
  * the library side may add more functions (auth, settings) in VaultAuth.kt / VaultActivity.kt.
@@ -29,6 +33,7 @@ object Vault {
     // ---- hidden list (uri + title + time hidden), insertion order kept ----
     const val MODE_APP = "app"
     const val MODE_PRIVATE = "private"
+    const val MODE_FOLDER = "folder"
 
     /**
      * [uri] is the key Vela uses everywhere (positions, order). For a private item it is the file:// uri of the copy,
@@ -39,8 +44,17 @@ object Vault {
     data class Item(val uri: String, val title: String, val hiddenAt: Long,
                     val mode: String = MODE_APP, val orig: String? = null, val origDir: String? = null,
                     val origName: String? = null, val mime: String? = null, val size: Long = 0L, val dur: Long = 0L,
-                    val pending: Boolean = false, val wasApp: Boolean = false) {
+                    val pending: Boolean = false, val wasApp: Boolean = false,
+                    /** v2.21 migration: target file name chosen in the hidden folder (so a retry never copies twice). */
+                    val migrateTo: String? = null,
+                    /** v2.21 migration: name of the private copy this folder item was made from (finishes an interrupted cleanup). */
+                    val migratedFrom: String? = null) {
+        /** v2.5 legacy: the only copy is in Vela's private app storage (migrated to [MODE_FOLDER] by v2.21). */
         val isPrivate get() = mode == MODE_PRIVATE
+        /** v2.21: the video sits in the Movies/Vela Hidden folder (survives uninstall). */
+        val isFolder get() = mode == MODE_FOLDER
+        /** The file itself was taken out of Gallery (either kind); Vela-only items are [MODE_APP]. */
+        val isStored get() = mode == MODE_PRIVATE || mode == MODE_FOLDER
     }
 
     fun items(c: Context): List<Item> = try {
@@ -48,15 +62,18 @@ object Vault {
         (0 until a.length()).map { val o = a.getJSONObject(it)
             Item(o.getString("u"), o.optString("t", "Video"), o.optLong("h", 0L), o.optString("m", MODE_APP),
                 o.optString("o").ifEmpty { null }, o.optString("od").ifEmpty { null }, o.optString("on").ifEmpty { null },
-                o.optString("mt").ifEmpty { null }, o.optLong("sz", 0L), o.optLong("du", 0L), o.optBoolean("pd", false), o.optBoolean("wa", false)) }
+                o.optString("mt").ifEmpty { null }, o.optLong("sz", 0L), o.optLong("du", 0L), o.optBoolean("pd", false), o.optBoolean("wa", false),
+                o.optString("m2").ifEmpty { null }, o.optString("mf").ifEmpty { null }) }
     } catch (_: Exception) { emptyList() }
 
     private fun writeItems(c: Context, list: List<Item>) {
         val a = JSONArray(); list.forEach {
             val o = JSONObject().put("u", it.uri).put("t", it.title).put("h", it.hiddenAt)
-            if (it.isPrivate) {
+            if (it.isStored) {
                 o.put("m", it.mode).put("o", it.orig ?: "").put("od", it.origDir ?: "").put("on", it.origName ?: "")
                     .put("mt", it.mime ?: "").put("sz", it.size).put("du", it.dur).put("pd", it.pending).put("wa", it.wasApp)
+                it.migrateTo?.let { v -> o.put("m2", v) }
+                it.migratedFrom?.let { v -> o.put("mf", v) }
             }
             a.put(o)
         }
@@ -131,6 +148,24 @@ object Vault {
         val order = savedOrder(c); if (uri in order) setOrder(c, order.filter { it != uri })
     }
 
+    /** Replaces one record in place (same position in the list). Returns false when [uri] isn't in the vault. */
+    fun replaceItem(c: Context, uri: String, rec: Item): Boolean {
+        val cur = items(c).toMutableList()
+        val i = cur.indexOfFirst { it.uri == uri }; if (i < 0) return false
+        if (rec.uri != uri) moveKeys(c, uri, rec.uri)
+        cur[i] = rec
+        writeItems(c, cur)
+        return true
+    }
+
+    /** v2.21: adds folder records found by "Recover hidden videos" (duplicates by uri ignored). Returns how many were new. */
+    fun adoptAll(c: Context, recs: List<Item>): Int {
+        val cur = items(c).toMutableList(); val have = cur.map { it.uri }.toHashSet(); var n = 0
+        for (r in recs) if (have.add(r.uri)) { cur.add(r); n++ }
+        if (n > 0) writeItems(c, cur)
+        return n
+    }
+
     /** A file found in private storage with no record (e.g. the app was killed mid-move): keep it, never delete it. */
     fun adoptOrphan(c: Context, rec: Item) { val cur = items(c).toMutableList(); if (cur.none { it.uri == rec.uri }) { cur.add(rec); writeItems(c, cur) } }
     fun isHidden(c: Context, uri: String?): Boolean = uri != null && uri in hiddenSet(c)
@@ -149,9 +184,9 @@ object Vault {
         return n
     }
 
-    /** Back to the normal library; the resume position goes back to [Store]. Vela-only items only (private ones restore via [VaultStorage]). */
+    /** Back to the normal library; the resume position goes back to [Store]. Vela-only items only (stored ones restore via [VaultStorage]). */
     fun unhide(c: Context, uris: Collection<String>) {
-        val set = uris.toHashSet().apply { removeAll(items(c).filter { it.isPrivate }.map { it.uri }.toSet()) }
+        val set = uris.toHashSet().apply { removeAll(items(c).filter { it.isStored }.map { it.uri }.toSet()) }
         val cur = items(c)
         for (it in cur) if (it.uri in set) {
             val p = position(c, it.uri)

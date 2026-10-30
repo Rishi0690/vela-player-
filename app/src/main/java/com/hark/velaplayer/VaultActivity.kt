@@ -420,6 +420,8 @@ class VaultActivity : ThemedActivity() {
     // ------------------------------------------------------------------ vault library
 
     private var loading = false
+    /** v2.21: the migration / recovery check runs once per vault screen. */
+    private var storageChecked = false
 
     private fun load() {
         if (io.isShutdown || loading) return
@@ -434,7 +436,7 @@ class VaultActivity : ThemedActivity() {
                 val v = byUri[it.uri]
                 val pos = Vault.position(this, it.uri)
                 val dur = Vault.duration(this, it.uri).takeIf { d -> d > 0 } ?: v?.durationMs ?: it.dur
-                val missing = if (it.isPrivate) !VaultStorage.exists(it) else fullLookup && it.uri.startsWith("content://media/") && v == null
+                val missing = if (it.isStored) VaultStorage.exists(this, it) == false else fullLookup && it.uri.startsWith("content://media/") && v == null
                 VRow(it, v, if (pos > 0 && dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f,
                     missing, Vault.lastPlayed(this, it.uri))
             }
@@ -443,6 +445,8 @@ class VaultActivity : ThemedActivity() {
                 if (isDestroyed || !Vault.isUnlocked()) return@post
                 rows = list
                 show()
+                // v2.21: migrate v2.5 private items to the safe folder / offer recovery after a reinstall (once per screen).
+                if (!storageChecked) { storageChecked = true; VaultStorage.onVaultShown(this, storageReq) { load() } }
             }
         }
     }
@@ -566,6 +570,7 @@ class VaultActivity : ThemedActivity() {
             R.id.vault_reorder -> startReorder()
             R.id.vault_settings -> { reorderMode?.finish(); actionMode?.finish(); childOpen = true; settingsLauncher.launch(Intent(this, VaultSettingsActivity::class.java)) }
             R.id.vault_lock -> { lockNow(); toast("Vault locked") }
+            R.id.vault_recover -> { reorderMode?.finish(); actionMode?.finish(); VaultStorage.recover(this, storageReq) { load() } }
             else -> return super.onOptionsItemSelected(item)
         }
         return true
@@ -604,13 +609,13 @@ class VaultActivity : ThemedActivity() {
     private fun unhide(uris: List<String>) {
         if (uris.isEmpty()) return
         val all = Vault.items(this).filter { it.uri in uris.toSet() }
-        val priv = all.filter { it.isPrivate }; val app = all.filter { !it.isPrivate }
+        val priv = all.filter { it.isStored }; val app = all.filter { !it.isStored }
         val msg = buildString {
             if (app.isNotEmpty()) append("${app.size} hidden in Vela only: they go back to the normal library with their resume points. Files aren't changed.")
             if (priv.isNotEmpty()) {
                 if (isNotEmpty()) append("\n\n")
-                append("${priv.size} in private storage: Vela copies ${if (priv.size == 1) "it" else "them"} back to phone storage " +
-                    "(the original folder when Android allows it, otherwise Movies/Vela Restored), checks the copy, then removes the private copy. " +
+                append("${priv.size} hidden from Gallery: Vela puts ${if (priv.size == 1) "it" else "them"} back in phone storage " +
+                    "(the original folder when Android allows it, otherwise Movies/Vela Restored) without overwriting anything there. " +
                     "${if (priv.size == 1) "It" else "They"} will be visible in Gallery and other apps again.")
             }
         }
@@ -626,9 +631,10 @@ class VaultActivity : ThemedActivity() {
             }.setNegativeButton("Cancel", null).show()
     }
 
+    /** v2.21: a Vela-only item → also hidden from Gallery (moved into Movies/Vela Hidden, see VaultStorage). */
     private fun moveToPrivate(uris: List<String>) {
-        val list = Vault.items(this).filter { it.uri in uris.toSet() && !it.isPrivate }
-        if (list.isEmpty()) { toast("Already in private storage"); return }
+        val list = Vault.items(this).filter { it.uri in uris.toSet() && !it.isStored }
+        if (list.isEmpty()) { toast("Already hidden from Gallery"); return }
         VaultStorage.chooseAndHide(this, storageReq, list.map { Entry(it.uri, it.title) }, allowApp = false,
             onAppHide = { }, onPrivateDone = { actionMode?.finish(); load() })
     }
@@ -644,16 +650,16 @@ class VaultActivity : ThemedActivity() {
         val w = Vault.isWatched(this, row.item.uri)
         manage += ItemSheet.Action(if (w) "Mark as unwatched" else "Mark as watched", R.drawable.ic_check_circle) { Vault.setWatched(this, listOf(row.item.uri), !w); load() }
         if (rows.size > 1) manage += ItemSheet.Action("Edit order", R.drawable.l23_ic_drag_handle) { startReorder() }
-        if (!row.item.isPrivate && !row.unavailable) storage += ItemSheet.Action("Move to private storage (hide from Gallery)", R.drawable.ic_lock) { moveToPrivate(listOf(row.item.uri)) }
-        storage += ItemSheet.Action(if (row.item.isPrivate) "Unhide (restore to phone storage)" else "Unhide (remove from vault)", R.drawable.vault_ic_unhide) { unhide(listOf(row.item.uri)) }
+        if (!row.item.isStored && !row.unavailable) storage += ItemSheet.Action("Hide from Gallery too", R.drawable.ic_lock) { moveToPrivate(listOf(row.item.uri)) }
+        storage += ItemSheet.Action(if (row.item.isStored) "Unhide (back to Gallery)" else "Unhide (remove from vault)", R.drawable.vault_ic_unhide) { unhide(listOf(row.item.uri)) }
         storage += ItemSheet.Action("Details", R.drawable.ic_info) { details(row) }
         val v = row.video
         val sub = when {
-            row.unavailable -> if (row.item.isPrivate) "Private copy missing" else "Unavailable · moved or deleted"
+            row.unavailable -> if (row.item.isStored) "Hidden file missing" else "Unavailable · moved or deleted"
             else -> listOfNotNull(
                 (v?.durationMs ?: row.item.dur).takeIf { it > 0 }?.let { Fmt.time(it) },
                 v?.size?.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(this, it) },
-                if (row.item.isPrivate) "Private storage" else null).joinToString(" · ")
+                if (row.item.isStored) "Hidden from Gallery" else null).joinToString(" · ")
         }
         val loadThumb = { iv: android.widget.ImageView ->
             if (thumbs) ThumbLoader.load(iv, v?.uri ?: Uri.parse(row.item.uri), v?.id ?: -1L, v?.durationMs ?: 0L)
@@ -677,11 +683,17 @@ class VaultActivity : ThemedActivity() {
         if (row.item.hiddenAt > 0) sb.append("Hidden: ").append(DateFormat.getMediumDateFormat(this).format(row.item.hiddenAt)).append('\n')
         val pos = Vault.position(this, row.item.uri)
         if (pos > 0) sb.append("Resume at: ").append(Fmt.time(pos)).append('\n')
-        if (row.item.isPrivate) {
+        if (row.item.isFolder) {
+            if (row.item.size > 0) sb.append("Size: ").append(Formatter.formatFileSize(this, row.item.size)).append('\n')
+            HiddenFolder.nameFromUri(Uri.parse(row.item.uri))?.let { sb.append("Stored as: Movies/${HiddenFolder.NAME}/").append(it).append('\n') }
+            row.item.origDir?.let { sb.append("Originally in: ").append(it).append('\n') }
+            sb.append("\nHidden from Gallery: the file is in the Movies/${HiddenFolder.NAME} folder, which Gallery apps skip. It is not encrypted. " +
+                "Uninstalling Vela or clearing its data does NOT delete it (reinstall Vela and use Recover hidden videos, or move it out with a file manager).")
+        } else if (row.item.isPrivate) {
             VaultStorage.fileOf(row.item)?.takeIf { it.exists() }?.let { sb.append("Size: ").append(Formatter.formatFileSize(this, it.length())).append('\n') }
             row.item.origDir?.let { sb.append("Originally in: ").append(it).append('\n') }
-            sb.append("\nStored in Vela's private storage: Gallery and other apps can't see it. It is not encrypted. " +
-                "Uninstalling Vela or clearing its storage deletes it permanently, so unhide it first.")
+            sb.append("\nStill in Vela's private storage (from an older version). Android deletes that storage on uninstall, so Vela " +
+                "moves it to Movies/${HiddenFolder.NAME} as soon as you allow it (you'll be asked when the vault opens).")
         } else sb.append("\nHidden in Vela only: the file isn't moved or encrypted and stays visible in Gallery and other apps. " +
             "Uninstalling Vela doesn't delete it.")
         val base = sb.toString().trim()
@@ -711,7 +723,7 @@ class VaultActivity : ThemedActivity() {
 
     private fun updateActionMode() {
         val m = actionMode ?: return
-        m.title = if (selected.isEmpty()) "Select items" else "${selected.size} selected"
+        m.title = SelectionMenu.title(selected.size)
         m.subtitle = "of ${shown.size}"
         m.invalidate()
     }
@@ -719,13 +731,15 @@ class VaultActivity : ThemedActivity() {
     private val selCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean { mode.menuInflater.inflate(R.menu.vault_selection_menu, menu); addFab.hide(); return true }
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            // v2.21: Select all, Play and ⋮ stay in fixed positions from the start (see SelectionMenu).
             val any = selected.isNotEmpty()
-            menu.findItem(R.id.vsel_all).title = if (any && selected.size >= shown.size) "Deselect all" else "Select all"
-            menu.findItem(R.id.vsel_play).isVisible = any
-            menu.findItem(R.id.vsel_unhide).isVisible = any
-            menu.findItem(R.id.vsel_private).isVisible = any && Vault.items(this@VaultActivity).any { it.uri in selected && !it.isPrivate }
-            menu.findItem(R.id.vsel_shuffle).isVisible = selected.size > 1
             val sel = selected.toList()
+            SelectionMenu.applyFixed(menu, SelectionMenu.State(selected.size, shown.size),
+                R.id.vsel_all, R.id.vsel_play, R.id.vsel_hint, R.id.vsel_invert, R.id.vsel_clear,
+                primaryReady = shown.any { it.item.uri in selected && !it.unavailable })
+            menu.findItem(R.id.vsel_unhide).isVisible = any
+            menu.findItem(R.id.vsel_private).isVisible = any && Vault.items(this@VaultActivity).any { it.uri in selected && !it.isStored }
+            menu.findItem(R.id.vsel_shuffle).isVisible = selected.size > 1
             menu.findItem(R.id.vsel_watched).isVisible = sel.any { !Vault.isWatched(this@VaultActivity, it) }
             menu.findItem(R.id.vsel_unwatched).isVisible = sel.any { Vault.isWatched(this@VaultActivity, it) }
             menu.findItem(R.id.vsel_restart).isVisible = sel.any { Vault.position(this@VaultActivity, it) > 0 }
@@ -749,8 +763,23 @@ class VaultActivity : ThemedActivity() {
                     adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel"); updateActionMode()
                 }
                 R.id.vsel_play -> {
-                    val sel = selected.mapNotNull { u -> shown.firstOrNull { it.item.uri == u } }
-                    play(sel, 0)
+                    val sel = selected.mapNotNull { u -> shown.firstOrNull { it.item.uri == u } }.filter { !it.unavailable }
+                    if (sel.isNotEmpty()) play(sel, 0)
+                    else {
+                        // v2.21: Play is always on the bar; with nothing playable selected it explains instead of doing nothing.
+                        val d = VelaDialogBuilder(this@VaultActivity).setTitle("Play selected")
+                            .setMessage("Select the videos you want to play first (tap them), then tap Play again.")
+                            .setNegativeButton("OK", null)
+                        val all = shown.filter { !it.unavailable }
+                        if (all.isNotEmpty()) d.setPositiveButton("Play all") { _, _ -> play(all, 0) }
+                        d.show()
+                    }
+                }
+                R.id.vsel_clear -> mode.finish()
+                R.id.vsel_invert -> {
+                    val inv = SelectionMenu.invert(shown.map { it.item.uri }, selected.toSet())
+                    selected.clear(); selected.addAll(inv)
+                    adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel"); updateActionMode()
                 }
                 R.id.vsel_unhide -> unhide(selected.toList())
                 R.id.vsel_private -> moveToPrivate(selected.toList())
@@ -791,7 +820,7 @@ class VaultActivity : ThemedActivity() {
         manage += ItemSheet.Action("Select all", R.drawable.ic_select_all) { val all = shown.map { it.item.uri }; selected.addAll(all)
             adapter.notifyItemRangeChanged(0, adapter.itemCount, "sel"); updateActionMode() }
         manage += ItemSheet.Action("Clear selection", R.drawable.ic_close) { actionMode?.finish() }
-        if (sel.any { !it.item.isPrivate && !it.unavailable }) storage += ItemSheet.Action("Move to private storage (hide from Gallery)", R.drawable.ic_lock) { runSelAction(R.id.vsel_private) }
+        if (sel.any { !it.item.isStored && !it.unavailable }) storage += ItemSheet.Action("Hide from Gallery too", R.drawable.ic_lock) { runSelAction(R.id.vsel_private) }
         storage += ItemSheet.Action("Unhide ${sel.size} videos", R.drawable.vault_ic_unhide) { runSelAction(R.id.vsel_unhide) }
         storage += ItemSheet.Action("Details", R.drawable.ic_info) { selectionDetails(sel) }
         ItemSheet(this).show(ItemSheet.Header("${sel.size} videos selected", null, R.drawable.ic_select_all, null), listOf(play, manage, storage).filter { it.isNotEmpty() })
@@ -804,7 +833,7 @@ class VaultActivity : ThemedActivity() {
         if (dur > 0) sb.append("Total length: ").append(Fmt.time(dur)).append('\n')
         val size = sel.sumOf { (it.video?.size ?: 0L).coerceAtLeast(0L) }
         if (size > 0) sb.append("Total size: ").append(Formatter.formatFileSize(this, size)).append('\n')
-        sb.append("In private storage: ").append(sel.count { it.item.isPrivate }).append('\n')
+        sb.append("Hidden from Gallery: ").append(sel.count { it.item.isStored }).append('\n')
         sb.append("Watched: ").append(sel.count { Vault.isWatched(this, it.item.uri) }).append(" of ").append(sel.size).append('\n')
         sb.append('\n').append(sel.take(8).joinToString("\n") { "• " + it.item.title })
         if (sel.size > 8) sb.append("\n…and ").append(sel.size - 8).append(" more")
@@ -859,12 +888,12 @@ class VaultActivity : ThemedActivity() {
             v.title.text = r.item.title
             val item = r.video
             val parts = ArrayList<String>()
-            if (r.unavailable) parts += if (r.item.isPrivate) "Private copy missing" else "Unavailable · moved or deleted"
+            if (r.unavailable) parts += if (r.item.isStored) "Hidden file missing" else "Unavailable · moved or deleted"
             else if (item != null) {
                 if (item.height > 0) parts += "${item.height}p"
                 if (item.size > 0) parts += Formatter.formatShortFileSize(itemView.context, item.size)
             }
-            if (r.item.isPrivate && !r.unavailable) parts += "Private storage"
+            if (r.item.isStored && !r.unavailable) parts += "Hidden from Gallery"
             if (!gridMode) {
                 if (Vault.isWatched(itemView.context, r.item.uri)) parts += "Watched"
                 else if (r.progress > 0f) parts += "${Math.round(r.progress * 100)}% watched"

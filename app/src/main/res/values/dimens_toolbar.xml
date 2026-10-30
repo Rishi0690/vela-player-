@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v2.21: narrow screens (< 360dp wide, e.g. small phones or "Display size: Largest"): toolbar / selection-bar
+     action buttons are 40dp instead of 48dp so every Home toolbar item stays visible next to the title. -->
+<resources>
+    <dimen name="vela_action_btn_min">40dp</dimen>
+    <dimen name="vela_action_btn_pad">8dp</dimen>
+    <dimen name="vela_action_overflow_min">32dp</dimen>
+    <dimen name="vela_action_overflow_pad_start">4dp</dimen>
+    <dimen name="vela_action_overflow_pad_end">6dp</dimen>
+</resources>

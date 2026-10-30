@@ -11,8 +11,8 @@ android {
         applicationId = "com.hark.velaplayer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 46
-        versionName = "2.20.1"
+        versionCode = 47
+        versionName = "2.21"
     }
     // One fixed keystore for every release so new versions install over old ones and keep settings.
     // It is the same key that signed v1.1. Never replace it.
@@ -77,6 +77,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.13")
     testImplementation("androidx.test:core-ktx:1.5.0")
+    testImplementation("androidx.media:media:1.7.0") // v2.21 MediaButtonsTest: ControllerInfo.createTestOnlyControllerInfo(RemoteUserInfo)
     robolectricRuntime("org.robolectric:android-all-instrumented:14-robolectric-10818077-i6")
 }
 
