@@ -174,7 +174,7 @@ Signing cert SHA-256 starts `407d7a6d75c25fb2` (alias `androiddebugkey`). Check 
 ## Release index (newest first; details in the sections below)
 | Version | Code | Commit | Summary |
 |---|---|---|---|
-| 2.21 | 47 | (see git log `v2.21:`) | adaptive player rows, fixed selection bar, Bluetooth/neckband buttons, uninstall-safe Hidden Vault folder |
+| 2.21 | 47 | 573ffd8 | adaptive player rows, fixed selection bar, Bluetooth/neckband buttons, uninstall-safe Hidden Vault folder |
 | 2.20.1 | 46 | c4497e1 | Android Sharesheet target (ShareReceiverActivity) |
 | 2.20 | 45 | 2a1223b | target SDK 36, edge to edge everywhere, predictive back, AGP 8.10.1 |
 | 2.19.3 | 44 | 6555a25 | huge/damaged MKV fix (Ant-Man), system engine fallback |
