@@ -7,7 +7,8 @@ Vela Player is an offline Android video player written in Kotlin (package `com.h
 It is inspired by CloudStream's player: aspect-ratio modes, gestures, subtitles, audio tracks, playlists, Focus Mode, and theming.
 
 - minSdk 24, compileSdk 36, targetSdk 36 (Android 16, since v2.20), AGP 8.10.1 (Gradle 8.11.1), Kotlin 1.9.23, Media3 (ExoPlayer) 1.3.1, viewBinding
-- Current version: `versionName 2.20.1`, `versionCode 46` (last updated 2026-10-16)
+- Current version: `versionName 2.20.1`, `versionCode 46` (last updated 2026-10-16; agent.md reviewed 2026-10-30)
+- Owner's phone: Xiaomi, HyperOS, MediaTek SoC (hardware decoders `c2.mtk.*`). HyperOS quirks matter (widget picker previews, popup blur).
 - Repo: `Rishi0690/vela-player-` (private, branch `main`). Owner works from an Android phone only (no PC); keep instructions simple.
 
 ## Golden rules
@@ -165,6 +166,20 @@ Lint (`lintRelease`) has known non-blocking warnings: hardcoded strings, Restric
 
 Signing cert SHA-256 starts `407d7a6d75c25fb2` (alias `androiddebugkey`). Check with `apksigner verify --print-certs`.
 
+## Release index (newest first; details in the sections below)
+| Version | Code | Commit | Summary |
+|---|---|---|---|
+| 2.20.1 | 46 | c4497e1 | Android Sharesheet target (ShareReceiverActivity) |
+| 2.20 | 45 | 2a1223b | target SDK 36, edge to edge everywhere, predictive back, AGP 8.10.1 |
+| 2.19.3 | 44 | 6555a25 | huge/damaged MKV fix (Ant-Man), system engine fallback |
+| 2.19.2 | 43 | e565f08 | seekable MKV (nested SeekHead, no-Cues binary search) |
+| 2.19.1 | 42 | 7f2ebf1 | network stream seek/live policy, MediaInspect, error detail |
+| 2.19 | 41 | b6cbad6 | full-width search, DecoderPolicy, floating glass |
+| 2.18.3 | 40 | 5f40869 | Settings stuck-scroll hardening |
+| 2.18–2.18.2 | 37–39 | 6496030… | background photos |
+| 2.17–2.17.1 | 35–36 | d5aa25c… | long-press selection model |
+| 2.16–2.16.3 | 31–34 | | search light, icon, widget previews |
+
 ## Recent history
 - v2.5 Vault private storage · v2.5.1 single-thumbnail covers · v2.5.2 slimmer Vault settings
 - v2.6 settings transition fix + new motion · v2.6.1 calmer fade-through, lighter dialogs/blur
@@ -222,7 +237,11 @@ Original 2026-10-13 ask, mostly delivered: full UI/UX + motion polish across the
 - v2.18.2: photo backdrop is theme-NEUTRAL (black/white scrim = exactly user Dim, no theme glow/tint, nav bar transparent over photo); Restore to default = blur+dim only; gallery photos copied byte-for-byte (EXIF rotation at decode), Clear mode decodes at real screen size (power-of-2 subsample never below cover, one filtered scale+centre crop; cache keyed by screen size); background changes refresh IN PLACE (`Atmosphere.refresh`, weak registry of viewBackground layers) instead of recreate; SettingsActivity rebuilds a restored back stack fresh (`rebuildRestoredStack`, `instantNav`) — fixes main list stuck after returning.
 - UI: `BackgroundActivity` (Settings › Appearance › Background `background_editor`, Theme editor › Background photo button). Not device-tested.
 
-## v2.19 Floating glass + blur in Light and Dark (branch v2.19-glass, version not bumped)
+## v2.18.3 (versionCode 40)
+- Main Settings stuck-scroll hardening: RootFragment.restoreScrollable() runs on show + onResume (stop fling, unsuppress layout, reset edge-effect stretch, VelaScroller.reset, top padding re-applied, dropStaleScreens() hides any lingering closing screen). Closing screen no longer gets translationZ (it was first in line for touches). Search-field padding now always targets RootFragment (after a restore the main list had no top padding).
+- Robolectric tests: app/src/test/.../SettingsScrollTest.kt (Back from Background with each option, recreate/process restore). Run: build.sh <tree> testDebugUnitTest. Needs ConscryptMode OFF (aarch64), android-all jar resolved via `robolectricRuntime` config.
+
+## v2.19 Floating glass + blur in Light and Dark (versionCode 41)
 - Root cause of "no glass/blur in Light mode": dialogs/sheets/popups used `glassSurfaceStrong`, which is 96% white in Light (95% in Dark), so the Android 12+ window blur behind them was invisible; Light also dimmed with the dark-mode 0.30–0.45 black film (muddy grey), had an 8% hairline that vanished on the pale backdrop, and popup menus/overflow menus never had any blur (PopupWindows have no theme attribute for it).
 - New attrs (generated per theme by Gen.java): `glassFloat` (Light: frosted white 82% `0xD1`; Dark: identical to `glassSurfaceStrong`) and `glassFloatStroke` (Light: ink hairline `0x2B`; Dark: = `glassStroke`). `glassBlurWindows` (bool) is true in `Theme.Vela`, false in `Theme.Vela.Player`.
 - Rule: `glassFloat` only where the screen behind is blurred. `values-v31/themes.xml` points `MaterialAlertDialog.Vela` and `VelaBottomSheetStyle` at `glassFloat`; `values/` keeps `glassSurfaceStrong` (Android 11-). At runtime `Glass.bindWindowBlur(dialog)` (dialog lifecycle + `addCrossWindowBlurEnabledListener`) swaps back to `glassSurfaceStrong` + the "_flat" dim if the system turns blur off (battery saver etc.). Used by `VelaDialogBuilder` (all dialogs incl. Settings ListPreference/EditTextPreference dialogs) and `ItemSheet` (`Glass.floatingWindowPanel`).
@@ -231,26 +250,26 @@ Original 2026-10-13 ask, mostly delivered: full UI/UX + motion polish across the
 - Snackbar = level-3 glass with theme text colours (`Widget.Vela.Snackbar*`). ActionMode capsule uses `glassFloatStroke`.
 - Player unchanged: `Widget.Vela.Glass.PopupMenu.Player` keeps `glass_popup`; player `glassFloat` = its `glassSurfaceStrong`; `glassBlurWindows=false`; PlayerActivity is not a ThemedActivity.
 
-## v2.19.1 Network streams (branch v2.19.1-stream, version not bumped)
+## v2.19.1 Network streams (versionCode 42)
 - Continue Watching saves http(s) streams when `StreamPolicy.canResume` (seekable on-demand with a duration; never live). Local files keep the old save rule exactly. Stream titles via `StreamPolicy.titleFor`. "Hide .ts videos" never hides a stream URL (`VideoRepository.isTsEntry`). Options sheet "Remove from Continue watching"/"Play from start" also when the duration is unknown. Stream thumbnails = themed `ic_link` placeholder (`ThumbLoader`, no network fetch).
 - Player: `seekMode()` drives seek bar enable, skip-button dimming, double-tap, swipe seek, Video info "Seeking" line; re-evaluated on progress/timeline/`onAvailableCommandsChanged`. LIVE: thumb hidden, "● LIVE" label; LIVE_DVR: seeking inside the window, label tap = back to live edge. Live/unseekable attempts show a chip ("This stream can't be seeked" / "Live stream: seeking isn't available"). Play/pause, volume, brightness untouched.
 - `PlayerHolder`: `DefaultExtractorsFactory` with constant-bitrate seeking (ADTS/AAC, MP3, AMR without an index can seek); first HTTP request carries `Range: bytes=0-` (DefaultHttpDataSource overrides it with its own Range for every later request) so servers that answer without Content-Length still report a length → seekable instead of "live". Covered by `StreamSeekabilityTest` (real ExoPlayer + local HTTP server, fixtures in `app/src/test/resources/streams`).
 - Local MP4 repair: a LOCAL item whose source fails to open/parse (PARSING_CONTAINER_* or another TYPE_SOURCE error except not-found/permission/cleartext) is re-opened ONCE with `Mp4Extractor`/`FragmentedMp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS` (`PlayerHolder.repaired`, per media id, in memory; `PlayerActivity.tryContainerRepair`; chip "Repaired playback for this file"). Error panel shows the full code + cause chain (`errorDetail`, tap/long-press copies); skip chips put the code first and copy on tap; Video info shows "Last error" (kept after a queue skip).
 - Not device-tested.
 
-## v2.19.2 Seekable MKV (branch v2.19.2-mkv, version not bumped)
+## v2.19.2 Seekable MKV (versionCode 43)
 - Root cause (reported R2 stream, 739,855,241 bytes, x264 480p): the first SeekHead lists only [SeekHead#2 @ end, Info]; Cues/Tags are listed only in SeekHead#2 at the end of the file. Media3 1.3.1 (and media3 main, 1.11.x, as of 2026-10) records only SeekHead entries whose SeekID is Cues, never follows a nested SeekHead → `SeekMap.Unseekable` → no seek bar/double-tap/swipe, no Continue Watching. Same for local files.
 - Fix: `VelaMatroskaExtractor` (see source map). No Media3 upgrade (upgrading would not fix it).
 - What can seek now (local, and network with known length + ranges): MP4/MOV (stbl, moov at end too), fMP4 with sidx/mfra, MKV/WebM with Cues, MKV/WebM with nested-SeekHead Cues (NEW), MKV/WebM without Cues (NEW, cluster binary search), MPEG-TS and MPEG-PS (Media3 PCR/SCR binary search), Ogg, FLAC (seektable or binary search), WAV, MP3 (Xing/VBRI or CBR estimate), ADTS AAC / AMR (CBR estimate, `setConstantBitrateSeekingEnabled`), AVI with idx1, HLS/DASH VOD.
 - Still unseekable (and why): FLV (Media3 FlvExtractor never builds a seek map; would need a tag-timestamp binary search), fMP4 without sidx/mfra (needs a moof/tfdt binary search inside a copied FragmentedMp4Extractor: multi-track timescales/sample state make it a large, risky patch; not done), AVI without idx1, raw AC-3/E-AC-3/AC-4 (Media3 always Unseekable), MKV whose Cues come BEFORE the first Cluster and are broken, anything with unknown length (live, servers without Content-Length and without range support). `setConstantBitrateSeekingAlwaysEnabled` was NOT turned on: it makes lengthless (live) MP3/AAC/AMR streams "seekable" and would break LIVE detection.
 
-## v2.19.3 MKV-in-.mp4 + damaged MKV resilience (branch v2.19.3-compat, version not bumped)
+## v2.19.3 MKV-in-.mp4 + damaged MKV resilience (versionCode 44)
 - Report: "Ant-Man and the Wasp Quantumania.mp4" (2.99 GB, really Matroska; Android's MediaExtractor says video/x-matroska) failed instantly: `ERROR_CODE_IO_UNSPECIFIED (2000) UnexpectedLoaderException: Unexpected ArrayIndexOutOfBoundsException: src.length=65536 srcPos=-1643236477 dst.length=65536 dstPos=0 length=1643236477`. Root cause class: Media3's `DefaultEbmlReader` skips an unknown/Void element with `input.skipFully((int) size)`; a size of 2,651,730,819 (= 2^32 − 1,643,236,477, a 5-byte size VINT) wraps negative and `DefaultExtractorInput.updatePeekBuffer` crashes. Which element of the real file carries that size is NOT known without the file (a real ~2.65 GB Void/unknown element, or a garbage size read after a mis-sync such as a stale Cues pointer, a non-canonical unknown size, leading junk). The .mp4 name itself is harmless: sniffing is content-based (MP4 extractor rejects it, Matroska takes it), also through the MP4-repair factory and content:// served as video/mp4.
 - Fixes (copies in `mkv/`, all marked `VELA:`): `DefaultEbmlReader` never int-casts a size: big unknown/Void elements are skipped with a SEEK (`consumePendingSeekPosition` → extractor `RESULT_SEEK`; local files > 256 KiB, any input > 2 GiB with known length; otherwise chunked long skip); a non-master whose size passes the end of the input or > 2 GiB (non-skippable types), or an invalid size VINT, → resync to the next level-1 element (strict mode inside an index detour → ParserException); unknown size = all-ones at ANY VINT width (Media3 only "handles" the 8-byte form); a child master can't extend past its known-size parent (clamped). `VarintReader`: 0x00 first byte = RESULT_MAX_LENGTH_EXCEEDED, not IllegalStateException. `VelaMatroskaExtractor`: Cues positions ≥ input length ignored; Cues/nested-SeekHead target must start with the expected ID; EOF / malformed / garbage while reading that index abandons it → seek back to the first Cluster + no-Cues SeekMap (binary search or unseekable); cue points past EOF dropped; junk before the EBML header skipped (Sniffer accepts the header anywhere in the first 1 KiB); `FLAG_LOCAL_INPUT` (set by `VelaExtractorsFactory` for content/file/asset/resource/no-scheme uris) → an EOFException inside an element after the SeekMap (file cut in the last Cluster) ends the stream normally; network inputs keep Media3's retry/error.
 - Errors: skip chip = `CODE (RootCause: short msg…) · Skipped "name"`; `errorDetail` (error panel, Video info "Last error", copy) appends the root cause's top 3 stack frames + the first extractor/app frame (`at Class.method:line`).
 - Last resort: local items that still fail (source/parsing/IO errors after the repair retry, or decoder errors after both kinds) open once in `SystemPlayerActivity` (see source map). MediaInspect's Details also lists tracks as Vela's own engine sees them (Android's MediaExtractor silently drops tracks it can't read, which is why only the video track showed), or the exact reason it can't open; AVC level shown by name.
 - Tests: `DamagedMkvTest` (fixtures `tools/mkvfixtures/damage.py` → `app/src/test/resources/streams/*.mp4` + `bigvoid.head/tail` for a sparse 2.65 GB file). Each damaged case proves plain Media3 fails, then plays/seeks with Vela. Robolectric note: use `shadowOf(mainLooper).idleFor(...)` so ExoPlayer's delayed work and loader retry backoff run (fake clock).
-- Not device-tested; the real file was not available.
+- Owner confirmed on the phone (2026-10-15): the Ant-Man file now plays fine in Vela. Normal MKV/MP4 files take the same path as before (only damaged/oversized elements hit the new code).
 
 ## v2.20 Android 16 / target SDK 36 (versionCode 45)
 compileSdk/targetSdk 34 → 36. Toolchain: AGP 8.3.2 → 8.10.1, Gradle 8.7 → 8.11.1, build-tools 35.0.0 (+ aarch64 aapt2 35.0.2 in the sandbox). No library bumps (Kotlin 1.9.23, Media3 1.3.1, AndroidX as before). Not device-tested (no emulator in the sandbox).
@@ -275,9 +294,9 @@ compileSdk/targetSdk 34 → 36. Toolchain: AGP 8.3.2 → 8.10.1, Gradle 8.7 → 
 - Not device-tested (no emulator). Device checklist: share 1 / several videos from Gallery, Files (mp4 + mkv), a link from Chrome/Telegram (direct mp4/m3u8 plays; a web page link shows the player's error), a non-video text (toast); Vela listed once; Back from the player (same task behaviour as an ACTION_VIEW open).
 
 ## Open work (not done yet)
-- Search redesign remainder (asked 2026-10-13): dedicated results layout with richer thumbnails/metadata, initial (no-query) state, richer empty state, recent searches only if backed by real data, fuller open/close choreography beyond the circular reveal.
-- Nothing is device-tested in CI; there is no emulator in the build sandbox. Owner tests on the phone and reports back.
-
-## v2.18.3 (versionCode 40)
-- Main Settings stuck-scroll hardening: RootFragment.restoreScrollable() runs on show + onResume (stop fling, unsuppress layout, reset edge-effect stretch, VelaScroller.reset, top padding re-applied, dropStaleScreens() hides any lingering closing screen). Closing screen no longer gets translationZ (it was first in line for touches). Search-field padding now always targets RootFragment (after a restore the main list had no top padding).
-- Robolectric tests: app/src/test/.../SettingsScrollTest.kt (Back from Background with each option, recreate/process restore). Run: build.sh <tree> testDebugUnitTest. Needs ConscryptMode OFF (aarch64), android-all jar resolved via `robolectricRuntime` config.
+- Device testing: v2.20 (edge to edge / predictive back / large screens) and v2.20.1 (Sharesheet) have NOT been confirmed on the owner's phone yet. Use their device-test checklists above.
+- Seeking on every format (owner's wish, 2026-10-15): still unseekable = FLV (needs tag-timestamp binary search), fMP4 without sidx/mfra (moof/tfdt binary search), AVI without idx1, raw AC-3/E-AC-3/AC-4, unknown-length streams. See "v2.19.2".
+- Back from the player during Focus still turns Focus off (`FocusTracker.stop(keepEnabled = true)` exists if the owner wants Focus kept).
+- Android 16 local-network permission (ACCESS_LOCAL_NETWORK) is not enforced yet; when it is, LAN stream URLs may need it.
+- Search redesign remainder (asked 2026-10-13): dedicated results layout with richer thumbnails/metadata, initial (no-query) state, richer empty state, recent searches only if backed by real data, fuller open/close choreography.
+- No emulator in the build sandbox; the owner tests on the phone and reports back.
